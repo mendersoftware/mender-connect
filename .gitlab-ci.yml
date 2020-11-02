@@ -1,5 +1,5 @@
 variables:
-  DOCKER_REPOSITORY: mendersoftware/mender-shell-proxy
+  DOCKER_REPOSITORY: mendersoftware/mender-shell
 
 stages:
   - test_prep
