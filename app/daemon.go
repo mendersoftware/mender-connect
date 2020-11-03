@@ -45,5 +45,4 @@ func (d *MenderShellDaemon) Run() error {
 		}
 		time.Sleep(15 * time.Second)
 	}
-	return nil
 }
