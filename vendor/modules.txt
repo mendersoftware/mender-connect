@@ -1,6 +1,8 @@
 # github.com/sirupsen/logrus v1.7.0
 ## explicit
 github.com/sirupsen/logrus
+# github.com/stretchr/testify v1.5.1
+## explicit
 # github.com/urfave/cli/v2 v2.2.0 => github.com/mendersoftware/cli/v2 v2.1.1-minimal
 ## explicit
 github.com/urfave/cli/v2

@@ -1,14 +1,17 @@
-[![Build Status](https://gitlab.com/Northern.tech/Mender/inventory/badges/master/pipeline.svg)](https://gitlab.com/Northern.tech/Mender/inventory/pipelines)
-[![Coverage Status](https://coveralls.io/repos/github/mendersoftware/inventory/badge.svg?branch=master)](https://coveralls.io/github/mendersoftware/inventory?branch=master)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mendersoftware/inventory)](https://goreportcard.com/report/github.com/mendersoftware/inventory)
-[![Docker pulls](https://img.shields.io/docker/pulls/mendersoftware/inventory.svg?maxAge=3600)](https://hub.docker.com/r/mendersoftware/inventory/)
+[![Build Status](https://gitlab.com/Northern.tech/Mender/mender-shell/badges/master/pipeline.svg)](https://gitlab.com/Northern.tech/Mender/mender-shell/pipelines)
+[![Coverage Status](https://coveralls.io/repos/github/mendersoftware/mender-shell/badge.svg?branch=master)](https://coveralls.io/github/mendersoftware/mender-shell?branch=master)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mendersoftware/mender-shell)](https://goreportcard.com/report/github.com/mendersoftware/mender-shell)
 
-Mender: shell proxy
-==============================================
+Mender: remote shell access add-on
+==================================
 
 Mender is an open source over-the-air (OTA) software updater for embedded Linux
 devices. Mender comprises a client running at the embedded device, as well as
 a server that manages deployments across many devices.
+
+This repository contains the remote shell access add-on. It enhances the
+[Mender client](https://github.com/mendersoftware/mender), allowing to log in
+to the devices remotely and start a shell in a remote terminal session.
 
 ![Mender logo](https://hosted.mender.io/ui/assets/img/loginlogo.png)
 
@@ -31,7 +34,7 @@ documentation](https://github.com/mendersoftware/mender/blob/master/CONTRIBUTING
 ## License
 
 Mender is licensed under the Apache License, Version 2.0. See
-[LICENSE](https://github.com/mendersoftware/inventory/blob/master/LICENSE) for the
+[LICENSE](https://github.com/mendersoftware/mender-shell/blob/master/LICENSE) for the
 full license text.
 
 ## Security disclosure
