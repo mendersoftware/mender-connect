@@ -6,5 +6,6 @@ replace github.com/urfave/cli/v2 => github.com/mendersoftware/cli/v2 v2.1.1-mini
 
 require (
 	github.com/sirupsen/logrus v1.7.0
+	github.com/stretchr/testify v1.5.1 // indirect
 	github.com/urfave/cli/v2 v2.2.0
 )

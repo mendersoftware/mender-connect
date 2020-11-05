@@ -12,6 +12,8 @@ include:
     file: '.gitlab-ci-check-golang-static.yml'
   - project: 'Northern.tech/Mender/mendertesting'
     file: '.gitlab-ci-check-golang-unittests.yml'
+  - project: 'Northern.tech/Mender/mendertesting'
+    file: '.gitlab-ci-check-license.yml'
 #   - project: 'Northern.tech/Mender/mendertesting'
 #     file: '.gitlab-ci-check-docker-acceptance.yml'
   - project: 'Northern.tech/Mender/mendertesting'
