@@ -29,7 +29,7 @@ const (
 	DBusMethodNameGetJwtToken            = "GetJwtToken"
 	DBusMethodNameFetchJwtToken          = "FetchJwtToken"
 	DBusSignalNameValidJwtTokenAvailable = "ValidJwtTokenAvailable"
-	DBusMethodTimeoutInSeconds           = 1
+	DBusMethodTimeoutInSeconds           = 5
 )
 
 var timeout = 10 * time.Second
@@ -88,7 +88,7 @@ func (a *AuthClientDBUS) Connect(objectName, objectPath, interfaceName string) e
 
 // GetJWTToken returns a device JWT token
 func (a *AuthClientDBUS) GetJWTToken() (string, error) {
-	response, err := a.dbusAPI.BusProxyCall(a.dbusConnection, DBusMethodNameGetJwtToken, nil, DBusMethodTimeoutInSeconds)
+	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameGetJwtToken, nil, DBusMethodTimeoutInSeconds)
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +97,7 @@ func (a *AuthClientDBUS) GetJWTToken() (string, error) {
 
 // FetchJWTToken schedules the fetching of a new device JWT token
 func (a *AuthClientDBUS) FetchJWTToken() (bool, error) {
-	response, err := a.dbusAPI.BusProxyCall(a.dbusConnection, DBusMethodNameFetchJwtToken, nil, DBusMethodTimeoutInSeconds)
+	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameFetchJwtToken, nil, DBusMethodTimeoutInSeconds)
 	if err != nil {
 		return false, err
 	}

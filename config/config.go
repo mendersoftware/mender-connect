@@ -15,9 +15,13 @@
 package config
 
 import (
+	"bufio"
 	"encoding/json"
 	"io/ioutil"
+	"net/url"
 	"os"
+	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -27,6 +31,11 @@ import (
 )
 
 const httpsSchema = "https"
+
+type TerminalConfig struct {
+	Width  uint16
+	Height uint16
+}
 
 // MenderShellConfigFromFile holds the configuration settings read from the config file
 type MenderShellConfigFromFile struct {
@@ -46,6 +55,8 @@ type MenderShellConfigFromFile struct {
 	ShellCommand string
 	// Name of the user who owns the shell process
 	User string
+	// Terminal settings
+	Terminal TerminalConfig `json:"Terminal"`
 }
 
 // MenderShellConfig holds the configuration settings for the Mender shell client
@@ -91,6 +102,29 @@ func LoadConfig(mainConfigFile string, fallbackConfigFile string) (*MenderShellC
 	return config, nil
 }
 
+func isExecutable(path string) bool {
+	info, _ := os.Stat(path)
+	mode := info.Mode()
+	return (mode & 0111) != 0
+}
+
+func isInShells(path string) bool {
+	file, err := os.Open("/etc/shells")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	found := false
+	for scanner.Scan() {
+		if scanner.Text() == path {
+			found = true
+			break
+		}
+	}
+	return found
+}
+
 // Validate verifies the Servers fields in the configuration
 func (c *MenderShellConfig) Validate() error {
 	if c.Servers == nil {
@@ -107,6 +141,13 @@ func (c *MenderShellConfig) Validate() error {
 		return errors.New("Both Servers AND ServerURL given in " +
 			"mender-shell.conf")
 	}
+	for i, u := range c.Servers {
+		_, err := url.Parse(u.ServerURL)
+		if err != nil {
+			log.Errorf("'%s' at Servers[%d].ServerURL is not a valid URL", u.ServerURL, i)
+			return err
+		}
+	}
 	for i := 0; i < len(c.Servers); i++ {
 		// trim possible '/' suffix, which is added back in URL path
 		if strings.HasSuffix(c.Servers[i].ServerURL, "/") {
@@ -117,6 +158,44 @@ func (c *MenderShellConfig) Validate() error {
 		if c.Servers[i].ServerURL == "" {
 			log.Warnf("Server entry %d has no associated server URL.", i+1)
 		}
+	}
+
+	//check if shell is given, if not, defaulting to /bin/sh
+	if c.ShellCommand == "" {
+		log.Warnf("ShellCommand is empty, defaulting to %s", DefaultShellCommand)
+		c.ShellCommand = DefaultShellCommand
+	}
+
+	if !filepath.IsAbs(c.ShellCommand) {
+		return errors.New("given shell (" + c.ShellCommand + ") is not an absolute path")
+	}
+
+	if !isExecutable(c.ShellCommand) {
+		return errors.New("given shell (" + c.ShellCommand + ") is not executable")
+	}
+
+	if c.User == "" {
+		return errors.New("please provide a user to run the shell as")
+	}
+	u, err := user.Lookup(c.User)
+	if err == nil && u == nil {
+		return errors.New("unknown error while getting a user id")
+	}
+	if err != nil {
+		return err
+	}
+
+	if !isInShells(c.ShellCommand) {
+		log.Errorf("ShellCommand %s is not present in /etc/shells", c.ShellCommand)
+		return errors.New("ShellCommand " + c.ShellCommand + " is not present in /etc/shells")
+	}
+
+	if c.Terminal.Width == 0 {
+		c.Terminal.Width = DefaultTerminalWidth
+	}
+
+	if c.Terminal.Height == 0 {
+		c.Terminal.Height = DefaultTerminalHeight
 	}
 
 	c.HTTPSClient.Validate()

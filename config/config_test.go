@@ -34,7 +34,8 @@ const testConfig = `{
   "HttpsClient": {
     "Certificate": "/data/client.crt",
     "Key": "/data/client.key"
-  }
+  },
+  "User":"root"
 }`
 
 const testBrokenConfig = `{
@@ -62,7 +63,8 @@ const testTooManyServerDefsConfig = `{
 }`
 
 const testEmptyServerURL = `{
-  "ServerURL": ""
+  "ServerURL": "",
+  "User":"root"
 }`
 
 func Test_readConfigFile_noFile_returnsError(t *testing.T) {
@@ -104,6 +106,12 @@ func validateConfiguration(t *testing.T, actual *MenderShellConfig) {
 		ServerURL:         "https://hosted.mender.io",
 		ServerCertificate: "/var/lib/mender/server.crt",
 		Servers:           []https.MenderServer{{ServerURL: "https://hosted.mender.io"}},
+		User:              "root",
+		ShellCommand:      DefaultShellCommand,
+		Terminal: TerminalConfig{
+			Width:  80,
+			Height: 40,
+		},
 	}
 	if !assert.True(t, reflect.DeepEqual(actual, expectedConfig)) {
 		t.Logf("got:      %+v", actual)
@@ -161,7 +169,7 @@ func TestServerURLConfig(t *testing.T) {
 	configFile, err := os.Create(configPath)
 	assert.NoError(t, err)
 
-	configFile.WriteString(`{"ServerURL": "https://mender.io/"}`)
+	configFile.WriteString(`{"ServerURL": "https://mender.io/","User":"root"}`)
 
 	// load and validate the configuration
 	config, err := LoadConfig(configPath, "does-not-exist.config")
