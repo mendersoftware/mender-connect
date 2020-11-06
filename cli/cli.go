@@ -25,12 +25,17 @@ func SetupCLI(args []string) error {
 		Description: "",
 		Name:        "mender-shell",
 		Usage:       "manage and start the Mender shell.",
-		Version:     "",
+		Version:     config.ShowVersion(),
 		Commands: []*cli.Command{
 			{
 				Name:   "daemon",
 				Usage:  "Start the client as a background service.",
 				Action: runOptions.handleCLIOptions,
+			},
+			{
+				Name:   "version",
+				Usage:  "Show the version and runtime information of the binary build",
+				Action: config.ShowVersionCLI,
 			},
 		},
 		Flags: []cli.Flag{
