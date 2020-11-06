@@ -27,7 +27,7 @@ type runOptionsType struct {
 	fallbackConfig string
 }
 
-func initDaemon(config *config.MenderConfig) (*app.MenderShellDaemon, error) {
+func initDaemon(config *config.MenderShellConfig) (*app.MenderShellDaemon, error) {
 	daemon := app.NewDaemon(config)
 	return daemon, nil
 }

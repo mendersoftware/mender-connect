@@ -28,14 +28,12 @@ import (
 
 const httpsSchema = "https"
 
-// MenderConfigFromFile holds the configuration settings read from the config file
-type MenderConfigFromFile struct {
+// MenderShellConfigFromFile holds the configuration settings read from the config file
+type MenderShellConfigFromFile struct {
 	// ClientProtocol "https"
 	ClientProtocol string
 	// HTTPS client parameters
 	HTTPSClient https.Client `json:"HttpsClient"`
-	// Security parameters
-	Security https.Security
 	// Skip CA certificate validation
 	SkipVerify bool
 	// Path to server SSL certificate
@@ -50,30 +48,30 @@ type MenderConfigFromFile struct {
 	User string
 }
 
-// MenderConfig holds the configuration settings for the Mender shell client
-type MenderConfig struct {
-	MenderConfigFromFile
+// MenderShellConfig holds the configuration settings for the Mender shell client
+type MenderShellConfig struct {
+	MenderShellConfigFromFile
 }
 
-// NewMenderConfig initializes a new MenderConfig struct
-func NewMenderConfig() *MenderConfig {
-	return &MenderConfig{
-		MenderConfigFromFile: MenderConfigFromFile{},
+// NewMenderShellConfig initializes a new MenderShellConfig struct
+func NewMenderShellConfig() *MenderShellConfig {
+	return &MenderShellConfig{
+		MenderShellConfigFromFile: MenderShellConfigFromFile{},
 	}
 }
 
 // LoadConfig parses the mender configuration json-files
 // (/etc/mender/mender-shell.conf and /var/lib/mender/mender-shell.conf)
-// and loads the values into the MenderConfig structure defining high level
+// and loads the values into the MenderShellConfig structure defining high level
 // client configurations.
-func LoadConfig(mainConfigFile string, fallbackConfigFile string) (*MenderConfig, error) {
+func LoadConfig(mainConfigFile string, fallbackConfigFile string) (*MenderShellConfig, error) {
 	// Load fallback configuration first, then main configuration.
 	// It is OK if either file does not exist, so long as the other one does exist.
 	// It is also OK if both files exist.
 	// Because the main configuration is loaded last, its option values
 	// override those from the fallback file, for options present in both files.
 	var filesLoadedCount int
-	config := NewMenderConfig()
+	config := NewMenderShellConfig()
 
 	if loadErr := loadConfigFile(fallbackConfigFile, config, &filesLoadedCount); loadErr != nil {
 		return nil, loadErr
@@ -94,7 +92,7 @@ func LoadConfig(mainConfigFile string, fallbackConfigFile string) (*MenderConfig
 }
 
 // Validate verifies the Servers fields in the configuration
-func (c *MenderConfig) Validate() error {
+func (c *MenderShellConfig) Validate() error {
 	if c.Servers == nil {
 		if c.ServerURL == "" {
 			log.Warn("No server URL(s) specified in mender configuration.")
@@ -122,18 +120,12 @@ func (c *MenderConfig) Validate() error {
 	}
 
 	c.HTTPSClient.Validate()
-	if c.HTTPSClient.Key != "" && c.Security.AuthPrivateKey != "" {
-		log.Warn("both config.HttpsClient.Key and config.Security.AuthPrivateKey" +
-			" specified; config.Security.AuthPrivateKey will take precedence over" +
-			" the former for the signing of auth requests.")
-	}
-
 	log.Debugf("Verified configuration = %#v", c)
 
 	return nil
 }
 
-func loadConfigFile(configFile string, config *MenderConfig, filesLoadedCount *int) error {
+func loadConfigFile(configFile string, config *MenderShellConfig, filesLoadedCount *int) error {
 	// Do not treat a single config file not existing as an error here.
 	// It is up to the caller to fail when both config files don't exist.
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
@@ -141,7 +133,7 @@ func loadConfigFile(configFile string, config *MenderConfig, filesLoadedCount *i
 		return nil
 	}
 
-	if err := readConfigFile(&config.MenderConfigFromFile, configFile); err != nil {
+	if err := readConfigFile(&config.MenderShellConfigFromFile, configFile); err != nil {
 		log.Errorf("Error loading configuration from file: %s (%s)", configFile, err.Error())
 		return err
 	}
@@ -172,7 +164,7 @@ func readConfigFile(config interface{}, fileName string) error {
 
 // maybeHTTPSClient returns the HTTPSClient config only when both
 // certificate and key are provided
-func maybeHTTPSClient(c *MenderConfig) *https.Client {
+func maybeHTTPSClient(c *MenderShellConfig) *https.Client {
 	c.HTTPSClient.Validate()
 	if c.HTTPSClient.Certificate != "" && c.HTTPSClient.Key != "" {
 		return &c.HTTPSClient
@@ -181,7 +173,7 @@ func maybeHTTPSClient(c *MenderConfig) *https.Client {
 }
 
 // GetHTTPConfig returns the configuration for the HTTP client
-func (c *MenderConfig) GetHTTPConfig() https.Config {
+func (c *MenderShellConfig) GetHTTPConfig() https.Config {
 	return https.Config{
 		ServerCert: c.ServerCertificate,
 		IsHTTPS:    c.ClientProtocol == httpsSchema,

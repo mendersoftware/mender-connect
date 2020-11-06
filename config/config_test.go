@@ -65,18 +65,6 @@ const testEmptyServerURL = `{
   "ServerURL": ""
 }`
 
-const testHTTPSClientAndSecurity = `{
-  "ServerURL": "https://hosted.mender.io",
-  "HttpsClient": {
-    "Certificate": "/data/client.crt",
-    "Key": "/data/client.key"
-  },
-  "Security": {
-    "AuthPrivateKey": "dummy",
-    "SSLEngine": "dummy"
-  }
-}`
-
 func Test_readConfigFile_noFile_returnsError(t *testing.T) {
 	err := readConfigFile(nil, "non-existing-file")
 	assert.Error(t, err)
@@ -105,9 +93,9 @@ func Test_readConfigFile_brokenContent_returnsError(t *testing.T) {
 	assert.Nil(t, confFromFile)
 }
 
-func validateConfiguration(t *testing.T, actual *MenderConfig) {
-	expectedConfig := NewMenderConfig()
-	expectedConfig.MenderConfigFromFile = MenderConfigFromFile{
+func validateConfiguration(t *testing.T, actual *MenderShellConfig) {
+	expectedConfig := NewMenderShellConfig()
+	expectedConfig.MenderShellConfigFromFile = MenderShellConfigFromFile{
 		ClientProtocol: "https",
 		HTTPSClient: https.Client{
 			Certificate: "/data/client.crt",
@@ -235,25 +223,6 @@ func TestEmptyServerURL(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestHTTPSClientAndSecurity(t *testing.T) {
-	// create a temporary mender-shell.conf file
-	tdir, err := ioutil.TempDir("", "mendertest")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tdir)
-
-	configPath := path.Join(tdir, "mender-shell.conf")
-	configFile, err := os.Create(configPath)
-	assert.NoError(t, err)
-
-	configFile.WriteString(testHTTPSClientAndSecurity)
-
-	// load and validate the configuration
-	conf, err := LoadConfig(configPath, "does-not-exist.config")
-	assert.NoError(t, err)
-	err = conf.Validate()
-	assert.NoError(t, err)
-}
-
 func TestConfigurationMergeSettings(t *testing.T) {
 	var mainConfigJSON = `{
 		"ShellCommand": "/bin/bash",
@@ -293,5 +262,5 @@ func TestConfigurationMergeSettings(t *testing.T) {
 func TestConfigurationNeitherFileExistsIsNotError(t *testing.T) {
 	config, err := LoadConfig("does-not-exist", "also-does-not-exist")
 	assert.NoError(t, err)
-	assert.IsType(t, &MenderConfig{}, config)
+	assert.IsType(t, &MenderShellConfig{}, config)
 }

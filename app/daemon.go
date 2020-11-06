@@ -25,7 +25,7 @@ type MenderShellDaemon struct {
 	stop bool
 }
 
-func NewDaemon(config *config.MenderConfig) *MenderShellDaemon {
+func NewDaemon(config *config.MenderShellConfig) *MenderShellDaemon {
 	daemon := MenderShellDaemon{
 		stop: false,
 	}

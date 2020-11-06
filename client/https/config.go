@@ -43,19 +43,9 @@ type Client struct {
 	SSLEngine   string
 }
 
-// Security structure holds the configuration for the client
-// Added for MEN-3924 in order to provide a way to specify PKI params
-// outside HttpsClient.
-// NOTE: Careful when changing this, the struct is exposed directly in the
-// 'mender-shell.conf' file.
-type Security struct {
-	AuthPrivateKey string
-	SSLEngine      string
-}
-
 // MenderServer is a placeholder for a full server definition used when
 // multiple servers are given. The fields corresponds to the definitions
-// given in MenderConfig.
+// given in MenderShellConfig.
 type MenderServer struct {
 	ServerURL string
 }
