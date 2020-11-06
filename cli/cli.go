@@ -15,31 +15,55 @@ package cli
 
 import (
 	"github.com/urfave/cli/v2"
+
+	"github.com/mendersoftware/mender-shell/config"
 )
 
 func SetupCLI(args []string) error {
 	runOptions := &runOptionsType{}
-
 	app := &cli.App{
 		Description: "",
 		Name:        "mender-shell",
 		Usage:       "manage and start the Mender shell.",
 		Version:     "",
-	}
-	app.Commands = []*cli.Command{
-		{
-			Name:   "daemon",
-			Usage:  "Start the client as a background service.",
-			Action: runOptions.handleCLIOptions,
+		Commands: []*cli.Command{
+			{
+				Name:   "daemon",
+				Usage:  "Start the client as a background service.",
+				Action: runOptions.handleCLIOptions,
+			},
+		},
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "config",
+				Aliases:     []string{"c"},
+				Usage:       "Configuration `FILE` path.",
+				Value:       config.DefaultConfFile,
+				Destination: &runOptions.config,
+			},
+			&cli.StringFlag{
+				Name:        "fallback-config",
+				Aliases:     []string{"b"},
+				Usage:       "Fallback configuration `FILE` path.",
+				Value:       config.DefaultFallbackConfFile,
+				Destination: &runOptions.fallbackConfig,
+			},
 		},
 	}
+
 	return app.Run(args)
 }
 
 func (runOptions *runOptionsType) handleCLIOptions(ctx *cli.Context) error {
+	// Handle config flags
+	config, err := config.LoadConfig(runOptions.config, runOptions.fallbackConfig)
+	if err != nil {
+		return err
+	}
+
 	switch ctx.Command.Name {
 	case "daemon":
-		d, err := initDaemon()
+		d, err := initDaemon(config)
 		if err != nil {
 			return err
 		}
