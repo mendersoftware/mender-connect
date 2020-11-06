@@ -11,41 +11,21 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-package app
+
+package config
 
 import (
-	"time"
+	"testing"
 
-	log "github.com/sirupsen/logrus"
-
-	"github.com/mendersoftware/mender-shell/config"
+	"github.com/stretchr/testify/assert"
 )
 
-type MenderShellDaemon struct {
-	stop bool
+func TestGetStateDirPath(t *testing.T) {
+	val := GetStateDirPath()
+	assert.Equal(t, DefaultDataStore, val)
 }
 
-func NewDaemon(config *config.MenderConfig) *MenderShellDaemon {
-	daemon := MenderShellDaemon{
-		stop: false,
-	}
-	return &daemon
-}
-
-func (d *MenderShellDaemon) StopDaemon() {
-	d.stop = true
-}
-
-func (d *MenderShellDaemon) shouldStop() bool {
-	return d.stop
-}
-
-func (d *MenderShellDaemon) Run() error {
-	log.Infof("mender-shell entering main loop.")
-	for {
-		if d.shouldStop() {
-			return nil
-		}
-		time.Sleep(15 * time.Second)
-	}
+func TestGetConfDirPath(t *testing.T) {
+	val := GetConfDirPath()
+	assert.Equal(t, DefaultConfDir, val)
 }

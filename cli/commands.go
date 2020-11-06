@@ -14,17 +14,21 @@
 package cli
 
 import (
-	"github.com/mendersoftware/mender-shell/app"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/mendersoftware/mender-shell/app"
+	"github.com/mendersoftware/mender-shell/config"
 )
 
 type runOptionsType struct {
+	config         string
+	fallbackConfig string
 }
 
-func initDaemon() (*app.MenderShellDaemon, error) {
-	daemon := app.NewDaemon()
+func initDaemon(config *config.MenderConfig) (*app.MenderShellDaemon, error) {
+	daemon := app.NewDaemon(config)
 	return daemon, nil
 }
 

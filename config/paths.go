@@ -11,41 +11,27 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-package app
 
-import (
-	"time"
+package config
 
-	log "github.com/sirupsen/logrus"
+import "path"
 
-	"github.com/mendersoftware/mender-shell/config"
+// default configuration paths
+var (
+	DefaultConfDir     = "/etc/mender"
+	DefaultPathDataDir = "/usr/share/mender"
+	DefaultDataStore   = "/var/lib/mender"
+
+	DefaultConfFile         = path.Join(GetConfDirPath(), "mender-shell.conf")
+	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "mender-shell.conf")
 )
 
-type MenderShellDaemon struct {
-	stop bool
+// GetStateDirPath returns the default data store directory
+func GetStateDirPath() string {
+	return DefaultDataStore
 }
 
-func NewDaemon(config *config.MenderConfig) *MenderShellDaemon {
-	daemon := MenderShellDaemon{
-		stop: false,
-	}
-	return &daemon
-}
-
-func (d *MenderShellDaemon) StopDaemon() {
-	d.stop = true
-}
-
-func (d *MenderShellDaemon) shouldStop() bool {
-	return d.stop
-}
-
-func (d *MenderShellDaemon) Run() error {
-	log.Infof("mender-shell entering main loop.")
-	for {
-		if d.shouldStop() {
-			return nil
-		}
-		time.Sleep(15 * time.Second)
-	}
+// GetConfDirPath returns the default config directory
+func GetConfDirPath() string {
+	return DefaultConfDir
 }
