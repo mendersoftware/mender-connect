@@ -14,17 +14,26 @@
 
 package mender
 
-import "github.com/mendersoftware/mender-shell/client/dbus"
+import (
+	"errors"
+	"time"
+
+	"github.com/mendersoftware/mender-shell/client/dbus"
+)
 
 // DbBus constants for the Mender Authentication Manager
 const (
-	DBusObjectName              = "io.mender.AuthenticationManager"
-	DBusObjectPath              = "/io/mender/AuthenticationManager"
-	DBusInterfaceName           = "io.mender.Authentication1"
-	DBusMethodNameGetJwtToken   = "GetJwtToken"
-	DBusMethodNameFetchJwtToken = "FetchJwtToken"
-	DBusMethodTimeoutInSeconds  = 1
+	DBusObjectName                       = "io.mender.AuthenticationManager"
+	DBusObjectPath                       = "/io/mender/AuthenticationManager"
+	DBusInterfaceName                    = "io.mender.Authentication1"
+	DBusMethodNameGetJwtToken            = "GetJwtToken"
+	DBusMethodNameFetchJwtToken          = "FetchJwtToken"
+	DBusSignalNameValidJwtTokenAvailable = "ValidJwtTokenAvailable"
+	DBusMethodTimeoutInSeconds           = 1
 )
+
+var timeout = 10 * time.Second
+var errFetchTokenFailed = errors.New("FetchJwtToken failed")
 
 // AuthClient is the interface for the Mender Authentication Manager clilents
 type AuthClient interface {
@@ -36,6 +45,8 @@ type AuthClient interface {
 	FetchJWTToken() (bool, error)
 	// WaitForValidJWTTokenAvailable synchronously waits for the ValidJwtTokenAvailable signal
 	WaitForValidJWTTokenAvailable() error
+	// FetchAndGetJWTToken fetches a new JWT token and returns it
+	FetchAndGetJWTToken() (string, error)
 }
 
 // AuthClientDBUS is the implementation of the client for the Mender
@@ -95,5 +106,20 @@ func (a *AuthClientDBUS) FetchJWTToken() (bool, error) {
 
 // WaitForValidJWTTokenAvailable synchronously waits for the ValidJwtTokenAvailable signal
 func (a *AuthClientDBUS) WaitForValidJWTTokenAvailable() error {
-	return nil
+	return a.dbusAPI.WaitForSignal(DBusSignalNameValidJwtTokenAvailable, timeout)
+}
+
+// FetchAndGetJWTToken fetches a new JWT token and returns it
+func (a *AuthClientDBUS) FetchAndGetJWTToken() (string, error) {
+	fetch, err := a.FetchJWTToken()
+	if err != nil {
+		return "", err
+	} else if fetch == false {
+		return "", errFetchTokenFailed
+	}
+	err = a.WaitForValidJWTTokenAvailable()
+	if err != nil {
+		return "", err
+	}
+	return a.GetJWTToken()
 }

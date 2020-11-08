@@ -193,3 +193,131 @@ func TestAuthClientFetchJWTToken(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthClientWaitForValidJWTTokenAvailable(t *testing.T) {
+	testCases := map[string]struct {
+		err error
+	}{
+		"ok": {
+			err: nil,
+		},
+		"error": {
+			err: errors.New("error"),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			dbusAPI := &dbus_mocks.DBusAPI{}
+			defer dbusAPI.AssertExpectations(t)
+
+			dbusAPI.On("WaitForSignal",
+				DBusSignalNameValidJwtTokenAvailable,
+				timeout,
+			).Return(tc.err)
+
+			client, err := NewAuthClient(dbusAPI)
+			assert.NoError(t, err)
+			assert.NotNil(t, client)
+
+			err = client.WaitForValidJWTTokenAvailable()
+			if tc.err != nil {
+				assert.Error(t, err, tc.err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestFetchAndGetJWTToken(t *testing.T) {
+	testCases := map[string]struct {
+		fetch    bool
+		fetchErr error
+		waitErr  error
+		get      string
+		getErr   error
+		res      string
+		resErr   error
+	}{
+		"ok": {
+			fetch: true,
+			get:   "token",
+			res:   "token",
+		},
+		"ko, fetch error": {
+			fetchErr: errors.New("fetch error"),
+			resErr:   errors.New("fetch error"),
+		},
+		"ko, fetch false": {
+			fetch:  false,
+			resErr: errFetchTokenFailed,
+		},
+		"ko, wait error": {
+			fetch:   true,
+			waitErr: errors.New("timeout"),
+			resErr:  errors.New("timeout"),
+		},
+		"ko, get error": {
+			fetch:  true,
+			getErr: errors.New("get error"),
+			resErr: errors.New("get error"),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			response := &dbus_mocks.DBusCallResponse{}
+			defer response.AssertExpectations(t)
+
+			if tc.fetchErr == nil {
+				response.On("GetBoolean").Return(tc.fetch)
+			}
+
+			dbusAPI := &dbus_mocks.DBusAPI{}
+			defer dbusAPI.AssertExpectations(t)
+
+			dbusAPI.On("BusProxyCall",
+				dbus.Handle(nil),
+				DBusMethodNameFetchJwtToken,
+				nil,
+				DBusMethodTimeoutInSeconds,
+			).Return(response, tc.fetchErr)
+
+			if tc.fetchErr == nil && tc.fetch == true {
+				dbusAPI.On("WaitForSignal",
+					DBusSignalNameValidJwtTokenAvailable,
+					timeout,
+				).Return(tc.waitErr)
+			}
+
+			if tc.fetchErr == nil && tc.fetch == true && tc.waitErr == nil {
+				response := &dbus_mocks.DBusCallResponse{}
+				defer response.AssertExpectations(t)
+
+				if tc.getErr == nil {
+					response.On("GetString").Return(tc.res)
+				}
+
+				dbusAPI.On("BusProxyCall",
+					dbus.Handle(nil),
+					DBusMethodNameGetJwtToken,
+					nil,
+					DBusMethodTimeoutInSeconds,
+				).Return(response, tc.getErr)
+			}
+
+			client, err := NewAuthClient(dbusAPI)
+			assert.NoError(t, err)
+			assert.NotNil(t, client)
+
+			res, err := client.FetchAndGetJWTToken()
+			assert.Equal(t, res, tc.res)
+			if tc.resErr != nil {
+				assert.Error(t, err, tc.resErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
