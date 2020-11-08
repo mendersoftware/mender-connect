@@ -20,12 +20,14 @@ package dbus
 // #include "dbus_libgio.go.h"
 import "C"
 import (
+	"time"
 	"unsafe"
 
 	"github.com/pkg/errors"
 )
 
 type dbusAPILibGio struct {
+	signals map[string]chan interface{}
 }
 
 // constants for GDBusProxyFlags
@@ -71,6 +73,7 @@ func (d *dbusAPILibGio) BusProxyNew(conn Handle, name string, objectPath string,
 	} else if proxy == nil {
 		return Handle(nil), errors.New("unable to create a new dbus proxy")
 	}
+	C.g_signal_connect_on_proxy(proxy)
 	return Handle(proxy), nil
 }
 
@@ -88,6 +91,78 @@ func (d *dbusAPILibGio) BusProxyCall(proxy Handle, methodName string, params int
 	return NewDBusCallResponse(unsafe.Pointer(result)), nil
 }
 
+// MainLoopNew creates a new GMainLoop structure
+// https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html#g-main-loop-new
+func (d *dbusAPILibGio) MainLoopNew() Handle {
+	return Handle(C.g_main_loop_new(nil, 0))
+}
+
+// MainLoopRun runs a main loop until MainLoopQuit() is called
+// https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html#g-main-loop-run
+func (d *dbusAPILibGio) MainLoopRun(loop Handle) {
+	gloop := C.to_gmainloop(unsafe.Pointer(loop))
+	go C.g_main_loop_run(gloop)
+}
+
+// MainLoopQuit stops a main loop from running
+// https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html#g-main-loop-quit
+func (d *dbusAPILibGio) MainLoopQuit(loop Handle) {
+	gloop := C.to_gmainloop(unsafe.Pointer(loop))
+	C.g_main_loop_quit(gloop)
+}
+
+func (d *dbusAPILibGio) getChannelForSignal(signalName string) chan interface{} {
+	channel, ok := d.signals[signalName]
+	if !ok {
+		channel := make(chan interface{}, 1)
+		d.signals[signalName] = channel
+	}
+	return channel
+}
+
+// DrainSignal drains the channel used to wait for signals
+func (d *dbusAPILibGio) DrainSignal(signalName string) {
+	channel := d.getChannelForSignal(signalName)
+	select {
+	case _ = <-channel:
+	default:
+	}
+}
+
+// HandleSignal handles a DBus signal
+func (d *dbusAPILibGio) HandleSignal(signalName string) {
+	channel := d.getChannelForSignal(signalName)
+	select {
+	case channel <- true:
+	default:
+	}
+}
+
+// WaitForSignal waits for a DBus signal
+func (d *dbusAPILibGio) WaitForSignal(signalName string, timeout time.Duration) error {
+	channel := d.getChannelForSignal(signalName)
+	select {
+	case <-channel:
+		break
+	case <-time.After(timeout):
+		return errors.New("timeout waiting for signal " + signalName)
+	}
+	return nil
+}
+
+//export handle_on_signal_callback
+func handle_on_signal_callback(proxy *C.GDBusProxy, senderName *C.gchar, signalName *C.gchar, params *C.GVariant, userData C.gpointer) {
+	goSignalName := C.GoString(signalName)
+	api, _ := GetDBusAPI()
+	api.HandleSignal(goSignalName)
+}
+
+func newDBusAPILibGio() *dbusAPILibGio {
+	return &dbusAPILibGio{
+		signals: make(map[string]chan interface{}),
+	}
+}
+
 func init() {
-	dbusAPI = &dbusAPILibGio{}
+	dbusAPI = newDBusAPILibGio()
 }

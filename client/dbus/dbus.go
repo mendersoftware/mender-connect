@@ -14,7 +14,10 @@
 
 package dbus
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 var dbusAPI DBusAPI = nil
 
@@ -34,6 +37,16 @@ type DBusAPI interface {
 	BusProxyNew(Handle, string, string, string) (Handle, error)
 	// BusProxyCall synchronously invokes a method method on a proxy
 	BusProxyCall(Handle, string, interface{}, int) (DBusCallResponse, error)
+	// MainLoopNew creates a new GMainLoop structure
+	MainLoopNew() Handle
+	// MainLoopRun runs a main loop until MainLoopQuit() is called
+	MainLoopRun(Handle)
+	// MainLoopQuit stops a main loop from running
+	MainLoopQuit(Handle)
+	// HandleSignal handles a DBus signal
+	HandleSignal(signalName string)
+	// WaitForSignal waits for a DBus signal
+	WaitForSignal(signalName string, timeout time.Duration) error
 }
 
 // GetDBusAPI returns the global DBusAPI object

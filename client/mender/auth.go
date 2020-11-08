@@ -34,6 +34,8 @@ type AuthClient interface {
 	GetJWTToken() (string, error)
 	// FetchJWTToken schedules the fetching of a new device JWT token
 	FetchJWTToken() (bool, error)
+	// WaitForValidJWTTokenAvailable synchronously waits for the ValidJwtTokenAvailable signal
+	WaitForValidJWTTokenAvailable() error
 }
 
 // AuthClientDBUS is the implementation of the client for the Mender
@@ -89,4 +91,9 @@ func (a *AuthClientDBUS) FetchJWTToken() (bool, error) {
 		return false, err
 	}
 	return response.GetBoolean(), nil
+}
+
+// WaitForValidJWTTokenAvailable synchronously waits for the ValidJwtTokenAvailable signal
+func (a *AuthClientDBUS) WaitForValidJWTTokenAvailable() error {
+	return nil
 }
