@@ -30,3 +30,12 @@ test:unit:
     - go list ./... | grep -v vendor | xargs -n1 -I {} -P 4 go test -v -covermode=atomic -coverprofile=../../../{}/coverage.txt {} || exit $?
     - mkdir -p tests/unit-coverage && find . -name 'coverage.txt' -exec cp --parents {} ./tests/unit-coverage \;
     - tar -cvf ${CI_PROJECT_DIR}/unit-coverage.tar tests/unit-coverage
+
+build:make:
+  stage: build
+  needs: []
+  image: golang:1.14-alpine3.11
+  before_script:
+    - apk add --update git make
+  script:
+    - make build
