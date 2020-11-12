@@ -66,6 +66,11 @@ func (runOptions *runOptionsType) handleCLIOptions(ctx *cli.Context) error {
 		return err
 	}
 
+	err = config.Validate()
+	if err != nil {
+		return err
+	}
+
 	switch ctx.Command.Name {
 	case "daemon":
 		d, err := initDaemon(config)

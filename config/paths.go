@@ -22,6 +22,12 @@ var (
 	DefaultPathDataDir = "/usr/share/mender"
 	DefaultDataStore   = "/var/lib/mender"
 
+	DefaultShellCommand      = "/bin/sh"
+	DefaultDeviceConnectPath = "/api/devices/v1/deviceconnect/connect"
+
+	DefaultTerminalHeight = uint16(40)
+	DefaultTerminalWidth  = uint16(80)
+
 	DefaultConfFile         = path.Join(GetConfDirPath(), "mender-shell.conf")
 	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "mender-shell.conf")
 )
