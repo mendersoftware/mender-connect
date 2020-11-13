@@ -25,23 +25,27 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func ExecuteShell(uid uint32, gid uint32, shell string, height uint16, width uint16) (r io.Reader, w io.Writer, err error) {
-	shellTerm := "xterm-256color"
+func ExecuteShell(uid uint32,
+	gid uint32,
+	shell string,
+	termString string,
+	height uint16,
+	width uint16) (pid int, r io.Reader, w io.Writer, err error) {
 	cmd := exec.Command(shell)
 	if cmd == nil {
 		log.Debugf("failed exec.Command shell: %s", shell)
-		return nil, nil, errors.New("unknown error with exec.Command(" + shell + ")")
+		return -1, nil, nil, errors.New("unknown error with exec.Command(" + shell + ")")
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
 
-	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", shellTerm))
+	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", termString))
 	f, err := pty.Start(cmd)
 	if err != nil {
-		return nil, nil, err
+		return -1, nil, nil, err
 	}
 
-	pid := cmd.Process.Pid
+	pid = cmd.Process.Pid
 	log.Debugf("started shell: %s pid:%d", shell, pid)
 
 	syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(syscall.TIOCSWINSZ),
@@ -51,5 +55,5 @@ func ExecuteShell(uid uint32, gid uint32, shell string, height uint16, width uin
 			uint16(height), uint16(width), 0, 0,
 		})))
 
-	return f, f, nil
+	return pid, f, f, nil
 }

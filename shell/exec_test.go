@@ -14,6 +14,7 @@
 package shell
 
 import (
+	"github.com/mendersoftware/mender-shell/config"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -37,7 +38,8 @@ var (
 
 func sendCommand(ws *websocket.Conn, command string) error {
 	m := &MenderShellMessage{
-		Type: messageTypeShellCommand,
+		Type: MessageTypeShellCommand,
+		SessionId: "session-id-none",
 		Data: []byte(command),
 	}
 	data, err := msgpack.Marshal(m)
@@ -90,7 +92,7 @@ func TestMenderShellExec(t *testing.T) {
 		return
 	}
 
-	r, w, err := ExecuteShell(uint32(uid), uint32(gid), "/bin/sh", 24, 80)
+	_, r, w, err := ExecuteShell(uint32(uid), uint32(gid), "/bin/sh", config.DefaultTerminalString, 24, 80)
 	if err != nil {
 		t.Errorf("cant execute shell: %s", err.Error())
 		return
@@ -111,7 +113,7 @@ func TestMenderShellExec(t *testing.T) {
 	defer ws.Close()
 
 	t.Log("starting mender-shell addon")
-	sh := NewMenderShell(ws, r, w)
+	sh := NewMenderShell("session-id-none", ws, r, w)
 	sh.Start()
 	defer sh.Stop()
 	t.Log("checking command execution results")

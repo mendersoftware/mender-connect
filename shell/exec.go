@@ -26,21 +26,42 @@ import (
 
 var (
 	ErrExecWriteBytesShort  = errors.New("failed to write the whole message")
-	messageTypeShellCommand = "shell"
-	writeWait               = 1 * time.Second
+	MessageTypeShellCommand = "shell"
+	MessageTypeSpawnShell   = "new"
+	MessageTypeStopShell    = "stop"
+	writeWait               = 2 * time.Second
+)
+
+type MenderShellMessageStatus int
+
+const (
+	NormalMessage MenderShellMessageStatus = iota
+	ErrorMessage
 )
 
 // MenderShellMessage represents a message between the device and the backend
 type MenderShellMessage struct {
+	//type of message, used to determine the meaning of data
 	Type string `json:"type" msgpack:"type"`
+	//session id, as returned to the caller in a response to the MessageTypeSpawnShell
+	//message.
+	SessionId string `json:"session_id" msgpack:"session_id"`
+	//message status, currently normal and error message types are supported
+	Status MenderShellMessageStatus `json:"status_code" msgpack:"status_code"`
+	//the message payload, if
+	// * .Type===MessageTypeShellCommand interpreted as keystrokes and passed
+	//   to the stdin of the terminal running the shell.
+	// * .Type===MessageTypeSpawnShell interpreted as user_id and passed
+	//   to the session.NewMenderShellSession.
 	Data []byte `json:"data" msgpack:"data"`
 }
 
 type MenderShell struct {
-	ws      *websocket.Conn
-	r       io.Reader
-	w       io.Writer
-	running bool
+	sessionId string
+	ws        *websocket.Conn
+	r         io.Reader
+	w         io.Writer
+	running   bool
 }
 
 type MenderShellCommand struct {
@@ -51,19 +72,19 @@ type MenderShellCommand struct {
 //are already connected to the i/o of the shell process and ws websocket
 //is connected and ws.SetReadDeadline(time.Now().Add(defaultPingWait))
 //was already called and ping-pong was established
-func NewMenderShell(ws *websocket.Conn, r io.Reader, w io.Writer) *MenderShell {
+func NewMenderShell(sessionId string, ws *websocket.Conn, r io.Reader, w io.Writer) *MenderShell {
 	shell := MenderShell{
-		ws:      ws,
-		r:       r,
-		w:       w,
-		running: false,
+		sessionId: sessionId,
+		ws:        ws,
+		r:         r,
+		w:         w,
+		running:   false,
 	}
 	return &shell
 }
 
 func (s *MenderShell) Start() {
 	go s.pipeStdout()
-	go s.pipeStdin()
 	s.running = true
 }
 
@@ -76,51 +97,9 @@ func (s *MenderShell) IsRunning() bool {
 	return s.running
 }
 
-func (s *MenderShell) handlerShellCommand(data []byte) error {
-	commandLine := string(data)
-	n, err := s.w.Write(data)
-	if err != nil && n != len(data) {
-		err = ErrExecWriteBytesShort
-	}
-	if err != nil {
-		log.Debugf("error: '%s' while running '%s'.", err.Error(), commandLine)
-	} else {
-		log.Debugf("executed: '%s'", commandLine)
-	}
-	return err
-}
-
-func (s *MenderShell) pipeStdin() {
-	for {
-		if !s.IsRunning() {
-			return
-		}
-
-		_, data, err := s.ws.ReadMessage()
-		if err != nil {
-			log.Errorf("error reading message: '%s'; restart is needed.", err)
-			break
-		}
-
-		m := &MenderShellMessage{}
-		err = msgpack.Unmarshal(data, m)
-		if err != nil {
-			log.Errorf("error parsing message: '%s'; restart is needed.", err)
-			continue
-		}
-
-		if !s.IsRunning() {
-			return
-		}
-		switch m.Type {
-		case messageTypeShellCommand:
-			err = s.handlerShellCommand(m.Data)
-			if err != nil {
-				//FIXME: we need to handle the reconnect somehow
-				return
-			}
-		}
-	}
+func (s *MenderShell) UpdateWSConnection(ws *websocket.Conn) error {
+	s.ws = ws
+	return nil
 }
 
 func (s *MenderShell) pipeStdout() {
@@ -136,8 +115,9 @@ func (s *MenderShell) pipeStdout() {
 			break
 		}
 		m := &MenderShellMessage{
-			Type: messageTypeShellCommand,
-			Data: raw[:n],
+			Type:      MessageTypeShellCommand,
+			Data:      raw[:n],
+			SessionId: s.sessionId,
 		}
 		data, err := msgpack.Marshal(m)
 		if err != nil {
