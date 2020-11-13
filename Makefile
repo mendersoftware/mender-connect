@@ -54,6 +54,10 @@ install-bin: mender-shell
 	@install -m 755 -d $(prefix)$(bindir)
 	@install -m 755 mender-shell $(prefix)$(bindir)/
 
+install-conf:
+	@install -m 755 -d $(prefix)$(sysconfdir)/mender
+	@install -m 600 examples/mender-shell.conf $(prefix)$(sysconfdir)/mender/
+
 install-systemd:
 	@install -m 755 -d $(prefix)$(systemd_unitdir)/system
 	@install -m 0644 support/mender-shell.service $(prefix)$(systemd_unitdir)/system/
