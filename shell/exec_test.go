@@ -38,9 +38,9 @@ var (
 
 func sendCommand(ws *websocket.Conn, command string) error {
 	m := &MenderShellMessage{
-		Type: MessageTypeShellCommand,
+		Type:      MessageTypeShellCommand,
 		SessionId: "session-id-none",
-		Data: []byte(command),
+		Data:      []byte(command),
 	}
 	data, err := msgpack.Marshal(m)
 	if err != nil {

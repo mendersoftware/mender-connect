@@ -90,7 +90,6 @@ func (s *MenderShell) Start() {
 
 func (s *MenderShell) Stop() {
 	s.running = false
-	s.ws.Close()
 }
 
 func (s *MenderShell) IsRunning() bool {

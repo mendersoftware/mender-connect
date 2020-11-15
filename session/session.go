@@ -53,6 +53,7 @@ var (
 	ErrSessionShellTooManySessionsPerUser = errors.New("user has too many open sessions")
 	ErrSessionNotFound                    = errors.New("session not found")
 	ErrSessionTooManyShellsAlreadyRunning = errors.New("too many shells spawned")
+	ErrSessionUserHasNoSessions           = errors.New("user has no sessions")
 )
 
 var (
@@ -148,6 +149,27 @@ func UpdateWSConnection(ws *websocket.Conn) error {
 		}
 	}
 	return nil
+}
+
+func MenderShellStopByUserId(userId string) (count uint, err error) {
+	a := sessionsByUserIdMap[userId]
+	log.Debugf("stopping all shells of user %s.", userId)
+	if len(a) == 0 {
+		return 0, ErrSessionNotFound
+	}
+	count = 0
+	for _, s := range a {
+		if s.shell == nil {
+			continue
+		}
+		e := s.StopShell()
+		if e != nil {
+			err = e
+			continue
+		}
+		count++
+	}
+	return count, nil
 }
 
 func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTerminalSettings) error {

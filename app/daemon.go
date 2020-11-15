@@ -225,9 +225,29 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 		})
 		return err
 	case shell.MessageTypeStopShell:
+		if len(message.SessionId) < 1 {
+			userId := string(message.Data)
+			if len(userId) < 1 {
+				log.Error("routeMessage: StopShellMessage: sessionId not given and userId empty")
+				return errors.New("StopShellMessage: sessionId not given and userId empty")
+			}
+			shellsStoppedCount, err := session.MenderShellStopByUserId(userId)
+			if err == nil {
+				if shellsStoppedCount > d.shellsSpawned {
+					log.Errorf("StopByUserId: the shells stopped count (%d)"+
+						"greater than total shells spawned (%d). resetting shells"+
+						"spawned to 0.", shellsStoppedCount, d.shellsSpawned)
+					d.shellsSpawned = 0
+				} else {
+					log.Debugf("StopByUserId: stopped %d shells.", shellsStoppedCount)
+					d.shellsSpawned -= shellsStoppedCount
+				}
+			}
+			return err
+		}
 		s := session.MenderShellSessionGetById(message.SessionId)
 		if s == nil {
-			log.Debugf("routeMessage: session not found for id %s", message.SessionId)
+			log.Infof("routeMessage: StopShellMessage: session not found for id %s", message.SessionId)
 			return err
 		}
 
@@ -246,7 +266,11 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 			}
 			return err
 		} else {
-			d.shellsSpawned--
+			if d.shellsSpawned == 0 {
+				log.Error("can't decrement shellsSpawned count: it is 0.")
+			} else {
+				d.shellsSpawned--
+			}
 		}
 	case shell.MessageTypeShellCommand:
 		s := session.MenderShellSessionGetById(message.SessionId)
