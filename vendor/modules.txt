@@ -1,4 +1,5 @@
-# github.com/creack/pty v1.1.7
+# github.com/creack/pty v1.1.11
+## explicit
 github.com/creack/pty
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
@@ -7,9 +8,6 @@ github.com/golang/protobuf/proto
 # github.com/gorilla/websocket v1.4.2
 ## explicit
 github.com/gorilla/websocket
-# github.com/kr/pty v1.1.8
-## explicit
-github.com/kr/pty
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
