@@ -56,6 +56,49 @@ const testMultipleServersConfig = `{
   ]
 }`
 
+const testMultipleServersOneNotValidConfig = `{
+  "Servers": [
+    {"ServerURL": "https://server.one/"},
+    {"ServerURL": "%2Casdads://:/sadfa//a"},
+    {"ServerURL": "https://server.three/"}
+  ]
+}`
+
+const testShellIsNotAbsolutePathConfig = `{
+		"ShellCommand": "bash",
+        "User": "root"
+}`
+
+const testShellIsNotExecutablePathConfig = `{
+		"ShellCommand": "/etc/profile",
+        "User": "root"
+}`
+
+const testShellIsNotPresentConfig = `{
+		"ShellCommand": "/most/not/here/now",
+        "User": "root"
+}`
+
+const testUserNotFoundConfig = `{
+		"ShellCommand": "/bin/bash",
+        "User": "thisoneisnotknown"
+}`
+
+const testShellNotInShellsConfig = `{
+		"ShellCommand": "/bin/ls",
+        "User": "root"
+}`
+
+const testParsingErrorConfig = `{
+		"ShellCommand": "/bin/ls"
+        "User": "root"
+}`
+
+const testOtherErrorConfig = `{
+		"ShellCommand": 0.0e14,
+        "User": "root"
+}`
+
 const testTooManyServerDefsConfig = `{
   "ServerURL": "https://hosted.mender.io",
   "ServerCertificate": "/var/lib/mender/server.crt",
@@ -265,6 +308,96 @@ func TestConfigurationMergeSettings(t *testing.T) {
 	// when a setting appears in only one file, its value is used.
 	assert.Equal(t, "mender", config.User)
 	assert.Equal(t, true, config.SkipVerify)
+}
+
+func Test_LoadConfig_various_errors(t *testing.T) {
+	// create a temporary mender-shell.conf file
+	tdir, err := ioutil.TempDir("", "mendertest")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tdir)
+
+	//one of the serverURLs is not valid
+	configPath := path.Join(tdir, "mender-shell.conf")
+	configFile, err := os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(testMultipleServersOneNotValidConfig)
+
+	config, err := LoadConfig(configPath, "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	err = config.Validate()
+	assert.Error(t, err)
+
+	//shell is not an absolute path
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(testShellIsNotAbsolutePathConfig)
+
+	config, err = LoadConfig(configPath, "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	err = config.Validate()
+	assert.Error(t, err)
+
+	//shell is not executable
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(testShellIsNotExecutablePathConfig)
+
+	config, err = LoadConfig(configPath, "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	err = config.Validate()
+	assert.Error(t, err)
+
+	//shell is not present
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(testShellIsNotPresentConfig)
+
+	config, err = LoadConfig(configPath, "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	err = config.Validate()
+	assert.Error(t, err)
+
+	//user not found
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(testUserNotFoundConfig)
+
+	config, err = LoadConfig(configPath, "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	err = config.Validate()
+	assert.Error(t, err)
+
+	//shell is not found in /etc/shells
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(testShellNotInShellsConfig)
+
+	config, err = LoadConfig(configPath, "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	err = config.Validate()
+	assert.Error(t, err)
+
+	//parsing error
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(testParsingErrorConfig)
+
+	config, err = LoadConfig(configPath, "")
+	assert.Error(t, err)
+
+	//other loading error
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(testOtherErrorConfig)
+
+	config, err = LoadConfig(configPath, "")
+	assert.Error(t, err)
 }
 
 func TestConfigurationNeitherFileExistsIsNotError(t *testing.T) {

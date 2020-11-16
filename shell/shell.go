@@ -16,12 +16,13 @@ package shell
 import (
 	"errors"
 	"fmt"
-	"io"
+	"os"
 	"os/exec"
+	"os/user"
 	"syscall"
 	"unsafe"
 
-	"github.com/kr/pty"
+	"github.com/creack/pty"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -30,17 +31,24 @@ func ExecuteShell(uid uint32,
 	shell string,
 	termString string,
 	height uint16,
-	width uint16) (pid int, r io.Reader, w io.Writer, err error) {
-	cmd := exec.Command(shell)
-	if cmd == nil {
-		log.Debugf("failed exec.Command shell: %s", shell)
+	width uint16) (pid int, pseudoTTY *os.File, cmd *exec.Cmd, err error) {
+	cmd = exec.Command(shell)
+
+	currentUser, err := user.Current()
+	if err != nil {
+		log.Debugf("cant get current user: %s", err.Error())
 		return -1, nil, nil, errors.New("unknown error with exec.Command(" + shell + ")")
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
+
+	//in order to set uid and gid we have to be root, at the moment lets check
+	//if our uid is 0
+	if currentUser.Uid == "0" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
+	}
 
 	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", termString))
-	f, err := pty.Start(cmd)
+	pseudoTTY, err = pty.Start(cmd)
 	if err != nil {
 		return -1, nil, nil, err
 	}
@@ -48,12 +56,16 @@ func ExecuteShell(uid uint32,
 	pid = cmd.Process.Pid
 	log.Debugf("started shell: %s pid:%d", shell, pid)
 
-	syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(syscall.TIOCSWINSZ),
+	log.Debugf("resizing terminal %v to %dx%d", *pseudoTTY, height, width)
+	_, _, err = syscall.Syscall(syscall.SYS_IOCTL, pseudoTTY.Fd(), uintptr(syscall.TIOCSWINSZ),
 		uintptr(unsafe.Pointer(&struct {
 			h, w, x, y uint16
 		}{
-			uint16(height), uint16(width), 0, 0,
+			height, width, 0, 0,
 		})))
+	if err != nil {
+		log.Debugf("failed to resize terminal: %s", err.Error())
+	}
 
-	return pid, f, f, nil
+	return pid, pseudoTTY, cmd, nil
 }

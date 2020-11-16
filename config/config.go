@@ -104,6 +104,9 @@ func LoadConfig(mainConfigFile string, fallbackConfigFile string) (*MenderShellC
 
 func isExecutable(path string) bool {
 	info, _ := os.Stat(path)
+	if info == nil {
+		return false
+	}
 	mode := info.Mode()
 	return (mode & 0111) != 0
 }

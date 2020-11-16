@@ -120,7 +120,7 @@ func (s *MenderShell) pipeStdout() {
 		}
 		data, err := msgpack.Marshal(m)
 		if err != nil {
-			log.Errorf("error parsing message: '%s'; restart is needed.", err)
+			log.Errorf("error parsing message: %s", err)
 			continue
 		}
 		s.ws.SetWriteDeadline(time.Now().Add(writeWait))

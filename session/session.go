@@ -17,6 +17,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"syscall"
 	"time"
 
@@ -53,11 +54,12 @@ var (
 	ErrSessionShellTooManySessionsPerUser = errors.New("user has too many open sessions")
 	ErrSessionNotFound                    = errors.New("session not found")
 	ErrSessionTooManyShellsAlreadyRunning = errors.New("too many shells spawned")
-	ErrSessionUserHasNoSessions           = errors.New("user has no sessions")
 )
 
 var (
-	defaultSessionExpiredTimeout = 512 * time.Second
+	defaultSessionExpiredTimeout = 1024 * time.Second
+	shellProcessWaitTimeout      = 8 * time.Second
+	MaxUserSessions              = 1
 )
 
 type MenderShellTerminalSettings struct {
@@ -95,16 +97,22 @@ type MenderShellSession struct {
 	//reader and writer are connected to the terminal stdio where the shell is running
 	reader io.Reader
 	//reader and writer are connected to the terminal stdio where the shell is running
-	writer io.Writer
+	writer    io.Writer
+	pseudoTTY *os.File
+	command   *exec.Cmd
 }
 
 var sessionsMap = map[string]*MenderShellSession{}
 var sessionsByUserIdMap = map[string][]*MenderShellSession{}
 
-//reconnect and lost sessid for use -- one shell per user/reuse
 func NewMenderShellSession(ws *websocket.Conn, userId string) (s *MenderShellSession, err error) {
-	if _, ok := sessionsByUserIdMap[userId]; ok {
-		return nil, ErrSessionShellTooManySessionsPerUser
+	if userSessions, ok := sessionsByUserIdMap[userId]; ok {
+		log.Debugf("user %s has %d sessions.", userId, len(userSessions))
+		if len(userSessions) >= MaxUserSessions {
+			return nil, ErrSessionShellTooManySessionsPerUser
+		}
+	} else {
+		sessionsByUserIdMap[userId] = []*MenderShellSession{}
 	}
 
 	uid := uuid.NewV4()
@@ -120,7 +128,7 @@ func NewMenderShellSession(ws *websocket.Conn, userId string) (s *MenderShellSes
 		status:      NewSession,
 	}
 	sessionsMap[id] = s
-	sessionsByUserIdMap[userId] = []*MenderShellSession{s}
+	sessionsByUserIdMap[userId] = append(sessionsByUserIdMap[userId], s)
 	return s, nil
 }
 
@@ -129,6 +137,22 @@ func MenderShellSessionGetById(id string) *MenderShellSession {
 		return v
 	} else {
 		return nil
+	}
+}
+
+func MenderShellDeleteById(id string) error {
+	if v, ok := sessionsMap[id]; ok {
+		userSessions := sessionsByUserIdMap[v.userId]
+		for i, s := range userSessions {
+			if s.id == id {
+				sessionsByUserIdMap[v.userId] = append(userSessions[:i], userSessions[i+1:]...)
+				break
+			}
+		}
+		delete(sessionsMap, id)
+		return nil
+	} else {
+		return ErrSessionNotFound
 	}
 }
 
@@ -158,6 +182,7 @@ func MenderShellStopByUserId(userId string) (count uint, err error) {
 		return 0, ErrSessionNotFound
 	}
 	count = 0
+	err = nil
 	for _, s := range a {
 		if s.shell == nil {
 			continue
@@ -167,9 +192,11 @@ func MenderShellStopByUserId(userId string) (count uint, err error) {
 			err = e
 			continue
 		}
+		delete(sessionsMap, s.id)
 		count++
 	}
-	return count, nil
+	delete(sessionsByUserIdMap, userId)
+	return count, err
 }
 
 func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTerminalSettings) error {
@@ -177,7 +204,7 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 		return ErrSessionShellAlreadyRunning
 	}
 
-	pid, r, w, err := shell.ExecuteShell(terminal.Uid,
+	pid, pseudoTTY, cmd, err := shell.ExecuteShell(terminal.Uid,
 		terminal.Gid,
 		terminal.Shell,
 		terminal.TerminalString,
@@ -191,14 +218,16 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 	//and the shell subprocess (started above via shell.ExecuteShell) over
 	//the websocket connection
 	log.Info("mender-shell starting shell command passing process")
-	s.shell = shell.NewMenderShell(sessionId, s.ws, r, w)
+	s.shell = shell.NewMenderShell(sessionId, s.ws, pseudoTTY, pseudoTTY)
 	s.shell.Start()
 
 	s.shellPid = pid
-	s.reader = r
-	s.writer = w
+	s.reader = pseudoTTY
+	s.writer = pseudoTTY
 	s.status = ActiveSession
 	s.terminal = terminal
+	s.pseudoTTY = pseudoTTY
+	s.command = cmd
 	return nil
 }
 
@@ -230,21 +259,34 @@ func (s *MenderShellSession) ShellCommand(m *shell.MenderShellMessage) error {
 }
 
 func (s *MenderShellSession) StopShell() error {
+	log.Infof("session %s stopping shell", s.id)
 	if s.status != ActiveSession && s.status != HangedSession {
 		return ErrSessionShellNotRunning
 	}
 
+	s.pseudoTTY.Close()
 	p, _ := os.FindProcess(s.shellPid)
 	if p != nil {
 		p.Signal(syscall.SIGINT)
 		time.Sleep(time.Second)
 		p.Signal(syscall.SIGTERM)
-		time.Sleep(time.Second)
-		time.Sleep(time.Second)
+		time.Sleep(2*time.Second)
 		p.Signal(syscall.SIGKILL)
 		time.Sleep(time.Second)
+		done := make(chan error, 1)
+		go func() {
+			done <- s.command.Wait()
+		}()
+		select {
+		case err := <-done:
+			if err != nil {
+				log.Errorf("failed to wait for the shell process to exit: %s", err.Error())
+			}
+		case <-time.After(shellProcessWaitTimeout):
+			log.Infof("waiting for pid %d timeout. the process will remain as zombie.", s.shellPid)
+		}
 		err := p.Signal(syscall.Signal(0))
-		if err != nil {
+		if err == nil {
 			s.status = HangedSession
 			return ErrSessionShellStillRunning
 		}

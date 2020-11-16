@@ -44,6 +44,7 @@ type MenderShellDaemon struct {
 	uid              uint64
 	gid              uint64
 	shellsSpawned    uint
+	debug            bool
 }
 
 func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
@@ -58,6 +59,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		terminalWidth:    config.Terminal.Width,
 		terminalHeight:   config.Terminal.Height,
 		shellsSpawned:    0,
+		debug:            true,
 	}
 	return &daemon
 }
@@ -78,6 +80,9 @@ func (d *MenderShellDaemon) shouldStop() bool {
 // * connects to the backend and returns a new websocket (deviceconnect.Connect(...))
 // * starts the message flow between the shell and websocket (shell.NewMenderShell(...))
 func (d *MenderShellDaemon) Run() error {
+	if d.debug {
+		log.SetLevel(log.DebugLevel)
+	}
 	log.Infof("mender-shell starting shell: %s", d.shell)
 	u, err := user.Lookup(d.username)
 	if err == nil && u == nil {
@@ -196,7 +201,7 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 	switch message.Type {
 	case shell.MessageTypeSpawnShell:
 		if d.shellsSpawned >= configuration.MaxShellsSpawned {
-			return session.ErrSessionNotFound
+			return session.ErrSessionTooManyShellsAlreadyRunning
 		}
 		s := session.MenderShellSessionGetById(message.SessionId)
 		if s == nil {
@@ -215,11 +220,13 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 			Shell:          d.shell,
 			TerminalString: d.terminalString,
 			Height:         d.terminalHeight,
-			Width:          d.terminalHeight,
+			Width:          d.terminalWidth,
 		})
+
 		message := "Shell started"
 		status := shell.NormalMessage
 		if err != nil {
+			log.Errorf("failed to start shell: %s", err.Error())
 			message = "failed to start shell: " + err.Error()
 			status = shell.ErrorMessage
 		} else {
@@ -282,6 +289,7 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 				d.shellsSpawned--
 			}
 		}
+		return session.MenderShellDeleteById(s.GetId())
 	case shell.MessageTypeShellCommand:
 		s := session.MenderShellSessionGetById(message.SessionId)
 		if s == nil {

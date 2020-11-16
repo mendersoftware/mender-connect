@@ -15,8 +15,13 @@
 package deviceconnect
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -48,4 +53,42 @@ func TestGetWebSocketScheme(t *testing.T) {
 			assert.Equal(t, tc.result, result)
 		})
 	}
+}
+
+func noopMmainServerLoop(w http.ResponseWriter, r *http.Request) {
+	var upgrader = websocket.Upgrader{}
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer c.Close()
+
+	for {
+		time.Sleep(4 * time.Second)
+	}
+}
+
+func TestMenderShellDeviceConnect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(noopMmainServerLoop))
+	defer server.Close()
+
+	// Convert http://127.0.0.1 to ws://127.0.0.
+	u := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	wsValid, err := Connect(u, "/", "token")
+	assert.Nil(t, err)
+	assert.NotNil(t, wsValid)
+	defer wsValid.Close()
+
+	ws0, err := Connect("%2Casdads://:/sadfa//a", " same here", "token")
+	assert.Error(t, err)
+	assert.Nil(t, ws0)
+
+	t.Log("waiting for connection timeout")
+	ws1, err := Connect("wss://127.1.1.1:443", "/this", "token")
+	assert.Error(t, err)
+	assert.Nil(t, ws1)
+
+	t.Log("waiting for ping-pong")
+	time.Sleep(20 * time.Second)
 }
