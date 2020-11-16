@@ -11,16 +11,16 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-package shell
+package app
 
 import (
 	"github.com/mendersoftware/mender-shell/config"
+	"github.com/mendersoftware/mender-shell/shell"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/user"
 	"strconv"
 	"strings"
 	"testing"
@@ -36,37 +36,40 @@ var (
 	testData              string
 )
 
-func sendCommand(ws *websocket.Conn, command string) error {
-	m := &MenderShellMessage{
-		Type:      MessageTypeShellCommand,
-		SessionId: "session-id-none",
-		Data:      []byte(command),
+func sendMessage(ws *websocket.Conn, t string, data string) error {
+	m := &shell.MenderShellMessage{
+		Type:      t,
+		SessionId: "5a86c775-f635-40a6-bd3e-4a4e074b535e",
+		Data:      []byte(data),
 	}
-	data, err := msgpack.Marshal(m)
+	d, err := msgpack.Marshal(m)
 	if err != nil {
 		return err
 	}
-	ws.SetWriteDeadline(time.Now().Add(writeWait))
-	ws.WriteMessage(websocket.BinaryMessage, data)
+	ws.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	ws.WriteMessage(websocket.BinaryMessage, d)
 	return nil
 }
 
-func commandSender(w http.ResponseWriter, r *http.Request) {
+func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 	var upgrader = websocket.Upgrader{}
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer c.Close()
+	sendMessage(c, shell.MessageTypeSpawnShell, "user-id-unit-tests-f6723467-561234ff")
+	time.Sleep(4 * time.Second)
+	sendMessage(c, shell.MessageTypeShellCommand, "echo "+testData+" > "+testFileNameTemporary+"\n")
+	time.Sleep(4 * time.Second)
 	for {
-		sendCommand(c, "echo "+testData+" > "+testFileNameTemporary+"\n")
 		time.Sleep(4 * time.Second)
 	}
 }
 
 func TestMenderShellExec(t *testing.T) {
 	rand.Seed(time.Now().Unix())
-	testData = "commandSender." + strconv.Itoa(rand.Intn(6553600))
+	testData = "newShellTransaction." + strconv.Itoa(rand.Intn(6553600))
 	tempFile, err := ioutil.TempFile("", "TestMenderShellExec")
 	if err != nil {
 		t.Error("cant create temp file")
@@ -75,31 +78,31 @@ func TestMenderShellExec(t *testing.T) {
 	testFileNameTemporary = tempFile.Name()
 	defer os.Remove(tempFile.Name())
 
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Errorf("cant get current user: %s", err.Error())
-		return
-	}
-	uid, err := strconv.ParseUint(currentUser.Uid, 10, 32)
-	if err != nil {
-		t.Errorf("cant get current uid: %s", err.Error())
-		return
-	}
+	//currentUser, err := user.Current()
+	//if err != nil {
+	//	t.Errorf("cant get current user: %s", err.Error())
+	//	return
+	//}
+	//uid, err := strconv.ParseUint(currentUser.Uid, 10, 32)
+	//if err != nil {
+	//	t.Errorf("cant get current uid: %s", err.Error())
+	//	return
+	//}
+	//
+	//gid, err := strconv.ParseUint(currentUser.Gid, 10, 32)
+	//if err != nil {
+	//	t.Errorf("cant get current gid: %s", err.Error())
+	//	return
+	//}
 
-	gid, err := strconv.ParseUint(currentUser.Gid, 10, 32)
-	if err != nil {
-		t.Errorf("cant get current gid: %s", err.Error())
-		return
-	}
-
-	_, r, w, err := ExecuteShell(uint32(uid), uint32(gid), "/bin/sh", config.DefaultTerminalString, 24, 80)
-	if err != nil {
-		t.Errorf("cant execute shell: %s", err.Error())
-		return
-	}
-
+	//_, r, w, err := shell.ExecuteShell(uint32(uid), uint32(gid), "/bin/sh", config.DefaultTerminalString, 24, 80)
+	//if err != nil {
+	//	t.Errorf("cant execute shell: %s", err.Error())
+	//	return
+	//}
+	//
 	t.Log("starting mock httpd with websockets")
-	s := httptest.NewServer(http.HandlerFunc(commandSender))
+	s := httptest.NewServer(http.HandlerFunc(newShellTransaction))
 	defer s.Close()
 
 	// Convert http://127.0.0.1 to ws://127.0.0.
@@ -112,10 +115,28 @@ func TestMenderShellExec(t *testing.T) {
 	}
 	defer ws.Close()
 
-	t.Log("starting mender-shell addon")
-	sh := NewMenderShell("session-id-none", ws, r, w)
-	sh.Start()
-	defer sh.Stop()
+	d:=NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand:      "/bin/sh",
+			User:              "mender",
+			Terminal:          config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+	message, err := d.readMessage(ws)
+	t.Logf("read message: '%v'",message)
+	d.routeMessage(ws, message)
+
+	message, err = d.readMessage(ws)
+	t.Logf("read message: '%v'",message)
+	d.routeMessage(ws, message)
+
+	//t.Log("starting mender-shell addon")
+	//sh := shell.NewMenderShell("session-id-none", ws, r, w)
+	//sh.Start()
+	//defer sh.Stop()
 	t.Log("checking command execution results")
 	found := false
 	for i := 0; i < 8; i++ {
