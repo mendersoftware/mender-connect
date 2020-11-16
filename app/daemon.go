@@ -14,6 +14,7 @@
 package app
 
 import (
+	"crypto/tls"
 	"errors"
 	"os/user"
 	"strconv"
@@ -35,6 +36,7 @@ type MenderShellDaemon struct {
 	username         string
 	shell            string
 	serverUrl        string
+	skipVerify       bool
 	deviceConnectUrl string
 	terminalString   string
 	terminalWidth    uint16
@@ -50,6 +52,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		username:         config.User,
 		shell:            config.ShellCommand,
 		serverUrl:        config.ServerURL,
+		skipVerify:       config.SkipVerify,
 		deviceConnectUrl: configuration.DefaultDeviceConnectPath,
 		terminalString:   configuration.DefaultTerminalString,
 		terminalWidth:    config.Terminal.Width,
@@ -122,6 +125,13 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 	log.Debugf("mender-shell got len(JWT)=%d", len(value))
+
+	// skip verification of HTTPS certificate if skipVerify is set in the config file
+	if d.skipVerify {
+		websocket.DefaultDialer.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
 
 	//make websocket connection to the backend, this will be used to exchange messages
 	log.Infof("mender-shell connecting websocket; url: %s%s", d.serverUrl, d.deviceConnectUrl)
