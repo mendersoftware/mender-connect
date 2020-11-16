@@ -29,6 +29,11 @@ const (
 	maxMessageSize = 8192
 	// Time allowed to read the next pong message from the peer.
 	defaultPingWait = 10 * time.Second
+	//
+	httpsProtocol = "https"
+	httpProtocol  = "http"
+	wssProtocol   = "wss"
+	wsProtocol    = "ws"
 )
 
 //Websocket connection routine. setup the ping-pong and connection settings
@@ -39,7 +44,8 @@ func Connect(serverUrl string, connectUrl string, token string) (ws *websocket.C
 		return nil, err
 	}
 
-	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: connectUrl}
+	scheme := getWebSocketScheme(parsedUrl.Scheme)
+	u := url.URL{Scheme: scheme, Host: parsedUrl.Host, Path: connectUrl}
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+token)
 	ws, _, err = dialer.Dial(u.String(), headers)
@@ -56,4 +62,13 @@ func Connect(serverUrl string, connectUrl string, token string) (ws *websocket.C
 		return ws.WriteControl(websocket.PongMessage, []byte{}, time.Now().Add(writeWait))
 	})
 	return ws, nil
+}
+
+func getWebSocketScheme(scheme string) string {
+	if scheme == httpsProtocol {
+		scheme = wssProtocol
+	} else if scheme == httpProtocol {
+		scheme = wsProtocol
+	}
+	return scheme
 }
