@@ -93,20 +93,20 @@ func (d *dbusAPILibGio) BusProxyCall(proxy Handle, methodName string, params int
 
 // MainLoopNew creates a new GMainLoop structure
 // https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html#g-main-loop-new
-func (d *dbusAPILibGio) MainLoopNew() Handle {
-	return Handle(C.g_main_loop_new(nil, 0))
+func (d *dbusAPILibGio) MainLoopNew() MainLoop {
+	return MainLoop(C.g_main_loop_new(nil, 0))
 }
 
 // MainLoopRun runs a main loop until MainLoopQuit() is called
 // https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html#g-main-loop-run
-func (d *dbusAPILibGio) MainLoopRun(loop Handle) {
+func (d *dbusAPILibGio) MainLoopRun(loop MainLoop) {
 	gloop := C.to_gmainloop(unsafe.Pointer(loop))
 	go C.g_main_loop_run(gloop)
 }
 
 // MainLoopQuit stops a main loop from running
 // https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html#g-main-loop-quit
-func (d *dbusAPILibGio) MainLoopQuit(loop Handle) {
+func (d *dbusAPILibGio) MainLoopQuit(loop MainLoop) {
 	gloop := C.to_gmainloop(unsafe.Pointer(loop))
 	C.g_main_loop_quit(gloop)
 }
