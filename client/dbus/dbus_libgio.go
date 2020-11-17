@@ -20,6 +20,7 @@ package dbus
 // #include "dbus_libgio.go.h"
 import "C"
 import (
+	"runtime"
 	"time"
 	"unsafe"
 
@@ -65,8 +66,11 @@ func (d *dbusAPILibGio) BusProxyNew(conn Handle, name string, objectPath string,
 	gconn := C.to_gdbusconnection(unsafe.Pointer(conn))
 	flags := C.GDBusProxyFlags(GDbusProxyFlagsDoNotLoadProperties)
 	cname := C.CString(name)
+	defer C.free(unsafe.Pointer(cname))
 	cobjectPath := C.CString(objectPath)
+	defer C.free(unsafe.Pointer(cobjectPath))
 	cinterfaceName := C.CString(interfaceName)
+	defer C.free(unsafe.Pointer(cinterfaceName))
 	proxy := C.g_dbus_proxy_new_sync(gconn, flags, nil, cname, cobjectPath, cinterfaceName, nil, &gerror)
 	if Handle(gerror) != nil {
 		return Handle(nil), ErrorFromNative(Handle(gerror))
@@ -83,6 +87,7 @@ func (d *dbusAPILibGio) BusProxyCall(proxy Handle, methodName string, params int
 	var gerror *C.GError
 	gproxy := C.to_gdbusproxy(unsafe.Pointer(proxy))
 	cmethodName := C.CString(methodName)
+	defer C.free(unsafe.Pointer(cmethodName))
 	flags := C.GDBusCallFlags(GDBusCallFlagsNone)
 	result := C.g_dbus_proxy_call_sync(gproxy, cmethodName, nil, flags, C.gint(timeout), nil, &gerror)
 	if Handle(gerror) != nil {
@@ -93,20 +98,25 @@ func (d *dbusAPILibGio) BusProxyCall(proxy Handle, methodName string, params int
 
 // MainLoopNew creates a new GMainLoop structure
 // https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html#g-main-loop-new
-func (d *dbusAPILibGio) MainLoopNew() Handle {
-	return Handle(C.g_main_loop_new(nil, 0))
+func (d *dbusAPILibGio) MainLoopNew() MainLoop {
+	loop := MainLoop(C.g_main_loop_new(nil, 0))
+	runtime.SetFinalizer(&loop, func(loop *MainLoop) {
+		gloop := C.to_gmainloop(unsafe.Pointer(*loop))
+		C.g_main_loop_unref(gloop)
+	})
+	return loop
 }
 
 // MainLoopRun runs a main loop until MainLoopQuit() is called
 // https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html#g-main-loop-run
-func (d *dbusAPILibGio) MainLoopRun(loop Handle) {
+func (d *dbusAPILibGio) MainLoopRun(loop MainLoop) {
 	gloop := C.to_gmainloop(unsafe.Pointer(loop))
 	go C.g_main_loop_run(gloop)
 }
 
 // MainLoopQuit stops a main loop from running
 // https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html#g-main-loop-quit
-func (d *dbusAPILibGio) MainLoopQuit(loop Handle) {
+func (d *dbusAPILibGio) MainLoopQuit(loop MainLoop) {
 	gloop := C.to_gmainloop(unsafe.Pointer(loop))
 	C.g_main_loop_quit(gloop)
 }

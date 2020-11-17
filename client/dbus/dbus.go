@@ -17,7 +17,12 @@ package dbus
 import (
 	"errors"
 	"time"
+	"unsafe"
 )
+
+// These are unsafe pointers, only prettier :)
+type Handle unsafe.Pointer
+type MainLoop unsafe.Pointer
 
 var dbusAPI DBusAPI = nil
 
@@ -38,11 +43,11 @@ type DBusAPI interface {
 	// BusProxyCall synchronously invokes a method method on a proxy
 	BusProxyCall(Handle, string, interface{}, int) (DBusCallResponse, error)
 	// MainLoopNew creates a new GMainLoop structure
-	MainLoopNew() Handle
+	MainLoopNew() MainLoop
 	// MainLoopRun runs a main loop until MainLoopQuit() is called
-	MainLoopRun(Handle)
+	MainLoopRun(MainLoop)
 	// MainLoopQuit stops a main loop from running
-	MainLoopQuit(Handle)
+	MainLoopQuit(MainLoop)
 	// HandleSignal handles a DBus signal
 	HandleSignal(signalName string)
 	// WaitForSignal waits for a DBus signal
