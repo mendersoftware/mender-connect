@@ -14,18 +14,21 @@
 package app
 
 import (
+	"crypto/tls"
 	"errors"
 	"os/user"
 	"strconv"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
+	"github.com/gorilla/websocket"
 	"github.com/mendersoftware/mender-shell/client/dbus"
 	"github.com/mendersoftware/mender-shell/client/mender"
 	configuration "github.com/mendersoftware/mender-shell/config"
 	"github.com/mendersoftware/mender-shell/deviceconnect"
+	"github.com/mendersoftware/mender-shell/session"
 	"github.com/mendersoftware/mender-shell/shell"
+	log "github.com/sirupsen/logrus"
+	"github.com/vmihailenco/msgpack"
 )
 
 type MenderShellDaemon struct {
@@ -33,9 +36,15 @@ type MenderShellDaemon struct {
 	username         string
 	shell            string
 	serverUrl        string
+	skipVerify       bool
 	deviceConnectUrl string
+	terminalString   string
 	terminalWidth    uint16
 	terminalHeight   uint16
+	uid              uint64
+	gid              uint64
+	shellsSpawned    uint
+	debug            bool
 }
 
 func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
@@ -44,9 +53,13 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		username:         config.User,
 		shell:            config.ShellCommand,
 		serverUrl:        config.ServerURL,
+		skipVerify:       config.SkipVerify,
 		deviceConnectUrl: configuration.DefaultDeviceConnectPath,
+		terminalString:   configuration.DefaultTerminalString,
 		terminalWidth:    config.Terminal.Width,
 		terminalHeight:   config.Terminal.Height,
+		shellsSpawned:    0,
+		debug:            true,
 	}
 	return &daemon
 }
@@ -67,6 +80,9 @@ func (d *MenderShellDaemon) shouldStop() bool {
 // * connects to the backend and returns a new websocket (deviceconnect.Connect(...))
 // * starts the message flow between the shell and websocket (shell.NewMenderShell(...))
 func (d *MenderShellDaemon) Run() error {
+	if d.debug {
+		log.SetLevel(log.DebugLevel)
+	}
 	log.Infof("mender-shell starting shell: %s", d.shell)
 	u, err := user.Lookup(d.username)
 	if err == nil && u == nil {
@@ -76,19 +92,13 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	uid, err := strconv.ParseUint(u.Uid, 10, 32)
+	d.uid, err = strconv.ParseUint(u.Uid, 10, 32)
 	if err != nil {
 		return err
 	}
 
-	gid, err := strconv.ParseUint(u.Gid, 10, 32)
+	d.gid, err = strconv.ParseUint(u.Gid, 10, 32)
 	if err != nil {
-		return err
-	}
-
-	r, w, err := shell.ExecuteShell(uint32(uid), uint32(gid), d.shell, d.terminalHeight, d.terminalWidth)
-	if err != nil {
-		log.Errorf("mender-shell failed to execute: %s error: %s", d.shell, err.Error())
 		return err
 	}
 
@@ -121,6 +131,13 @@ func (d *MenderShellDaemon) Run() error {
 	}
 	log.Debugf("mender-shell got len(JWT)=%d", len(value))
 
+	// skip verification of HTTPS certificate if skipVerify is set in the config file
+	if d.skipVerify {
+		websocket.DefaultDialer.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
+
 	//make websocket connection to the backend, this will be used to exchange messages
 	log.Infof("mender-shell connecting websocket; url: %s%s", d.serverUrl, d.deviceConnectUrl)
 	ws, err := deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, value)
@@ -129,19 +146,176 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	//MenderShell represents a process of passing messages between backend
-	//and the shell subprocess (started above via shell.ExecuteShell) over
-	//the websocket connection
-	log.Info("mender-shell starting shell command passing process")
-	shell := shell.NewMenderShell(ws, r, w)
-	shell.Start()
 	log.Infof("mender-shell entering main loop.")
 	for {
 		if d.shouldStop() {
 			break
 		}
-		time.Sleep(15 * time.Second)
+		message, err := d.readMessage(ws)
+		if err != nil {
+			log.Errorf("main-loop: error reading message, attempting reconnect.")
+			err = ws.Close()
+			if err != nil {
+				log.Errorf("main-loop: error on closing the connection")
+			}
+
+			for reconnectAttempts := configuration.MaxReconnectAttempts; reconnectAttempts > 0; reconnectAttempts-- {
+				ws, err = deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, value)
+				if err != nil {
+					if reconnectAttempts == 1 {
+						log.Errorf("main-loop ws failed to re-connect to %s%s, error: %s; giving up after %d tries", d.serverUrl, d.deviceConnectUrl, err.Error(), configuration.MaxReconnectAttempts)
+						return err
+					}
+					log.Errorf("main-loop ws failed to connect to %s%s, error: %s", d.serverUrl, d.deviceConnectUrl, err.Error())
+					time.Sleep(time.Second)
+				} else {
+					log.Info("reconnected")
+					session.UpdateWSConnection(ws)
+					break
+				}
+			}
+			continue
+		}
+
+		log.Debugf("got message: type:%s data length:%d", message.Type, len(message.Data))
+		err = d.routeMessage(ws, message)
+		if err != nil {
+			log.Debugf("error routing message")
+		}
 	}
-	shell.Stop()
 	return nil
+}
+
+func responseMessage(ws *websocket.Conn, m *shell.MenderShellMessage) (err error) {
+	data, err := msgpack.Marshal(m)
+	if err != nil {
+		return err
+	}
+	err = ws.SetWriteDeadline(time.Now().Add(configuration.MessageWriteTimeout))
+	err = ws.WriteMessage(websocket.BinaryMessage, data)
+
+	return err
+}
+
+func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.MenderShellMessage) (err error) {
+	switch message.Type {
+	case shell.MessageTypeSpawnShell:
+		if d.shellsSpawned >= configuration.MaxShellsSpawned {
+			return session.ErrSessionTooManyShellsAlreadyRunning
+		}
+		s := session.MenderShellSessionGetById(message.SessionId)
+		if s == nil {
+			userId := string(message.Data)
+			s, err = session.NewMenderShellSession(ws, userId)
+			if err != nil {
+				return err
+			}
+			log.Debugf("created a new session: %s", s.GetId())
+		}
+
+		log.Debugf("starting shell session_id=%s", s.GetId())
+		err = s.StartShell(s.GetId(), session.MenderShellTerminalSettings{
+			Uid:            uint32(d.uid),
+			Gid:            uint32(d.gid),
+			Shell:          d.shell,
+			TerminalString: d.terminalString,
+			Height:         d.terminalHeight,
+			Width:          d.terminalWidth,
+		})
+
+		message := "Shell started"
+		status := shell.NormalMessage
+		if err != nil {
+			log.Errorf("failed to start shell: %s", err.Error())
+			message = "failed to start shell: " + err.Error()
+			status = shell.ErrorMessage
+		} else {
+			log.Debugf("started shell")
+			d.shellsSpawned++
+		}
+
+		err = responseMessage(ws, &shell.MenderShellMessage{
+			Type:      shell.MessageTypeSpawnShell,
+			Status:    status,
+			SessionId: s.GetId(),
+			Data:      []byte(message),
+		})
+		return err
+	case shell.MessageTypeStopShell:
+		if len(message.SessionId) < 1 {
+			userId := string(message.Data)
+			if len(userId) < 1 {
+				log.Error("routeMessage: StopShellMessage: sessionId not given and userId empty")
+				return errors.New("StopShellMessage: sessionId not given and userId empty")
+			}
+			shellsStoppedCount, err := session.MenderShellStopByUserId(userId)
+			if err == nil {
+				if shellsStoppedCount > d.shellsSpawned {
+					log.Errorf("StopByUserId: the shells stopped count (%d)"+
+						"greater than total shells spawned (%d). resetting shells"+
+						"spawned to 0.", shellsStoppedCount, d.shellsSpawned)
+					d.shellsSpawned = 0
+				} else {
+					log.Debugf("StopByUserId: stopped %d shells.", shellsStoppedCount)
+					d.shellsSpawned -= shellsStoppedCount
+				}
+			}
+			return err
+		}
+		s := session.MenderShellSessionGetById(message.SessionId)
+		if s == nil {
+			log.Infof("routeMessage: StopShellMessage: session not found for id %s", message.SessionId)
+			return err
+		}
+
+		err = s.StopShell()
+		if err != nil {
+			rErr := responseMessage(ws, &shell.MenderShellMessage{
+				Type:      shell.MessageTypeSpawnShell,
+				Status:    shell.ErrorMessage,
+				SessionId: s.GetId(),
+				Data:      []byte("failed to stop shell: " + err.Error()),
+			})
+			if rErr != nil {
+				log.Errorf("failed to send response (%s) to failed stop-shell command (%s)", rErr.Error(), err.Error())
+			} else {
+				log.Errorf("failed to stop shell: %s", err.Error())
+			}
+			return err
+		} else {
+			if d.shellsSpawned == 0 {
+				log.Error("can't decrement shellsSpawned count: it is 0.")
+			} else {
+				d.shellsSpawned--
+			}
+		}
+		return session.MenderShellDeleteById(s.GetId())
+	case shell.MessageTypeShellCommand:
+		s := session.MenderShellSessionGetById(message.SessionId)
+		if s == nil {
+			log.Debugf("routeMessage: session not found for id %s", message.SessionId)
+			return session.ErrSessionNotFound
+		}
+
+		err = s.ShellCommand(message)
+		if err != nil {
+			log.Debugf("routeMessage: shell command execution error, session_id=%s", message.SessionId)
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *MenderShellDaemon) readMessage(ws *websocket.Conn) (*shell.MenderShellMessage, error) {
+	_, data, err := ws.ReadMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	m := &shell.MenderShellMessage{}
+	err = msgpack.Unmarshal(data, m)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
 }

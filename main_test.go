@@ -11,37 +11,30 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-package config
+package main
 
 import (
-	"fmt"
-	"runtime"
+	"os"
+	"testing"
 
-	"github.com/urfave/cli/v2"
+	"github.com/stretchr/testify/assert"
 )
 
-const (
-	VersionUnknown = "unknown"
-)
-
-var (
-	// Version information of current build
-	Version string
-)
-
-func VersionString() string {
-	if Version != "" {
-		return Version
-	}
-	return VersionUnknown
+func TestMainExitCodes(t *testing.T) {
+	// Cache args.
+	args := os.Args
+	// Successful main call (0)
+	os.Args = []string{"mender-shell", "--version"}
+	exitCode := doMain()
+	assert.Equal(t, 0, exitCode)
+	os.Args = args
 }
 
-func ShowVersionCLI(ctx *cli.Context) error {
-	fmt.Println(ShowVersion())
-	return nil
-}
-
-func ShowVersion() string {
-	return fmt.Sprintf("%s\truntime: %s",
-		VersionString(), runtime.Version())
+func TestMainRequiresConfig(t *testing.T) {
+	args := os.Args
+	os.Args = []string{"mender-shell", "daemon"}
+	exitCode := doMain()
+	//without any configuration we expect to fail the startup sequence
+	assert.Equal(t, 1, exitCode)
+	os.Args = args
 }

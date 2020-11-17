@@ -16,40 +16,56 @@ package shell
 import (
 	"errors"
 	"fmt"
-	"io"
+	"os"
 	"os/exec"
+	"os/user"
 	"syscall"
 	"unsafe"
 
-	"github.com/kr/pty"
+	"github.com/creack/pty"
 	log "github.com/sirupsen/logrus"
 )
 
-func ExecuteShell(uid uint32, gid uint32, shell string, height uint16, width uint16) (r io.Reader, w io.Writer, err error) {
-	shellTerm := "xterm-256color"
-	cmd := exec.Command(shell)
-	if cmd == nil {
-		log.Debugf("failed exec.Command shell: %s", shell)
-		return nil, nil, errors.New("unknown error with exec.Command(" + shell + ")")
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
+func ExecuteShell(uid uint32,
+	gid uint32,
+	shell string,
+	termString string,
+	height uint16,
+	width uint16) (pid int, pseudoTTY *os.File, cmd *exec.Cmd, err error) {
+	cmd = exec.Command(shell)
 
-	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", shellTerm))
-	f, err := pty.Start(cmd)
+	currentUser, err := user.Current()
 	if err != nil {
-		return nil, nil, err
+		log.Debugf("cant get current user: %s", err.Error())
+		return -1, nil, nil, errors.New("unknown error with exec.Command(" + shell + ")")
 	}
 
-	pid := cmd.Process.Pid
+	//in order to set uid and gid we have to be root, at the moment lets check
+	//if our uid is 0
+	if currentUser.Uid == "0" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
+	}
+
+	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", termString))
+	pseudoTTY, err = pty.Start(cmd)
+	if err != nil {
+		return -1, nil, nil, err
+	}
+
+	pid = cmd.Process.Pid
 	log.Debugf("started shell: %s pid:%d", shell, pid)
 
-	syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(syscall.TIOCSWINSZ),
+	log.Debugf("resizing terminal %v to %dx%d", *pseudoTTY, height, width)
+	_, _, err = syscall.Syscall(syscall.SYS_IOCTL, pseudoTTY.Fd(), uintptr(syscall.TIOCSWINSZ),
 		uintptr(unsafe.Pointer(&struct {
 			h, w, x, y uint16
 		}{
-			uint16(height), uint16(width), 0, 0,
+			height, width, 0, 0,
 		})))
+	if err != nil {
+		log.Debugf("failed to resize terminal: %s", err.Error())
+	}
 
-	return f, f, nil
+	return pid, pseudoTTY, cmd, nil
 }

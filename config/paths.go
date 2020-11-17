@@ -14,7 +14,10 @@
 
 package config
 
-import "path"
+import (
+	"path"
+	"time"
+)
 
 // default configuration paths
 var (
@@ -25,11 +28,16 @@ var (
 	DefaultShellCommand      = "/bin/sh"
 	DefaultDeviceConnectPath = "/api/devices/v1/deviceconnect/connect"
 
+	DefaultTerminalString = "xterm-256color"
 	DefaultTerminalHeight = uint16(40)
 	DefaultTerminalWidth  = uint16(80)
 
 	DefaultConfFile         = path.Join(GetConfDirPath(), "mender-shell.conf")
 	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "mender-shell.conf")
+
+	MaxReconnectAttempts = 128
+	MessageWriteTimeout  = 2 * time.Second
+	MaxShellsSpawned     = uint(16)
 )
 
 // GetStateDirPath returns the default data store directory

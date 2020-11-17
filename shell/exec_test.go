@@ -14,118 +14,118 @@
 package shell
 
 import (
-	"io/ioutil"
-	"math/rand"
+	"fmt"
+	"github.com/vmihailenco/msgpack"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/user"
-	"strconv"
+	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
+	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmihailenco/msgpack"
 )
 
-var (
-	testFileNameTemporary string
-	testData              string
-)
+var messages []string
 
-func sendCommand(ws *websocket.Conn, command string) error {
-	m := &MenderShellMessage{
-		Type: messageTypeShellCommand,
-		Data: []byte(command),
-	}
-	data, err := msgpack.Marshal(m)
+func TestNewMenderShell(t *testing.T) {
+	s := NewMenderShell("", nil, nil, nil)
+	assert.NotNil(t, s)
+}
+
+func readMessage(ws *websocket.Conn, m *MenderShellMessage) error {
+	_, data, err := ws.ReadMessage()
 	if err != nil {
 		return err
 	}
-	ws.SetWriteDeadline(time.Now().Add(writeWait))
-	ws.WriteMessage(websocket.BinaryMessage, data)
+
+	err = msgpack.Unmarshal(data, m)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func commandSender(w http.ResponseWriter, r *http.Request) {
+func echoMainServerLoop(w http.ResponseWriter, r *http.Request) {
 	var upgrader = websocket.Upgrader{}
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer c.Close()
+
 	for {
-		sendCommand(c, "echo "+testData+" > "+testFileNameTemporary+"\n")
-		time.Sleep(4 * time.Second)
+		m := &MenderShellMessage{}
+		err = readMessage(c, m)
+		if err == nil {
+			messages = append(messages, strings.TrimRight(string(m.Data), "\r\n"))
+		}
+		time.Sleep(1 * time.Second)
+		m = &MenderShellMessage{}
+		err = readMessage(c, m)
+		if err == nil {
+			messages = append(messages, strings.TrimRight(string(m.Data), "\r\n"))
+		}
 	}
 }
 
-func TestMenderShellExec(t *testing.T) {
-	rand.Seed(time.Now().Unix())
-	testData = "commandSender." + strconv.Itoa(rand.Intn(6553600))
-	tempFile, err := ioutil.TempFile("", "TestMenderShellExec")
-	if err != nil {
-		t.Error("cant create temp file")
-		return
-	}
-	testFileNameTemporary = tempFile.Name()
-	defer os.Remove(tempFile.Name())
-
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Errorf("cant get current user: %s", err.Error())
-		return
-	}
-	uid, err := strconv.ParseUint(currentUser.Uid, 10, 32)
-	if err != nil {
-		t.Errorf("cant get current uid: %s", err.Error())
-		return
+func TestNewMenderShellReadStdIn(t *testing.T) {
+	messages = []string{}
+	cmd := exec.Command("/bin/sh")
+	if cmd == nil {
+		t.Fatal("cant execute shell")
 	}
 
-	gid, err := strconv.ParseUint(currentUser.Gid, 10, 32)
+	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", "xterm-256color"))
+	pseudoTTY, err := pty.Start(cmd)
 	if err != nil {
-		t.Errorf("cant get current gid: %s", err.Error())
-		return
+		t.Fatal("cant execute shell")
 	}
 
-	r, w, err := ExecuteShell(uint32(uid), uint32(gid), "/bin/sh", 24, 80)
-	if err != nil {
-		t.Errorf("cant execute shell: %s", err.Error())
-		return
-	}
+	_, _, err = syscall.Syscall(syscall.SYS_IOCTL, pseudoTTY.Fd(), uintptr(syscall.TIOCSWINSZ),
+		uintptr(unsafe.Pointer(&struct {
+			h, w, x, y uint16
+		}{
+			24, 80, 0, 0,
+		})))
 
-	t.Log("starting mock httpd with websockets")
-	s := httptest.NewServer(http.HandlerFunc(commandSender))
-	defer s.Close()
+	server := httptest.NewServer(http.HandlerFunc(echoMainServerLoop))
+	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
-	u := "ws" + strings.TrimPrefix(s.URL, "http")
+	u := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	// Connect to the server
 	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
 	defer ws.Close()
 
-	t.Log("starting mender-shell addon")
-	sh := NewMenderShell(ws, r, w)
-	sh.Start()
-	defer sh.Stop()
-	t.Log("checking command execution results")
-	found := false
-	for i := 0; i < 8; i++ {
-		t.Logf("checking if %s contains %s", testFileNameTemporary, testData)
-		data, _ := ioutil.ReadFile(testFileNameTemporary)
-		trimmedData := strings.TrimRight(string(data), "\n")
-		t.Logf("got: '%s'", trimmedData)
-		if trimmedData == testData {
-			found = true
-			break
-		}
-		time.Sleep(time.Second)
+	s := NewMenderShell(uuid.NewV4().String(), ws, pseudoTTY, pseudoTTY)
+	assert.NotNil(t, s)
+
+	s.Start()
+	assert.True(t, s.IsRunning())
+
+	message := "_ok_"
+	pseudoTTY.Write([]byte("echo " + message + "\n"))
+
+	time.Sleep(8 * time.Second)
+
+	wsNew, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("%v", err)
 	}
-	assert.True(t, found, "file contents must match expected value")
+	defer wsNew.Close()
+	err = s.UpdateWSConnection(wsNew)
+	assert.NoError(t, err)
+
+	s.Stop()
+	assert.False(t, s.IsRunning())
+
+	assert.Contains(t, messages, message)
 }
