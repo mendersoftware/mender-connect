@@ -35,7 +35,17 @@ const testConfig = `{
     "Certificate": "/data/client.crt",
     "Key": "/data/client.key"
   },
-  "User":"root"
+  "User":"root",
+  "Terminal": {
+    "Height": 80,
+    "Width": 24
+  },
+  "Sessions": {
+    "StopExpired": true,
+    "ExpireAfter": 16,
+    "ExpireAfterIdle": 8,
+    "MaxPerUser": 4
+  }
 }`
 
 const testBrokenConfig = `{
@@ -152,8 +162,14 @@ func validateConfiguration(t *testing.T, actual *MenderShellConfig) {
 		User:              "root",
 		ShellCommand:      DefaultShellCommand,
 		Terminal: TerminalConfig{
-			Width:  80,
-			Height: 40,
+			Width:  24,
+			Height: 80,
+		},
+		Sessions: SessionsConfig{
+			StopExpired:     true,
+			ExpireAfter:     16,
+			ExpireAfterIdle: 8,
+			MaxPerUser:      4,
 		},
 	}
 	if !assert.True(t, reflect.DeepEqual(actual, expectedConfig)) {

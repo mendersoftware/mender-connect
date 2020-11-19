@@ -116,6 +116,7 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 
 	time.Sleep(8 * time.Second)
 
+	writeWait = 10 * time.Millisecond
 	wsNew, _, err := websocket.DefaultDialer.Dial(u, nil)
 	if err != nil {
 		t.Fatalf("%v", err)
@@ -124,8 +125,13 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 	err = s.UpdateWSConnection(wsNew)
 	assert.NoError(t, err)
 
+	wsNew.Close()
 	s.Stop()
 	assert.False(t, s.IsRunning())
 
 	assert.Contains(t, messages, message)
+}
+
+func TestMenderShellExecGetWriteTimeout(t *testing.T) {
+	assert.Equal(t, writeWait, MenderShellExecGetWriteTimeout())
 }

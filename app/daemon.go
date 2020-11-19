@@ -31,35 +31,47 @@ import (
 	"github.com/vmihailenco/msgpack"
 )
 
+var lastExpiredSessionSweep = time.Now()
+var expiredSessionsSweepFrequency = time.Second * 32
+
 type MenderShellDaemon struct {
-	stop             bool
-	username         string
-	shell            string
-	serverUrl        string
-	skipVerify       bool
-	deviceConnectUrl string
-	terminalString   string
-	terminalWidth    uint16
-	terminalHeight   uint16
-	uid              uint64
-	gid              uint64
-	shellsSpawned    uint
-	debug            bool
+	stop                    bool
+	printStatus             bool
+	username                string
+	shell                   string
+	serverUrl               string
+	skipVerify              bool
+	deviceConnectUrl        string
+	expireSessionsAfter     time.Duration
+	expireSessionsAfterIdle time.Duration
+	terminalString          string
+	terminalWidth           uint16
+	terminalHeight          uint16
+	uid                     uint64
+	gid                     uint64
+	shellsSpawned           uint
+	debug                   bool
 }
 
 func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 	daemon := MenderShellDaemon{
-		stop:             false,
-		username:         config.User,
-		shell:            config.ShellCommand,
-		serverUrl:        config.ServerURL,
-		skipVerify:       config.SkipVerify,
-		deviceConnectUrl: configuration.DefaultDeviceConnectPath,
-		terminalString:   configuration.DefaultTerminalString,
-		terminalWidth:    config.Terminal.Width,
-		terminalHeight:   config.Terminal.Height,
-		shellsSpawned:    0,
-		debug:            true,
+		stop:                    false,
+		username:                config.User,
+		shell:                   config.ShellCommand,
+		serverUrl:               config.ServerURL,
+		skipVerify:              config.SkipVerify,
+		expireSessionsAfter:     time.Second * time.Duration(config.Sessions.ExpireAfter),
+		expireSessionsAfterIdle: time.Second * time.Duration(config.Sessions.ExpireAfterIdle),
+		deviceConnectUrl:        configuration.DefaultDeviceConnectPath,
+		terminalString:          configuration.DefaultTerminalString,
+		terminalWidth:           config.Terminal.Width,
+		terminalHeight:          config.Terminal.Height,
+		shellsSpawned:           0,
+		debug:                   true,
+	}
+
+	if config.Sessions.MaxPerUser > 0 {
+		session.MaxUserSessions = int(config.Sessions.MaxPerUser)
 	}
 	return &daemon
 }
@@ -68,8 +80,99 @@ func (d *MenderShellDaemon) StopDaemon() {
 	d.stop = true
 }
 
+func (d *MenderShellDaemon) PrintStatus() {
+	d.printStatus = true
+}
+
 func (d *MenderShellDaemon) shouldStop() bool {
 	return d.stop
+}
+
+func (d *MenderShellDaemon) shouldPrintStatus() bool {
+	return d.printStatus
+}
+
+func (d *MenderShellDaemon) timeToSweepSessions() bool {
+	if d.expireSessionsAfter == time.Duration(0) && d.expireSessionsAfterIdle == time.Duration(0) {
+		return false
+	}
+
+	now := time.Now()
+	nextSweepAt := lastExpiredSessionSweep.Add(expiredSessionsSweepFrequency)
+	if now.After(nextSweepAt) {
+		lastExpiredSessionSweep = now
+		return true
+	} else {
+		return false
+	}
+}
+
+func (d *MenderShellDaemon) wsReconnect(token string) (ws *websocket.Conn, err error) {
+	for reconnectAttempts := configuration.MaxReconnectAttempts; reconnectAttempts > 0; reconnectAttempts-- {
+		ws, err = deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, token)
+		if err != nil {
+			if reconnectAttempts == 1 {
+				log.Errorf("main-loop ws failed to re-connect to %s%s, error: %s; giving up after %d tries", d.serverUrl, d.deviceConnectUrl, err.Error(), configuration.MaxReconnectAttempts)
+				return nil, err
+			}
+			log.Errorf("main-loop ws failed to connect to %s%s, error: %s", d.serverUrl, d.deviceConnectUrl, err.Error())
+			time.Sleep(time.Second)
+		} else {
+			log.Info("reconnected")
+			session.UpdateWSConnection(ws)
+			return ws, nil
+		}
+	}
+	return nil, errors.New("failed to reconnect after " + strconv.Itoa(configuration.MaxReconnectAttempts) + " tries")
+}
+
+func (d *MenderShellDaemon) outputStatus() {
+	log.Infof("mender-shell daemon v%s", configuration.VersionString())
+	log.Info(" status: ")
+	log.Infof("  sessions: %d", session.MenderShellSessionGetCount())
+	sessionIds := session.MenderShellSessionGetSessionIds()
+	for _, id := range sessionIds {
+		s := session.MenderShellSessionGetById(id)
+		log.Infof("   id:%s status:%d started:%s", id, s.GetStatus(), s.GetStartedAtFmt())
+		log.Infof("   expires:%s active:%s", s.GetExpiresAtFmt(), s.GetActiveAtFmt())
+		log.Infof("   shell:%s", s.GetShellCommandPath())
+	}
+	d.printStatus = false
+}
+
+func (d *MenderShellDaemon) messageMainLoop(ws *websocket.Conn, token string) (err error) {
+	for {
+		if d.shouldStop() {
+			break
+		}
+
+		if d.shouldPrintStatus() {
+			d.outputStatus()
+		}
+
+		message, err := d.readMessage(ws)
+		if err != nil {
+			log.Errorf("main-loop: error reading message: %s; attempting reconnect.", err.Error())
+			err = ws.Close()
+			if err != nil {
+				log.Errorf("main-loop: error on closing the connection: %s", err.Error())
+			}
+			ws, err = d.wsReconnect(token)
+			if err != nil {
+				log.Errorf("main-loop: error on reconnect: %s", err.Error())
+				break
+			}
+			continue
+		}
+
+		log.Debugf("got message: type:%s data length:%d", message.Type, len(message.Data))
+		err = d.routeMessage(ws, message)
+		if err != nil {
+			log.Debugf("error routing message")
+		}
+	}
+
+	return err
 }
 
 //starts all needed elements of the mender-shell daemon
@@ -83,7 +186,8 @@ func (d *MenderShellDaemon) Run() error {
 	if d.debug {
 		log.SetLevel(log.DebugLevel)
 	}
-	log.Infof("mender-shell starting shell: %s", d.shell)
+
+	log.Infof("daemon Run starting")
 	u, err := user.Lookup(d.username)
 	if err == nil && u == nil {
 		return errors.New("unknown error while getting a user id")
@@ -124,12 +228,12 @@ func (d *MenderShellDaemon) Run() error {
 	}
 
 	//get the JWT token from the client over dbus API
-	value, err := client.GetJWTToken()
+	jwtToken, err := client.GetJWTToken()
 	if err != nil {
 		log.Errorf("mender-shall dbus failed to get JWT token, error: %s", err.Error())
 		return err
 	}
-	log.Debugf("mender-shell got len(JWT)=%d", len(value))
+	log.Debugf("mender-shell got len(JWT)=%d", len(jwtToken))
 
 	// skip verification of HTTPS certificate if skipVerify is set in the config file
 	if d.skipVerify {
@@ -140,48 +244,34 @@ func (d *MenderShellDaemon) Run() error {
 
 	//make websocket connection to the backend, this will be used to exchange messages
 	log.Infof("mender-shell connecting websocket; url: %s%s", d.serverUrl, d.deviceConnectUrl)
-	ws, err := deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, value)
+	ws, err := deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, jwtToken)
 	if err != nil {
 		log.Errorf("mender-shall ws failed to connect to %s%s, error: %s", d.serverUrl, d.deviceConnectUrl, err.Error())
 		return err
 	}
+
+	go d.messageMainLoop(ws, jwtToken)
 
 	log.Infof("mender-shell entering main loop.")
 	for {
 		if d.shouldStop() {
 			break
 		}
-		message, err := d.readMessage(ws)
-		if err != nil {
-			log.Errorf("main-loop: error reading message, attempting reconnect.")
-			err = ws.Close()
+
+		if d.shouldPrintStatus() {
+			d.outputStatus()
+		}
+
+		if d.timeToSweepSessions() {
+			shellStoppedCount, sessionStoppedCount, totalExpiredLeft, err := session.MenderSessionTerminateExpired()
 			if err != nil {
-				log.Errorf("main-loop: error on closing the connection")
+				log.Errorf("main-loop: failed to terminate some expired sessions, left: %d", totalExpiredLeft)
+			} else if sessionStoppedCount != 0 {
+				log.Infof("main-loop: stopped %d sessions, %d shells, expired sessions left: %d", shellStoppedCount, sessionStoppedCount, totalExpiredLeft)
 			}
-
-			for reconnectAttempts := configuration.MaxReconnectAttempts; reconnectAttempts > 0; reconnectAttempts-- {
-				ws, err = deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, value)
-				if err != nil {
-					if reconnectAttempts == 1 {
-						log.Errorf("main-loop ws failed to re-connect to %s%s, error: %s; giving up after %d tries", d.serverUrl, d.deviceConnectUrl, err.Error(), configuration.MaxReconnectAttempts)
-						return err
-					}
-					log.Errorf("main-loop ws failed to connect to %s%s, error: %s", d.serverUrl, d.deviceConnectUrl, err.Error())
-					time.Sleep(time.Second)
-				} else {
-					log.Info("reconnected")
-					session.UpdateWSConnection(ws)
-					break
-				}
-			}
-			continue
 		}
 
-		log.Debugf("got message: type:%s data length:%d", message.Type, len(message.Data))
-		err = d.routeMessage(ws, message)
-		if err != nil {
-			log.Debugf("error routing message")
-		}
+		time.Sleep(time.Second)
 	}
 	return nil
 }
@@ -206,7 +296,7 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 		s := session.MenderShellSessionGetById(message.SessionId)
 		if s == nil {
 			userId := string(message.Data)
-			s, err = session.NewMenderShellSession(ws, userId)
+			s, err = session.NewMenderShellSession(ws, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle)
 			if err != nil {
 				return err
 			}

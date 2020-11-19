@@ -83,6 +83,10 @@ func NewMenderShell(sessionId string, ws *websocket.Conn, r io.Reader, w io.Writ
 	return &shell
 }
 
+func MenderShellExecGetWriteTimeout() time.Duration {
+	return writeWait
+}
+
 func (s *MenderShell) Start() {
 	go s.pipeStdout()
 	s.running = true
@@ -110,6 +114,10 @@ func (s *MenderShell) pipeStdout() {
 		raw := make([]byte, 255)
 		n, err := sr.Read(raw)
 		if err != nil {
+			if !s.IsRunning() {
+				return
+			}
+
 			log.Errorf("error reading stdout: '%s'; restart is needed.", err)
 			break
 		}
