@@ -358,6 +358,7 @@ func TestMenderShellStopDaemon(t *testing.T) {
 	})
 
 	assert.True(t, !d.shouldStop())
+	d.PrintStatus()
 	d.StopDaemon()
 	assert.True(t, d.shouldStop())
 }
@@ -424,6 +425,45 @@ func TestMenderShellReadMessage(t *testing.T) {
 	assert.Nil(t, m)
 }
 
+func TestMenderShellWsReconnect(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Errorf("cant get current user: %s", err.Error())
+		return
+	}
+
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         currentUser.Name,
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+
+	t.Log("starting mock httpd with websockets")
+	s := httptest.NewServer(http.HandlerFunc(oneMsgMainServerLoop))
+	defer s.Close()
+
+	u := "ws" + strings.TrimPrefix(s.URL, "http")
+
+	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	defer ws.Close()
+	assert.NotNil(t, ws)
+	assert.NoError(t, err)
+
+	t.Log("attempting reconnect")
+	d.serverUrl = u
+	ws, err = d.wsReconnect("atoken")
+	assert.NotNil(t, ws)
+	assert.NoError(t, err)
+}
+
 func TestMenderShellMaxShellsLimit(t *testing.T) {
 	session.MaxUserSessions = 4
 	config.MaxShellsSpawned = 2
@@ -476,4 +516,50 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 		t.Logf("route message error: %s", err.Error())
 	}
 	assert.Error(t, err)
+}
+
+func TestOutputStatus(t *testing.T) {
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         "mender",
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+	assert.NotNil(t, d)
+
+	d.outputStatus()
+}
+
+func TestTimeToSweepSessions(t *testing.T) {
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         "mender",
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+	assert.NotNil(t, d)
+	assert.False(t, d.timeToSweepSessions())
+
+	//if both expire timeout and idle expire timeout are not set it is never time to sweep
+	d.expireSessionsAfter = time.Duration(0)
+	d.expireSessionsAfterIdle = time.Duration(0)
+	assert.False(t, d.timeToSweepSessions())
+
+	//on the other hand when both are set it maybe time to sweep
+	d.expireSessionsAfter = 32*time.Second
+	d.expireSessionsAfterIdle = 8*time.Second
+	lastExpiredSessionSweep = time.Now()
+	assert.False(t, d.timeToSweepSessions())
+
+	expiredSessionsSweepFrequency=2*time.Second
+	time.Sleep(2*expiredSessionsSweepFrequency)
+	assert.True(t, d.timeToSweepSessions())
 }

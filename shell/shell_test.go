@@ -14,6 +14,7 @@
 package shell
 
 import (
+	"github.com/mendersoftware/mender-shell/procps"
 	"os"
 	"os/user"
 	"strconv"
@@ -79,10 +80,7 @@ func TestMenderShellExecShell(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 
-	p, err = os.FindProcess(pid)
-	assert.NotNil(t, p)
-	err = p.Signal(syscall.Signal(0))
-	if err == nil {
+	if procps.ProcessExists(pid) {
 		t.Logf("process is still running after kill -9")
 	}
 }

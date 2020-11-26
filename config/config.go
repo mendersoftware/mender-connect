@@ -37,6 +37,17 @@ type TerminalConfig struct {
 	Height uint16
 }
 
+type SessionsConfig struct {
+	// Whether to stop expired sessions
+	StopExpired bool
+	// Seconds after startup of a sessions that will make it expire
+	ExpireAfter uint32
+	// Seconds after last activity of a sessions that will make it expire
+	ExpireAfterIdle uint32
+	// Max sessions per user
+	MaxPerUser uint32
+}
+
 // MenderShellConfigFromFile holds the configuration settings read from the config file
 type MenderShellConfigFromFile struct {
 	// ClientProtocol "https"
@@ -57,6 +68,8 @@ type MenderShellConfigFromFile struct {
 	User string
 	// Terminal settings
 	Terminal TerminalConfig `json:"Terminal"`
+	// User sessions settings
+	Sessions SessionsConfig `json:"Sessions"`
 }
 
 // MenderShellConfig holds the configuration settings for the Mender shell client
@@ -128,8 +141,22 @@ func isInShells(path string) bool {
 	return found
 }
 
+func validateUser(c *MenderShellConfig) (err error) {
+	if c.User == "" {
+		return errors.New("please provide a user to run the shell as")
+	}
+	u, err := user.Lookup(c.User)
+	if err == nil && u == nil {
+		return errors.New("unknown error while getting a user id")
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // Validate verifies the Servers fields in the configuration
-func (c *MenderShellConfig) Validate() error {
+func (c *MenderShellConfig) Validate() (err error) {
 	if c.Servers == nil {
 		if c.ServerURL == "" {
 			log.Warn("No server URL(s) specified in mender configuration.")
@@ -177,13 +204,7 @@ func (c *MenderShellConfig) Validate() error {
 		return errors.New("given shell (" + c.ShellCommand + ") is not executable")
 	}
 
-	if c.User == "" {
-		return errors.New("please provide a user to run the shell as")
-	}
-	u, err := user.Lookup(c.User)
-	if err == nil && u == nil {
-		return errors.New("unknown error while getting a user id")
-	}
+	err = validateUser(c)
 	if err != nil {
 		return err
 	}
@@ -199,6 +220,15 @@ func (c *MenderShellConfig) Validate() error {
 
 	if c.Terminal.Height == 0 {
 		c.Terminal.Height = DefaultTerminalHeight
+	}
+
+	if !c.Sessions.StopExpired {
+		c.Sessions.ExpireAfter = 0
+		c.Sessions.ExpireAfterIdle = 0
+	} else {
+		if c.Sessions.ExpireAfter > 0 && c.Sessions.ExpireAfterIdle > 0 {
+			log.Warnf("both ExpireAfter and ExpireAfterIdle specified.")
+		}
 	}
 
 	c.HTTPSClient.Validate()

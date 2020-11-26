@@ -15,6 +15,7 @@ package session
 
 import (
 	"errors"
+	"github.com/mendersoftware/mender-shell/procps"
 	"io"
 	"os"
 	"os/exec"
@@ -47,6 +48,10 @@ const (
 	NewSession
 )
 
+const (
+	NoExpirationTimeout = time.Second * 0
+)
+
 var (
 	ErrSessionShellAlreadyRunning         = errors.New("shell is already running")
 	ErrSessionShellNotRunning             = errors.New("shell is not running")
@@ -57,9 +62,11 @@ var (
 )
 
 var (
-	defaultSessionExpiredTimeout = 1024 * time.Second
-	shellProcessWaitTimeout      = 8 * time.Second
-	MaxUserSessions              = 1
+	defaultSessionExpiredTimeout     = 1024 * time.Second
+	defaultSessionIdleExpiredTimeout = NoExpirationTimeout
+	defaultTimeFormat                = "Mon Jan 2 15:04:05 -0700 MST 2006"
+	shellProcessWaitTimeout          = 8 * time.Second
+	MaxUserSessions                  = 1
 )
 
 type MenderShellTerminalSettings struct {
@@ -85,6 +92,8 @@ type MenderShellSession struct {
 	createdAt time.Time
 	//time after which session is considered to be expired
 	expiresAt time.Time
+	//time of a last received message used to determine if the session is active
+	activeAt time.Time
 	//type of the session
 	sessionType MenderSessionType
 	//status of the session
@@ -105,7 +114,14 @@ type MenderShellSession struct {
 var sessionsMap = map[string]*MenderShellSession{}
 var sessionsByUserIdMap = map[string][]*MenderShellSession{}
 
-func NewMenderShellSession(ws *websocket.Conn, userId string) (s *MenderShellSession, err error) {
+func timeNow() time.Time {
+	return time.Now().UTC()
+}
+
+func NewMenderShellSession(ws *websocket.Conn,
+	userId string,
+	expireAfter time.Duration,
+	expireAfterIdle time.Duration) (s *MenderShellSession, err error) {
 	if userSessions, ok := sessionsByUserIdMap[userId]; ok {
 		log.Debugf("user %s has %d sessions.", userId, len(userSessions))
 		if len(userSessions) >= MaxUserSessions {
@@ -118,18 +134,40 @@ func NewMenderShellSession(ws *websocket.Conn, userId string) (s *MenderShellSes
 	uid := uuid.NewV4()
 	id := uid.String()
 
+	if expireAfter == NoExpirationTimeout {
+		expireAfter = defaultSessionExpiredTimeout
+	}
+
+	if expireAfterIdle != NoExpirationTimeout {
+		defaultSessionIdleExpiredTimeout = expireAfterIdle
+	}
+
+	createdAt := timeNow()
 	s = &MenderShellSession{
 		ws:          ws,
 		id:          id,
 		userId:      userId,
-		createdAt:   time.Now(),
-		expiresAt:   time.Now().Add(defaultSessionExpiredTimeout),
+		createdAt:   createdAt,
+		expiresAt:   createdAt.Add(expireAfter),
 		sessionType: ShellInteractiveSession,
 		status:      NewSession,
 	}
 	sessionsMap[id] = s
 	sessionsByUserIdMap[userId] = append(sessionsByUserIdMap[userId], s)
 	return s, nil
+}
+
+func MenderShellSessionGetCount() int {
+	return len(sessionsMap)
+}
+
+func MenderShellSessionGetSessionIds() []string {
+	keys := make([]string, 0, len(sessionsMap))
+	for k := range sessionsMap {
+		keys = append(keys, k)
+	}
+
+	return keys
 }
 
 func MenderShellSessionGetById(id string) *MenderShellSession {
@@ -199,6 +237,53 @@ func MenderShellStopByUserId(userId string) (count uint, err error) {
 	return count, err
 }
 
+func MenderSessionTerminateExpired() (shellCount int, sessionCount int, totalExpiredLeft int, err error) {
+	shellCount = 0
+	sessionCount = 0
+	totalExpiredLeft = 0
+	for id, s := range sessionsMap {
+		if s.IsExpired(false) {
+			e := s.StopShell()
+			if e == nil {
+				shellCount++
+			} else {
+				log.Debugf("expire sessions: failed to stop shell for session: %s: %s", id, e.Error())
+				err = e
+			}
+			e = MenderShellDeleteById(id)
+			if e == nil {
+				sessionCount++
+			} else {
+				log.Debugf("expire sessions: failed to delete session: %s: %s", id, e.Error())
+				totalExpiredLeft++
+				err = e
+			}
+		}
+	}
+
+	return shellCount, sessionCount, totalExpiredLeft, err
+}
+
+func (s *MenderShellSession) GetStatus() MenderSessionStatus {
+	return s.status
+}
+
+func (s *MenderShellSession) GetStartedAtFmt() string {
+	return s.createdAt.Format(defaultTimeFormat)
+}
+
+func (s *MenderShellSession) GetExpiresAtFmt() string {
+	return s.expiresAt.Format(defaultTimeFormat)
+}
+
+func (s *MenderShellSession) GetActiveAtFmt() string {
+	return s.activeAt.Format(defaultTimeFormat)
+}
+
+func (s *MenderShellSession) GetShellCommandPath() string {
+	return s.command.Path
+}
+
 func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTerminalSettings) error {
 	if s.status == ActiveSession || s.status == HangedSession {
 		return ErrSessionShellAlreadyRunning
@@ -217,7 +302,7 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 	//MenderShell represents a process of passing messages between backend
 	//and the shell subprocess (started above via shell.ExecuteShell) over
 	//the websocket connection
-	log.Info("mender-shell starting shell command passing process")
+	log.Infof("mender-shell starting shell command passing process, pid: %d", pid)
 	s.shell = shell.NewMenderShell(sessionId, s.ws, pseudoTTY, pseudoTTY)
 	s.shell.Start()
 
@@ -228,6 +313,7 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 	s.terminal = terminal
 	s.pseudoTTY = pseudoTTY
 	s.command = cmd
+	s.activeAt = timeNow()
 	return nil
 }
 
@@ -235,15 +321,20 @@ func (s *MenderShellSession) GetId() string {
 	return s.id
 }
 
-func (s *MenderShellSession) IsExpired() bool {
-	e := time.Now().After(s.expiresAt)
-	if e {
+func (s *MenderShellSession) IsExpired(setStatus bool) bool {
+	if defaultSessionIdleExpiredTimeout != NoExpirationTimeout {
+		idleTimeoutReached := s.activeAt.Add(defaultSessionIdleExpiredTimeout)
+		return timeNow().After(idleTimeoutReached)
+	}
+	e := timeNow().After(s.expiresAt)
+	if e && setStatus {
 		s.status = ExpiredSession
 	}
 	return e
 }
 
 func (s *MenderShellSession) ShellCommand(m *shell.MenderShellMessage) error {
+	s.activeAt = timeNow()
 	data := m.Data
 	commandLine := string(data)
 	n, err := s.writer.Write(data)
@@ -258,42 +349,26 @@ func (s *MenderShellSession) ShellCommand(m *shell.MenderShellMessage) error {
 	return err
 }
 
-func (s *MenderShellSession) StopShell() error {
-	log.Infof("session %s stopping shell", s.id)
+func (s *MenderShellSession) StopShell() (err error) {
+	log.Infof("session %s status:%d stopping shell", s.id, s.status)
 	if s.status != ActiveSession && s.status != HangedSession {
 		return ErrSessionShellNotRunning
 	}
 
-	s.pseudoTTY.Close()
 	p, _ := os.FindProcess(s.shellPid)
-	if p != nil {
-		p.Signal(syscall.SIGINT)
-		time.Sleep(time.Second)
-		p.Signal(syscall.SIGTERM)
-		time.Sleep(2*time.Second)
-		p.Signal(syscall.SIGKILL)
-		time.Sleep(time.Second)
-		done := make(chan error, 1)
-		go func() {
-			done <- s.command.Wait()
-		}()
-		select {
-		case err := <-done:
-			if err != nil {
-				log.Errorf("failed to wait for the shell process to exit: %s", err.Error())
-			}
-		case <-time.After(shellProcessWaitTimeout):
-			log.Infof("waiting for pid %d timeout. the process will remain as zombie.", s.shellPid)
-		}
-		err := p.Signal(syscall.Signal(0))
-		if err == nil {
-			s.status = HangedSession
-			return ErrSessionShellStillRunning
-		}
+	p.Signal(syscall.SIGINT)
+	time.Sleep(2 * time.Second)
+	s.shell.Stop()
+	time.Sleep(2 * shell.MenderShellExecGetWriteTimeout())
+	s.pseudoTTY.Close()
+
+	err = procps.TerminateAndWait(s.shellPid, s.command, 2*time.Second)
+	if err != nil {
+		log.Errorf("session %s, shell pid %d, termination error: %s", s.id, s.shellPid, err.Error())
 	}
 
 	s.shell.Stop()
 	s.terminal = MenderShellTerminalSettings{}
 	s.status = EmptySession
-	return nil
+	return err
 }

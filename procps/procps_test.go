@@ -11,26 +11,26 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-package main
+package procps
 
 import (
-	"os"
+	"errors"
+	"os/exec"
+	"testing"
+	"time"
 
-	"github.com/mendersoftware/mender-shell/cli"
-	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 )
 
-func doMain() int {
-	log.SetFormatter(&log.TextFormatter{
-		FullTimestamp: true,
-	})
-	if err := cli.SetupCLI(os.Args); err != nil {
-		log.Errorln(err.Error())
-		return 1
-	}
-	return 0
-}
+func TestMenderShellProcPs(t *testing.T) {
+	cmd := exec.Command("sleep", "16")
+	err := cmd.Start()
+	assert.NoError(t, err)
 
-func main() {
-	os.Exit(doMain())
+	assert.True(t, ProcessExists(cmd.Process.Pid))
+
+	err = TerminateAndWait(cmd.Process.Pid, cmd, time.Second)
+	assert.Error(t, err, errors.New("error waiting for the process: signal: terminated"))
+
+	assert.False(t, ProcessExists(cmd.Process.Pid))
 }

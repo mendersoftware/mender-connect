@@ -64,6 +64,9 @@ func noopMmainServerLoop(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 
 	for {
+		c.SetWriteDeadline(time.Now().Add(2 * time.Second))
+		c.WriteMessage(websocket.BinaryMessage, []byte("echo"))
+
 		time.Sleep(4 * time.Second)
 	}
 }
@@ -89,6 +92,14 @@ func TestMenderShellDeviceConnect(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, ws1)
 
-	t.Log("waiting for ping-pong")
+	t.Log("reading a message")
+	_, b, err := wsValid.ReadMessage()
+	assert.NoError(t, err)
+	assert.True(t, len(b) > 1)
+	assert.Equal(t, "echo", string(b))
+
+	t.Log("waiting for timeout")
 	time.Sleep(20 * time.Second)
+	_, _, err = wsValid.ReadMessage()
+	assert.Error(t, err)
 }

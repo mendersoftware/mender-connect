@@ -1,3 +1,4 @@
 .*.sw?
 mender-shell
+coverage.txt
 

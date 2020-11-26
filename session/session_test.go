@@ -20,12 +20,13 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/mendersoftware/mender-shell/procps"
 	"github.com/mendersoftware/mender-shell/shell"
+
+	"github.com/gorilla/websocket"
 	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -42,12 +43,6 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 	for {
 		time.Sleep(4 * time.Second)
 	}
-}
-
-func psExists(pid int) bool {
-	p, err := os.FindProcess(pid)
-	err = p.Signal(syscall.Signal(0))
-	return err == nil
 }
 
 func TestMenderShellStartStopShell(t *testing.T) {
@@ -83,7 +78,7 @@ func TestMenderShellStartStopShell(t *testing.T) {
 		return
 	}
 
-	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567ff")
+	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567ff", defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -95,10 +90,26 @@ func TestMenderShellStartStopShell(t *testing.T) {
 	if err != nil {
 		log.Errorf("failed to start shell: %s", err.Error())
 	}
+	t.Logf("created session:\n id:%s,\n createdAt:%s,\n expiresAt:%s\n now:%s",
+		s.id,
+		s.createdAt.Format(defaultTimeFormat),
+		s.expiresAt.Format(defaultTimeFormat),
+		time.Now().Format(defaultTimeFormat))
 	assert.NoError(t, err)
-	assert.True(t, psExists(s.shellPid))
+	assert.True(t, procps.ProcessExists(s.shellPid))
+	assert.Equal(t, s.status, s.GetStatus())
+	assert.Equal(t, s.GetStatus(), ActiveSession)
+	assert.True(t, s.GetExpiresAtFmt() != "")
+	assert.True(t, s.GetStartedAtFmt() != "")
+	assert.True(t, s.GetActiveAtFmt() != "")
+	nowUpToHours := strings.Split(time.Now().UTC().Format(defaultTimeFormat), ":")[0]
+	nowUpToHoursExpires := strings.Split(time.Now().UTC().Add(defaultSessionExpiredTimeout).Format(defaultTimeFormat), ":")[0]
+	assert.Equal(t, strings.Split(s.GetExpiresAtFmt(), ":")[0], nowUpToHoursExpires)
+	assert.Equal(t, strings.Split(s.GetStartedAtFmt(), ":")[0], nowUpToHours)
+	assert.Equal(t, strings.Split(s.GetActiveAtFmt(), ":")[0], nowUpToHours)
+	assert.Equal(t, "/bin/sh", s.GetShellCommandPath())
 
-	sNew, err := NewMenderShellSession(ws, "user-id-f435678-f4567ff")
+	sNew, err := NewMenderShellSession(ws, "user-id-f435678-f4567ff", defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = sNew.StartShell(sNew.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -111,15 +122,20 @@ func TestMenderShellStartStopShell(t *testing.T) {
 		log.Errorf("failed to start shell: %s", err.Error())
 	}
 	assert.NoError(t, err)
-	assert.True(t, psExists(s.shellPid))
+	assert.True(t, procps.ProcessExists(s.shellPid))
 
 	err = s.StopShell()
-	assert.NoError(t, err)
-	assert.False(t, psExists(s.shellPid))
+	if err != nil {
+		assert.Equal(t, err.Error(), "error waiting for the process: signal: interrupt")
+	}
+	assert.False(t, procps.ProcessExists(s.shellPid))
 
 	count, err := MenderShellStopByUserId("user-id-f435678-f4567ff")
 	assert.Error(t, err)
 	assert.Equal(t, uint(1), count)
+
+	count, err = MenderShellStopByUserId("not-really-there")
+	assert.Error(t, err)
 }
 
 func TestMenderShellCommand(t *testing.T) {
@@ -154,7 +170,7 @@ func TestMenderShellCommand(t *testing.T) {
 		return
 	}
 
-	s, err := NewMenderShellSession(ws, uuid.NewV4().String())
+	s, err := NewMenderShellSession(ws, uuid.NewV4().String(), defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -167,7 +183,7 @@ func TestMenderShellCommand(t *testing.T) {
 		log.Errorf("failed to start shell: %s", err.Error())
 	}
 	assert.NoError(t, err)
-	assert.True(t, psExists(s.shellPid))
+	assert.True(t, procps.ProcessExists(s.shellPid))
 	err = s.ShellCommand(&shell.MenderShellMessage{
 		Type:      shell.MessageTypeShellCommand,
 		SessionId: s.GetId(),
@@ -211,7 +227,7 @@ func TestMenderShellShellAlreadyStartedFailedToStart(t *testing.T) {
 	}
 
 	userId := uuid.NewV4().String()
-	s, err := NewMenderShellSession(ws, userId)
+	s, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -224,7 +240,7 @@ func TestMenderShellShellAlreadyStartedFailedToStart(t *testing.T) {
 		log.Errorf("failed to start shell: %s", err.Error())
 	}
 	assert.NoError(t, err)
-	assert.True(t, psExists(s.shellPid))
+	assert.True(t, procps.ProcessExists(s.shellPid))
 
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
@@ -238,9 +254,9 @@ func TestMenderShellShellAlreadyStartedFailedToStart(t *testing.T) {
 		log.Errorf("failed to start shell: %s", err.Error())
 	}
 	assert.Error(t, err)
-	assert.True(t, psExists(s.shellPid))
+	assert.True(t, procps.ProcessExists(s.shellPid))
 
-	sNew, err := NewMenderShellSession(ws, userId)
+	sNew, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = sNew.StartShell(sNew.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -284,7 +300,7 @@ func TestMenderShellSessionExpire(t *testing.T) {
 	}
 	defer ws.Close()
 
-	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567f2")
+	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            500,
 		Gid:            501,
@@ -295,7 +311,8 @@ func TestMenderShellSessionExpire(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	time.Sleep(2 * defaultSessionExpiredTimeout * time.Second)
-	assert.True(t, s.IsExpired())
+	assert.True(t, s.IsExpired(false))
+	assert.True(t, s.IsExpired(true))
 }
 
 func TestMenderShellSessionUpdateWS(t *testing.T) {
@@ -312,7 +329,7 @@ func TestMenderShellSessionUpdateWS(t *testing.T) {
 	}
 	defer ws.Close()
 
-	s, err := NewMenderShellSession(ws, "user-id-f435678-f451212")
+	s, err := NewMenderShellSession(ws, "user-id-f435678-f451212", defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            500,
 		Gid:            501,
@@ -350,11 +367,11 @@ func TestMenderShellSessionGetByUserId(t *testing.T) {
 	defer ws.Close()
 
 	userId := "user-id-f431212-f4567ff"
-	s, err := NewMenderShellSession(ws, userId)
+	s, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 
 	anotherUserId := "user-id-f4433528-43b342b234b"
-	anotherUserSession, err := NewMenderShellSession(ws, anotherUserId)
+	anotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 
 	assert.NotEqual(t, anotherUserId, userId)
@@ -392,15 +409,15 @@ func TestMenderShellSessionGetById(t *testing.T) {
 	defer ws.Close()
 
 	userId := "user-id-8989-f431212-f4567ff"
-	s, err := NewMenderShellSession(ws, userId)
+	s, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
-	r, err := NewMenderShellSession(ws, userId)
+	r, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 
 	anotherUserId := "user-id-8989-f4433528-43b342b234b"
-	anotherUserSession, err := NewMenderShellSession(ws, anotherUserId)
+	anotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
-	andAnotherUserSession, err := NewMenderShellSession(ws, anotherUserId)
+	andAnotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 
 	assert.NotEqual(t, anotherUserId, userId)
@@ -419,6 +436,7 @@ func TestMenderShellSessionGetById(t *testing.T) {
 	assert.NotNil(t, MenderShellSessionGetById(userSessions[1].GetId()))
 	assert.NotNil(t, MenderShellSessionGetById(anotherUserSessions[0].GetId()))
 	assert.NotNil(t, MenderShellSessionGetById(anotherUserSessions[1].GetId()))
+	assert.Nil(t, MenderShellSessionGetById("not-really-there"))
 
 	var ids []string
 
@@ -430,7 +448,7 @@ func TestMenderShellSessionGetById(t *testing.T) {
 	assert.Contains(t, ids, MenderShellSessionGetById(userSessions[1].GetId()).id)
 }
 
-func TestMenderShellNewMenderShellSession(t *testing.T) {
+func TestMenderShellDeleteById(t *testing.T) {
 	MaxUserSessions = 2
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
@@ -445,18 +463,215 @@ func TestMenderShellNewMenderShellSession(t *testing.T) {
 	}
 	defer ws.Close()
 
+	userId := "user-id-1212-8989-f431212-f4567ff"
+	s, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	assert.NoError(t, err)
+	r, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	assert.NoError(t, err)
+
+	anotherUserId := "user-id-1212-8989-f4433528-43b342b234b"
+	anotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	assert.NoError(t, err)
+	assert.NotNil(t, anotherUserSession)
+	andAnotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	assert.NoError(t, err)
+	assert.NotNil(t, anotherUserSession)
+
+	assert.NotNil(t, MenderShellSessionGetById(anotherUserSession.GetId()))
+	assert.NotNil(t, MenderShellSessionGetById(andAnotherUserSession.GetId()))
+	assert.NotNil(t, MenderShellSessionGetById(s.GetId()))
+	assert.NotNil(t, MenderShellSessionGetById(r.GetId()))
+
+	err = MenderShellDeleteById("not-really-here")
+	assert.Error(t, err)
+
+	err = MenderShellDeleteById(anotherUserSession.GetId())
+	assert.NoError(t, err)
+	assert.Nil(t, MenderShellSessionGetById(anotherUserSession.GetId()))
+	assert.NotNil(t, MenderShellSessionGetById(andAnotherUserSession.GetId()))
+	assert.NotNil(t, MenderShellSessionGetById(s.GetId()))
+	assert.NotNil(t, MenderShellSessionGetById(r.GetId()))
+
+	err = MenderShellDeleteById("not-really-here")
+	assert.Error(t, err)
+
+	err = MenderShellDeleteById(andAnotherUserSession.GetId())
+	assert.NoError(t, err)
+	assert.Nil(t, MenderShellSessionGetById(anotherUserSession.GetId()))
+	assert.Nil(t, MenderShellSessionGetById(andAnotherUserSession.GetId()))
+	assert.NotNil(t, MenderShellSessionGetById(s.GetId()))
+	assert.NotNil(t, MenderShellSessionGetById(r.GetId()))
+
+	err = MenderShellDeleteById(s.GetId())
+	assert.NoError(t, err)
+	assert.Nil(t, MenderShellSessionGetById(anotherUserSession.GetId()))
+	assert.Nil(t, MenderShellSessionGetById(andAnotherUserSession.GetId()))
+	assert.Nil(t, MenderShellSessionGetById(s.GetId()))
+	assert.NotNil(t, MenderShellSessionGetById(r.GetId()))
+
+	err = MenderShellDeleteById(r.GetId())
+	assert.NoError(t, err)
+	assert.Nil(t, MenderShellSessionGetById(anotherUserSession.GetId()))
+	assert.Nil(t, MenderShellSessionGetById(andAnotherUserSession.GetId()))
+	assert.Nil(t, MenderShellSessionGetById(s.GetId()))
+	assert.Nil(t, MenderShellSessionGetById(r.GetId()))
+
+	err = MenderShellDeleteById("not-really-here")
+	assert.Error(t, err)
+}
+
+func TestMenderShellNewMenderShellSession(t *testing.T) {
+	MaxUserSessions = 2
+	sessionsMap = map[string]*MenderShellSession{}
+	sessionsByUserIdMap = map[string][]*MenderShellSession{}
+	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
+	defer server.Close()
+
+	// Convert http://127.0.0.1 to ws://127.0.0.
+	u := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	// Connect to the server
+	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	defer ws.Close()
+
+	var createdSessonsIds []string
 	var s *MenderShellSession
 	userId := uuid.NewV4().String()
 	for i := 0; i < MaxUserSessions; i++ {
-		s, err = NewMenderShellSession(ws, userId)
+		s, err = NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 		assert.NoError(t, err)
 		assert.NotNil(t, s)
+		createdSessonsIds = append(createdSessonsIds, s.id)
 	}
-	notFoundSession, err := NewMenderShellSession(ws, userId)
+	notFoundSession, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.Error(t, err)
 	assert.Nil(t, notFoundSession)
 
 	sessionById := MenderShellSessionGetById(s.GetId())
 	assert.NotNil(t, sessionById)
 	assert.True(t, sessionById.id == s.GetId())
+
+	count := MenderShellSessionGetCount()
+	assert.Equal(t, MaxUserSessions, count)
+
+	sessionsIds := MenderShellSessionGetSessionIds()
+	assert.Equal(t, len(createdSessonsIds), len(sessionsIds))
+	assert.ElementsMatch(t, createdSessonsIds, sessionsIds)
+}
+
+func TestMenderSessionTerminateExpired(t *testing.T) {
+	defaultSessionExpiredTimeout = 8 * time.Second
+	sessionsMap = map[string]*MenderShellSession{}
+	sessionsByUserIdMap = map[string][]*MenderShellSession{}
+
+	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
+	defer server.Close()
+
+	// Convert http://127.0.0.1 to ws://127.0.0.
+	u := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	// Connect to the server
+	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	defer ws.Close()
+
+	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
+	t.Logf("created session:\n id:%s,\n createdAt:%s,\n expiresAt:%s\n now:%s",
+		s.id,
+		s.createdAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),
+		s.expiresAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),
+		time.Now().Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
+	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
+		Uid:            500,
+		Gid:            501,
+		Shell:          "/bin/sh",
+		TerminalString: "xterm-256color",
+		Height:         24,
+		Width:          80,
+	})
+	assert.NoError(t, err)
+
+	shells, sessions, total, err := MenderSessionTerminateExpired()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, shells)
+	assert.Equal(t, 0, sessions)
+	assert.Equal(t, 0, total)
+
+	time.Sleep(2 * defaultSessionExpiredTimeout)
+	assert.True(t, s.IsExpired(false))
+
+	shells, sessions, total, err = MenderSessionTerminateExpired()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, shells)
+	assert.Equal(t, 1, sessions)
+	assert.Equal(t, 0, total)
+	assert.True(t, !procps.ProcessExists(s.shellPid))
+}
+
+func TestMenderSessionTerminateIdle(t *testing.T) {
+	defaultSessionExpiredTimeout = 255 * time.Second
+	idleTimeOut := 4 * time.Second
+	sessionsMap = map[string]*MenderShellSession{}
+	sessionsByUserIdMap = map[string][]*MenderShellSession{}
+
+	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
+	defer server.Close()
+
+	// Convert http://127.0.0.1 to ws://127.0.0.
+	u := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	// Connect to the server
+	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	defer ws.Close()
+
+	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567f2", NoExpirationTimeout, idleTimeOut)
+	t.Logf("created session:\n id:%s,\n createdAt:%s,\n expiresAt:%s\n now:%s",
+		s.id,
+		s.createdAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),
+		s.expiresAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),
+		time.Now().Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
+	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
+		Uid:            500,
+		Gid:            501,
+		Shell:          "/bin/sh",
+		TerminalString: "xterm-256color",
+		Height:         24,
+		Width:          80,
+	})
+	assert.NoError(t, err)
+
+	go func(f *os.File) {
+		for i := 0; i < 2*int(idleTimeOut.Seconds()); i++ {
+			f.Write([]byte("echo;\n"))
+			time.Sleep(time.Second)
+		}
+	}(s.pseudoTTY)
+
+	shells, sessions, total, err := MenderSessionTerminateExpired()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, shells)
+	assert.Equal(t, 0, sessions)
+	assert.Equal(t, 0, total)
+
+	time.Sleep(2 * idleTimeOut)
+	assert.True(t, s.IsExpired(false))
+
+	shells, sessions, total, err = MenderSessionTerminateExpired()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, shells)
+	assert.Equal(t, 1, sessions)
+	assert.Equal(t, 0, total)
+	assert.True(t, !procps.ProcessExists(s.shellPid))
+}
+
+func TestMenderSessionTimeNow(t *testing.T) {
+	assert.Equal(t, timeNow().Format(defaultTimeFormat), time.Now().UTC().Format(defaultTimeFormat))
 }
