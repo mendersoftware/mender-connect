@@ -35,6 +35,10 @@ import (
 var lastExpiredSessionSweep = time.Now()
 var expiredSessionsSweepFrequency = time.Second * 32
 
+var (
+	ErrNilParameterUnexpected = errors.New("unexpected nil parameter")
+)
+
 type MenderShellDaemon struct {
 	writeMutex              *sync.Mutex
 	stop                    bool
@@ -146,6 +150,7 @@ func (d *MenderShellDaemon) outputStatus() {
 func (d *MenderShellDaemon) messageMainLoop(ws *websocket.Conn, token string) (err error) {
 	for {
 		if d.shouldStop() {
+			log.Info("messageMainLoop: returning")
 			break
 		}
 
@@ -153,12 +158,17 @@ func (d *MenderShellDaemon) messageMainLoop(ws *websocket.Conn, token string) (e
 			d.outputStatus()
 		}
 
-		message, err := d.readMessage(ws)
+		var message *shell.MenderShellMessage
+		log.Debugf("messageMainLoop: calling readMessage")
+		message, err = d.readMessage(ws)
+		log.Debugf("messageMainLoop: calling readMessage: %v,%v", message, err)
 		if err != nil {
 			log.Errorf("main-loop: error reading message: %s; attempting reconnect.", err.Error())
-			err = ws.Close()
-			if err != nil {
-				log.Errorf("main-loop: error on closing the connection: %s", err.Error())
+			if ws != nil {
+				err = ws.Close()
+				if err != nil {
+					log.Errorf("main-loop: error on closing the connection: %s", err.Error())
+				}
 			}
 			ws, err = d.wsReconnect(token)
 			if err != nil {
@@ -176,6 +186,32 @@ func (d *MenderShellDaemon) messageMainLoop(ws *websocket.Conn, token string) (e
 	}
 
 	return err
+}
+
+//returns true if GetJWTToken returns "" meaning that we lost auth status
+//see below for some notes
+func deviceUnauth(client mender.AuthClient) bool {
+	jwtToken, err := client.GetJWTToken()
+	if err == nil {
+		//in case there is an error, it can mean that client was stopped, and/or there is
+		//a problem with DBus communication. the decision here is: we only assume that
+		//the device is unauthorized when there is a successful response from DBus
+		//in hope to save someone when mender-shell is the last access point
+		return jwtToken == ""
+	}
+	return false
+}
+
+func waitForJWTToken(client mender.AuthClient) (jwtToken string, err error) {
+	for {
+		jwtToken, err = client.GetJWTToken()
+		if jwtToken != "" {
+			log.Infof("JWT token is available.")
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	return jwtToken, nil
 }
 
 //starts all needed elements of the mender-shell daemon
@@ -230,12 +266,8 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	//get the JWT token from the client over dbus API
-	jwtToken, err := client.GetJWTToken()
-	if err != nil {
-		log.Errorf("mender-shall dbus failed to get JWT token, error: %s", err.Error())
-		return err
-	}
+	log.Infof("waiting for JWT token (GetJWTToken)")
+	jwtToken, err := waitForJWTToken(client)
 	log.Debugf("mender-shell got len(JWT)=%d", len(jwtToken))
 
 	// skip verification of HTTPS certificate if skipVerify is set in the config file
@@ -263,6 +295,12 @@ func (d *MenderShellDaemon) Run() error {
 
 		if d.shouldPrintStatus() {
 			d.outputStatus()
+		}
+
+		if deviceUnauth(client) {
+			log.Warnf("device was denied authorization.")
+			jwtToken, err = waitForJWTToken(client)
+			d.wsReconnect(jwtToken)
 		}
 
 		if d.timeToSweepSessions() {
@@ -402,6 +440,10 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 }
 
 func (d *MenderShellDaemon) readMessage(ws *websocket.Conn) (*shell.MenderShellMessage, error) {
+	if ws == nil {
+		return nil, ErrNilParameterUnexpected
+	}
+
 	_, data, err := ws.ReadMessage()
 	if err != nil {
 		return nil, err
