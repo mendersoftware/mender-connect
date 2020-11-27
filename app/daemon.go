@@ -18,6 +18,7 @@ import (
 	"errors"
 	"os/user"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -35,6 +36,7 @@ var lastExpiredSessionSweep = time.Now()
 var expiredSessionsSweepFrequency = time.Second * 32
 
 type MenderShellDaemon struct {
+	writeMutex              *sync.Mutex
 	stop                    bool
 	printStatus             bool
 	username                string
@@ -55,6 +57,7 @@ type MenderShellDaemon struct {
 
 func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 	daemon := MenderShellDaemon{
+		writeMutex:              &sync.Mutex{},
 		stop:                    false,
 		username:                config.User,
 		shell:                   config.ShellCommand,
@@ -276,13 +279,15 @@ func (d *MenderShellDaemon) Run() error {
 	return nil
 }
 
-func responseMessage(ws *websocket.Conn, m *shell.MenderShellMessage) (err error) {
+func (d *MenderShellDaemon) responseMessage(ws *websocket.Conn, m *shell.MenderShellMessage) (err error) {
 	data, err := msgpack.Marshal(m)
 	if err != nil {
 		return err
 	}
+	d.writeMutex.Lock()
 	err = ws.SetWriteDeadline(time.Now().Add(configuration.MessageWriteTimeout))
 	err = ws.WriteMessage(websocket.BinaryMessage, data)
+	d.writeMutex.Unlock()
 
 	return err
 }
@@ -296,7 +301,7 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 		s := session.MenderShellSessionGetById(message.SessionId)
 		if s == nil {
 			userId := string(message.Data)
-			s, err = session.NewMenderShellSession(ws, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle)
+			s, err = session.NewMenderShellSession(d.writeMutex, ws, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle)
 			if err != nil {
 				return err
 			}
@@ -324,7 +329,7 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 			d.shellsSpawned++
 		}
 
-		err = responseMessage(ws, &shell.MenderShellMessage{
+		err = d.responseMessage(ws, &shell.MenderShellMessage{
 			Type:      shell.MessageTypeSpawnShell,
 			Status:    status,
 			SessionId: s.GetId(),
@@ -360,7 +365,7 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 
 		err = s.StopShell()
 		if err != nil {
-			rErr := responseMessage(ws, &shell.MenderShellMessage{
+			rErr := d.responseMessage(ws, &shell.MenderShellMessage{
 				Type:      shell.MessageTypeSpawnShell,
 				Status:    shell.ErrorMessage,
 				SessionId: s.GetId(),
