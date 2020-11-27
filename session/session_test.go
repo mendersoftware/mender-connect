@@ -20,6 +20,7 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,7 +79,8 @@ func TestMenderShellStartStopShell(t *testing.T) {
 		return
 	}
 
-	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567ff", defaultSessionExpiredTimeout, NoExpirationTimeout)
+	var mutex sync.Mutex
+	s, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567ff", defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -109,7 +111,7 @@ func TestMenderShellStartStopShell(t *testing.T) {
 	assert.Equal(t, strings.Split(s.GetActiveAtFmt(), ":")[0], nowUpToHours)
 	assert.Equal(t, "/bin/sh", s.GetShellCommandPath())
 
-	sNew, err := NewMenderShellSession(ws, "user-id-f435678-f4567ff", defaultSessionExpiredTimeout, NoExpirationTimeout)
+	sNew, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567ff", defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = sNew.StartShell(sNew.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -170,7 +172,8 @@ func TestMenderShellCommand(t *testing.T) {
 		return
 	}
 
-	s, err := NewMenderShellSession(ws, uuid.NewV4().String(), defaultSessionExpiredTimeout, NoExpirationTimeout)
+	var mutex sync.Mutex
+	s, err := NewMenderShellSession(&mutex, ws, uuid.NewV4().String(), defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -226,8 +229,9 @@ func TestMenderShellShellAlreadyStartedFailedToStart(t *testing.T) {
 		return
 	}
 
+	var mutex sync.Mutex
 	userId := uuid.NewV4().String()
-	s, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	s, err := NewMenderShellSession(&mutex, ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -256,7 +260,7 @@ func TestMenderShellShellAlreadyStartedFailedToStart(t *testing.T) {
 	assert.Error(t, err)
 	assert.True(t, procps.ProcessExists(s.shellPid))
 
-	sNew, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	sNew, err := NewMenderShellSession(&mutex, ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = sNew.StartShell(sNew.GetId(), MenderShellTerminalSettings{
 		Uid:            uint32(uid),
 		Gid:            uint32(gid),
@@ -300,7 +304,8 @@ func TestMenderShellSessionExpire(t *testing.T) {
 	}
 	defer ws.Close()
 
-	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
+	var mutex sync.Mutex
+	s, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            500,
 		Gid:            501,
@@ -329,7 +334,8 @@ func TestMenderShellSessionUpdateWS(t *testing.T) {
 	}
 	defer ws.Close()
 
-	s, err := NewMenderShellSession(ws, "user-id-f435678-f451212", defaultSessionExpiredTimeout, NoExpirationTimeout)
+	var mutex sync.Mutex
+	s, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f451212", defaultSessionExpiredTimeout, NoExpirationTimeout)
 	err = s.StartShell(s.GetId(), MenderShellTerminalSettings{
 		Uid:            500,
 		Gid:            501,
@@ -366,12 +372,13 @@ func TestMenderShellSessionGetByUserId(t *testing.T) {
 	}
 	defer ws.Close()
 
+	var mutex sync.Mutex
 	userId := "user-id-f431212-f4567ff"
-	s, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	s, err := NewMenderShellSession(&mutex, ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 
 	anotherUserId := "user-id-f4433528-43b342b234b"
-	anotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	anotherUserSession, err := NewMenderShellSession(&mutex, ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 
 	assert.NotEqual(t, anotherUserId, userId)
@@ -408,16 +415,17 @@ func TestMenderShellSessionGetById(t *testing.T) {
 	}
 	defer ws.Close()
 
+	var mutex sync.Mutex
 	userId := "user-id-8989-f431212-f4567ff"
-	s, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	s, err := NewMenderShellSession(&mutex, ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
-	r, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	r, err := NewMenderShellSession(&mutex, ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 
 	anotherUserId := "user-id-8989-f4433528-43b342b234b"
-	anotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	anotherUserSession, err := NewMenderShellSession(&mutex, ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
-	andAnotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	andAnotherUserSession, err := NewMenderShellSession(&mutex, ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 
 	assert.NotEqual(t, anotherUserId, userId)
@@ -463,17 +471,18 @@ func TestMenderShellDeleteById(t *testing.T) {
 	}
 	defer ws.Close()
 
+	var mutex sync.Mutex
 	userId := "user-id-1212-8989-f431212-f4567ff"
-	s, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	s, err := NewMenderShellSession(&mutex, ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
-	r, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	r, err := NewMenderShellSession(&mutex, ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 
 	anotherUserId := "user-id-1212-8989-f4433528-43b342b234b"
-	anotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	anotherUserSession, err := NewMenderShellSession(&mutex, ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 	assert.NotNil(t, anotherUserSession)
-	andAnotherUserSession, err := NewMenderShellSession(ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	andAnotherUserSession, err := NewMenderShellSession(&mutex, ws, anotherUserId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.NoError(t, err)
 	assert.NotNil(t, anotherUserSession)
 
@@ -537,16 +546,17 @@ func TestMenderShellNewMenderShellSession(t *testing.T) {
 	}
 	defer ws.Close()
 
+	var mutex sync.Mutex
 	var createdSessonsIds []string
 	var s *MenderShellSession
 	userId := uuid.NewV4().String()
 	for i := 0; i < MaxUserSessions; i++ {
-		s, err = NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+		s, err = NewMenderShellSession(&mutex, ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 		assert.NoError(t, err)
 		assert.NotNil(t, s)
 		createdSessonsIds = append(createdSessonsIds, s.id)
 	}
-	notFoundSession, err := NewMenderShellSession(ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
+	notFoundSession, err := NewMenderShellSession(&mutex, ws, userId, defaultSessionExpiredTimeout, NoExpirationTimeout)
 	assert.Error(t, err)
 	assert.Nil(t, notFoundSession)
 
@@ -580,7 +590,8 @@ func TestMenderSessionTerminateExpired(t *testing.T) {
 	}
 	defer ws.Close()
 
-	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
+	var mutex sync.Mutex
+	s, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
 	t.Logf("created session:\n id:%s,\n createdAt:%s,\n expiresAt:%s\n now:%s",
 		s.id,
 		s.createdAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),
@@ -632,7 +643,8 @@ func TestMenderSessionTerminateIdle(t *testing.T) {
 	}
 	defer ws.Close()
 
-	s, err := NewMenderShellSession(ws, "user-id-f435678-f4567f2", NoExpirationTimeout, idleTimeOut)
+	var mutex sync.Mutex
+	s, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567f2", NoExpirationTimeout, idleTimeOut)
 	t.Logf("created session:\n id:%s,\n createdAt:%s,\n expiresAt:%s\n now:%s",
 		s.id,
 		s.createdAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),

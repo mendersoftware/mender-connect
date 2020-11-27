@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -34,7 +35,8 @@ import (
 var messages []string
 
 func TestNewMenderShell(t *testing.T) {
-	s := NewMenderShell("", nil, nil, nil)
+	var mutex sync.Mutex
+	s := NewMenderShell("", &mutex, nil, nil, nil)
 	assert.NotNil(t, s)
 }
 
@@ -105,7 +107,8 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 	}
 	defer ws.Close()
 
-	s := NewMenderShell(uuid.NewV4().String(), ws, pseudoTTY, pseudoTTY)
+	var mutex sync.Mutex
+	s := NewMenderShell(uuid.NewV4().String(), &mutex, ws, pseudoTTY, pseudoTTY)
 	assert.NotNil(t, s)
 
 	s.Start()

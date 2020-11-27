@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 
@@ -79,6 +80,8 @@ type MenderShellTerminalSettings struct {
 }
 
 type MenderShellSession struct {
+	//all the writes to the websocket are protected by a mutex
+	writeMutex *sync.Mutex
 	//websocket to pass the messages via
 	ws *websocket.Conn
 	//mender shell represents a process of passing data between a running shell
@@ -118,7 +121,7 @@ func timeNow() time.Time {
 	return time.Now().UTC()
 }
 
-func NewMenderShellSession(ws *websocket.Conn,
+func NewMenderShellSession(writeMutex *sync.Mutex, ws *websocket.Conn,
 	userId string,
 	expireAfter time.Duration,
 	expireAfterIdle time.Duration) (s *MenderShellSession, err error) {
@@ -144,6 +147,7 @@ func NewMenderShellSession(ws *websocket.Conn,
 
 	createdAt := timeNow()
 	s = &MenderShellSession{
+		writeMutex:  writeMutex,
 		ws:          ws,
 		id:          id,
 		userId:      userId,
@@ -303,7 +307,7 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 	//and the shell subprocess (started above via shell.ExecuteShell) over
 	//the websocket connection
 	log.Infof("mender-shell starting shell command passing process, pid: %d", pid)
-	s.shell = shell.NewMenderShell(sessionId, s.ws, pseudoTTY, pseudoTTY)
+	s.shell = shell.NewMenderShell(sessionId, s.writeMutex, s.ws, pseudoTTY, pseudoTTY)
 	s.shell.Start()
 
 	s.shellPid = pid
