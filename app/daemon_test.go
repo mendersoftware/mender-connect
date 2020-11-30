@@ -765,7 +765,7 @@ func TestRun(t *testing.T) {
 	done := make(chan bool)
 	go func() {
 		err := d.Run()
-		assert.Error(t,err)
+		assert.Error(t, err)
 		done <- true
 	}()
 

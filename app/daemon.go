@@ -298,8 +298,20 @@ func (d *MenderShellDaemon) Run() error {
 		}
 
 		if deviceUnauth(client) {
-			log.Warnf("device was denied authorization.")
+			log.Warnf("device was denied authorization, terminating all shells.")
+			shellsCount, sessionsCount, err := session.MenderSessionTerminateAll()
+			if err == nil {
+				log.Infof("terminated %d sessions, %d shells", shellsCount, sessionsCount)
+			} else {
+				log.Errorf("error terminating all sessions: %s", err.Error())
+			}
+			log.Infof("waiting for JWT token (GetJWTToken)")
 			jwtToken, err = waitForJWTToken(client)
+			if err != nil {
+				//shall we make waitForJWTToken wait even if there is an error?
+				//now we just stop
+				break
+			}
 			d.wsReconnect(jwtToken)
 		}
 

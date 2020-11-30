@@ -163,7 +163,7 @@ func TestPipeStdout(t *testing.T) {
 	}
 	defer ws.Close()
 
-	shell:=&MenderShell{
+	shell := &MenderShell{
 		sessionId: "unit-tests-sessions-id",
 		ws:        ws,
 		r:         reader,
@@ -171,20 +171,20 @@ func TestPipeStdout(t *testing.T) {
 		running:   false,
 	}
 
-	rc:=shell.IsRunning()
+	rc := shell.IsRunning()
 	assert.False(t, rc)
 
 	shell.Start()
-	rc=shell.IsRunning()
+	rc = shell.IsRunning()
 	assert.True(t, rc)
 
-	time.Sleep(4*time.Second)
+	time.Sleep(4 * time.Second)
 	shell.Stop()
-	rc=shell.IsRunning()
+	rc = shell.IsRunning()
 	assert.False(t, rc)
 
 	shell.Start()
-	rc=shell.IsRunning()
+	rc = shell.IsRunning()
 	assert.True(t, rc)
 	reader.Close()
 	writer.Close()
