@@ -26,6 +26,7 @@ import (
 	"github.com/mendersoftware/mender-shell/client/mender"
 	configuration "github.com/mendersoftware/mender-shell/config"
 	"github.com/mendersoftware/mender-shell/deviceconnect"
+	"github.com/mendersoftware/mender-shell/procps"
 	"github.com/mendersoftware/mender-shell/session"
 	"github.com/mendersoftware/mender-shell/shell"
 	log "github.com/sirupsen/logrus"
@@ -429,7 +430,20 @@ func (d *MenderShellDaemon) routeMessage(ws *websocket.Conn, message *shell.Mend
 			} else {
 				log.Errorf("failed to stop shell: %s", err.Error())
 			}
-			return err
+			if procps.ProcessExists(s.GetShellPid()) {
+				log.Errorf("could not terminate shell (pid %d) for session %s, user" +
+					"will not be able to start another one if the limit is reached.",
+					s.GetShellPid(),
+					s.GetId())
+				return errors.New("could not terminate shell: " + err.Error() + ".")
+			} else {
+				log.Infof("shell exit rc: %s",err.Error())
+				if d.shellsSpawned == 0 {
+					log.Error("can't decrement shellsSpawned count: it is 0.")
+				} else {
+					d.shellsSpawned--
+				}
+			}
 		} else {
 			if d.shellsSpawned == 0 {
 				log.Error("can't decrement shellsSpawned count: it is 0.")

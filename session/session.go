@@ -348,6 +348,10 @@ func (s *MenderShellSession) GetId() string {
 	return s.id
 }
 
+func (s *MenderShellSession) GetShellPid() int {
+	return s.shellPid
+}
+
 func (s *MenderShellSession) IsExpired(setStatus bool) bool {
 	if defaultSessionIdleExpiredTimeout != NoExpirationTimeout {
 		idleTimeoutReached := s.activeAt.Add(defaultSessionIdleExpiredTimeout)
