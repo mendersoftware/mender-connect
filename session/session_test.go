@@ -14,8 +14,10 @@
 package session
 
 import (
+	"github.com/mendersoftware/mender-shell/connection"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/user"
 	"strconv"
@@ -24,13 +26,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mendersoftware/mender-shell/procps"
-	"github.com/mendersoftware/mender-shell/shell"
-
 	"github.com/gorilla/websocket"
 	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+
+	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
+
+	"github.com/mendersoftware/mender-shell/procps"
+	"github.com/mendersoftware/mender-shell/shell"
 )
 
 func newShellTransaction(w http.ResponseWriter, r *http.Request) {
@@ -52,15 +56,14 @@ func TestMenderShellStartStopShell(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(newShellTransaction))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	currentUser, err := user.Current()
 	if err != nil {
@@ -133,8 +136,8 @@ func TestMenderShellStartStopShell(t *testing.T) {
 	assert.False(t, procps.ProcessExists(s.shellPid))
 
 	count, err := MenderShellStopByUserId("user-id-f435678-f4567ff")
-	assert.Error(t, err)
-	assert.Equal(t, uint(1), count)
+	assert.NoError(t, err)
+	assert.Equal(t, uint(2), count) //the reason for 2 here: s.StopShell does not intrinsically remove the session
 
 	count, err = MenderShellStopByUserId("not-really-there")
 	assert.Error(t, err)
@@ -145,15 +148,14 @@ func TestMenderShellCommand(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(newShellTransaction))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	currentUser, err := user.Current()
 	if err != nil {
@@ -188,7 +190,7 @@ func TestMenderShellCommand(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, procps.ProcessExists(s.shellPid))
 	err = s.ShellCommand(&shell.MenderShellMessage{
-		Type:      shell.MessageTypeShellCommand,
+		Type:      wsshell.MessageTypeShellCommand,
 		SessionId: s.GetId(),
 		Status:    0,
 		Data:      []byte("echo ok;\n"),
@@ -202,15 +204,14 @@ func TestMenderShellShellAlreadyStartedFailedToStart(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(newShellTransaction))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	currentUser, err := user.Current()
 	if err != nil {
@@ -294,15 +295,14 @@ func TestMenderShellSessionExpire(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	var mutex sync.Mutex
 	s, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
@@ -324,15 +324,14 @@ func TestMenderShellSessionUpdateWS(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	var mutex sync.Mutex
 	s, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f451212", defaultSessionExpiredTimeout, NoExpirationTimeout)
@@ -346,11 +345,9 @@ func TestMenderShellSessionUpdateWS(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	newWS, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer newWS.Close()
+	newWS, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	assert.True(t, s.ws == ws)
 	err = UpdateWSConnection(newWS)
@@ -362,15 +359,14 @@ func TestMenderShellSessionGetByUserId(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	var mutex sync.Mutex
 	userId := "user-id-f431212-f4567ff"
@@ -405,15 +401,14 @@ func TestMenderShellSessionGetById(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	var mutex sync.Mutex
 	userId := "user-id-8989-f431212-f4567ff"
@@ -461,15 +456,14 @@ func TestMenderShellDeleteById(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	var mutex sync.Mutex
 	userId := "user-id-1212-8989-f431212-f4567ff"
@@ -536,15 +530,14 @@ func TestMenderShellNewMenderShellSession(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	var mutex sync.Mutex
 	var createdSessonsIds []string
@@ -580,15 +573,14 @@ func TestMenderSessionTerminateExpired(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	var mutex sync.Mutex
 	s, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
@@ -632,15 +624,14 @@ func TestMenderSessionTerminateAll(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	var mutex sync.Mutex
 	s0, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
@@ -689,15 +680,14 @@ func TestMenderSessionTerminateIdle(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, ws)
 
 	var mutex sync.Mutex
 	s, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567f2", NoExpirationTimeout, idleTimeOut)
