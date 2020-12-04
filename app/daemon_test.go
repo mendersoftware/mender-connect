@@ -14,7 +14,7 @@
 package app
 
 import (
-	"github.com/mendersoftware/mender-shell/session"
+	"errors"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -31,7 +31,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack"
 
+	dbusmocks "github.com/mendersoftware/mender-shell/client/dbus/mocks"
+	authmocks "github.com/mendersoftware/mender-shell/client/mender/mocks"
+
 	"github.com/mendersoftware/mender-shell/config"
+	"github.com/mendersoftware/mender-shell/session"
 	"github.com/mendersoftware/mender-shell/shell"
 )
 
@@ -564,4 +568,210 @@ func TestTimeToSweepSessions(t *testing.T) {
 	expiredSessionsSweepFrequency = 2 * time.Second
 	time.Sleep(2 * expiredSessionsSweepFrequency)
 	assert.True(t, d.timeToSweepSessions())
+}
+
+func TestWaitForJWTToken(t *testing.T) {
+	testCases := []struct {
+		name    string
+		err     error
+		token   string
+		timeout time.Duration
+	}{
+		{
+			name:  "token_returned",
+			token: "the-token",
+		},
+		{
+			name:    "token_not_returned_wait_forever",
+			token:   "",
+			timeout: 15 * time.Second,
+		},
+	}
+
+	for _, tc := range testCases {
+		if tc.name == "token_not_returned_wait_forever" {
+			timeout := time.After(tc.timeout)
+			done := make(chan bool)
+			go func() {
+				t.Run(tc.name, func(t *testing.T) {
+					dbusAPI := &dbusmocks.DBusAPI{}
+					defer dbusAPI.AssertExpectations(t)
+					client := &authmocks.AuthClient{}
+					client.On("GetJWTToken").Return(tc.token, tc.err)
+					token, err := waitForJWTToken(client)
+					if tc.err != nil {
+						assert.Error(t, err)
+					} else {
+						assert.NoError(t, err)
+						assert.True(t, tc.token != "")
+						assert.Equal(t, tc.token, token)
+					}
+				})
+				done <- true
+			}()
+
+			select {
+			case <-timeout:
+				t.Logf("ok: expected to run forever")
+			case <-done:
+			}
+		} else {
+			t.Run(tc.name, func(t *testing.T) {
+				dbusAPI := &dbusmocks.DBusAPI{}
+				defer dbusAPI.AssertExpectations(t)
+				client := &authmocks.AuthClient{}
+				client.On("GetJWTToken").Return(tc.token, tc.err)
+				token, err := waitForJWTToken(client)
+				if tc.err != nil {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+					assert.True(t, tc.token != "")
+					assert.Equal(t, tc.token, token)
+				}
+			})
+		}
+	}
+}
+
+func TestDeviceUnauth(t *testing.T) {
+	testCases := []struct {
+		name  string
+		err   error
+		token string
+		rc    bool
+	}{
+		{
+			name:  "authorized",
+			token: "the-token",
+			rc:    false,
+		},
+		{
+			name:  "unauthorized",
+			token: "",
+			rc:    true,
+		},
+		{
+			name:  "unknown due to error assumed no change (authorized)",
+			token: "",
+			err:   errors.New("error getting the token"),
+			rc:    false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dbusAPI := &dbusmocks.DBusAPI{}
+			defer dbusAPI.AssertExpectations(t)
+			client := &authmocks.AuthClient{}
+			client.On("GetJWTToken").Return(tc.token, tc.err)
+			rc := deviceUnauth(client)
+			assert.Equal(t, tc.rc, rc)
+		})
+	}
+}
+
+func everySecondMessage(w http.ResponseWriter, r *http.Request) {
+	var upgrader = websocket.Upgrader{}
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer c.Close()
+
+	for i := 0; i < 24; i++ {
+		sendMessage(c, shell.MessageTypeShellCommand, "any-session-id", "echo;")
+		time.Sleep(time.Second)
+	}
+}
+
+func TestMessageMainLoop(t *testing.T) {
+	t.Log("starting mock httpd with websockets")
+	s := httptest.NewServer(http.HandlerFunc(everySecondMessage))
+	defer s.Close()
+
+	u := "ws" + strings.TrimPrefix(s.URL, "http")
+
+	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	defer ws.Close()
+
+	testCases := []struct {
+		name       string
+		ws         *websocket.Conn
+		token      string
+		shouldStop bool
+		err        error
+	}{
+		{
+			name:       "normal-exit",
+			shouldStop: true,
+		},
+		{
+			name: "route-a-message",
+			ws:   ws,
+		},
+		{
+			name: "ws-nil-error",
+			err:  errors.New("error connecting"),
+		},
+	}
+
+	config.MaxReconnectAttempts = 2
+	timeout := 15 * time.Second
+	for _, tc := range testCases {
+		timeout := time.After(timeout)
+		done := make(chan bool)
+		go func() {
+			t.Run(tc.name, func(t *testing.T) {
+				d := &MenderShellDaemon{}
+				d.stop = tc.shouldStop
+				d.printStatus = true
+				if tc.ws != nil {
+					go func() {
+						time.Sleep(4 * time.Second)
+						d.stop = true
+					}()
+				}
+				err := d.messageMainLoop(tc.ws, tc.token)
+				if tc.err != nil {
+					assert.Error(t, err)
+				} else {
+					if err != nil && err.Error() == session.ErrSessionNotFound.Error() {
+						assert.Equal(t, session.ErrSessionNotFound.Error(), err.Error())
+					} else {
+						assert.NoError(t, err)
+					}
+				}
+				done <- true
+			})
+		}()
+
+		select {
+		case <-timeout:
+			t.Logf("ok: expected to run forever")
+		case <-done:
+		}
+	}
+}
+
+func TestRun(t *testing.T) {
+	d := &MenderShellDaemon{}
+	d.debug = true
+	to := 15 * time.Second
+	timeout := time.After(to)
+	done := make(chan bool)
+	go func() {
+		err := d.Run()
+		assert.Error(t, err)
+		done <- true
+	}()
+
+	select {
+	case <-timeout:
+		t.Fatal("expected to exit with error")
+	case <-done:
+	}
 }

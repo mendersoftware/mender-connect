@@ -241,6 +241,29 @@ func MenderShellStopByUserId(userId string) (count uint, err error) {
 	return count, err
 }
 
+func MenderSessionTerminateAll() (shellCount int, sessionCount int, err error) {
+	shellCount = 0
+	sessionCount = 0
+	for id, s := range sessionsMap {
+		e := s.StopShell()
+		if e == nil {
+			shellCount++
+		} else {
+			log.Debugf("terminate sessions: failed to stop shell for session: %s: %s", id, e.Error())
+			err = e
+		}
+		e = MenderShellDeleteById(id)
+		if e == nil {
+			sessionCount++
+		} else {
+			log.Debugf("terminate sessions: failed to remove session: %s: %s", id, e.Error())
+			err = e
+		}
+	}
+
+	return shellCount, sessionCount, err
+}
+
 func MenderSessionTerminateExpired() (shellCount int, sessionCount int, totalExpiredLeft int, err error) {
 	shellCount = 0
 	sessionCount = 0

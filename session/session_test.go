@@ -624,6 +624,62 @@ func TestMenderSessionTerminateExpired(t *testing.T) {
 	assert.True(t, !procps.ProcessExists(s.shellPid))
 }
 
+func TestMenderSessionTerminateAll(t *testing.T) {
+	defaultSessionExpiredTimeout = 8 * time.Second
+	sessionsMap = map[string]*MenderShellSession{}
+	sessionsByUserIdMap = map[string][]*MenderShellSession{}
+
+	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
+	defer server.Close()
+
+	// Convert http://127.0.0.1 to ws://127.0.0.
+	u := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	// Connect to the server
+	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	defer ws.Close()
+
+	var mutex sync.Mutex
+	s0, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567f2", defaultSessionExpiredTimeout, NoExpirationTimeout)
+	t.Logf("created session:\n id:%s,\n createdAt:%s,\n expiresAt:%s\n now:%s",
+		s0.id,
+		s0.createdAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),
+		s0.expiresAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),
+		time.Now().Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
+	err = s0.StartShell(s0.GetId(), MenderShellTerminalSettings{
+		Uid:            500,
+		Gid:            501,
+		Shell:          "/bin/sh",
+		TerminalString: "xterm-256color",
+		Height:         24,
+		Width:          80,
+	})
+	assert.NoError(t, err)
+
+	s1, err := NewMenderShellSession(&mutex, ws, "user-id-f435678-f4567f3", defaultSessionExpiredTimeout, NoExpirationTimeout)
+	t.Logf("created session:\n id:%s,\n createdAt:%s,\n expiresAt:%s\n now:%s",
+		s1.id,
+		s1.createdAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),
+		s1.expiresAt.Format("Mon Jan 2 15:04:05 -0700 MST 2006"),
+		time.Now().Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
+	err = s1.StartShell(s1.GetId(), MenderShellTerminalSettings{
+		Uid:            500,
+		Gid:            501,
+		Shell:          "/bin/sh",
+		TerminalString: "xterm-256color",
+		Height:         24,
+		Width:          80,
+	})
+	assert.NoError(t, err)
+
+	MenderSessionTerminateAll()
+	assert.True(t, !procps.ProcessExists(s0.shellPid))
+	assert.True(t, !procps.ProcessExists(s1.shellPid))
+}
+
 func TestMenderSessionTerminateIdle(t *testing.T) {
 	defaultSessionExpiredTimeout = 255 * time.Second
 	idleTimeOut := 4 * time.Second

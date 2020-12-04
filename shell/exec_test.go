@@ -18,6 +18,7 @@ import (
 	"github.com/vmihailenco/msgpack"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -137,4 +138,54 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 
 func TestMenderShellExecGetWriteTimeout(t *testing.T) {
 	assert.Equal(t, writeWait, MenderShellExecGetWriteTimeout())
+}
+
+func TestPipeStdout(t *testing.T) {
+	reader, err := os.Open("/dev/null")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writer, err := os.Open("/dev/zero")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("starting mock httpd with websockets")
+	s := httptest.NewServer(http.HandlerFunc(echoMainServerLoop))
+	defer s.Close()
+
+	u := "ws" + strings.TrimPrefix(s.URL, "http")
+
+	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	defer ws.Close()
+
+	shell := &MenderShell{
+		sessionId: "unit-tests-sessions-id",
+		ws:        ws,
+		r:         reader,
+		w:         writer,
+		running:   false,
+	}
+
+	rc := shell.IsRunning()
+	assert.False(t, rc)
+
+	shell.Start()
+	rc = shell.IsRunning()
+	assert.True(t, rc)
+
+	time.Sleep(4 * time.Second)
+	shell.Stop()
+	rc = shell.IsRunning()
+	assert.False(t, rc)
+
+	shell.Start()
+	rc = shell.IsRunning()
+	assert.True(t, rc)
+	reader.Close()
+	writer.Close()
 }
