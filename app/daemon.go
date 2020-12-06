@@ -174,6 +174,7 @@ func (d *MenderShellDaemon) messageMainLoop(webSock *connection.Connection, toke
 					log.Errorf("main-loop: error on closing the connection: %s", err.Error())
 				}
 			}
+			time.Sleep(time.Second)
 			continue
 		}
 
