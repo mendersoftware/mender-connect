@@ -230,7 +230,7 @@ func MenderShellStopByUserId(userId string) (count uint, err error) {
 			continue
 		}
 		e := s.StopShell()
-		if e != nil {
+		if e != nil && procps.ProcessExists(s.shellPid) {
 			err = e
 			continue
 		}
