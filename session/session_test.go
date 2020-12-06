@@ -196,6 +196,16 @@ func TestMenderShellCommand(t *testing.T) {
 		Data:      []byte("echo ok;\n"),
 	})
 	assert.NoError(t, err)
+
+	//close terminal controlling handle, for error from inside ShellCommand
+	s.pseudoTTY.Close()
+	err = s.ShellCommand(&shell.MenderShellMessage{
+		Type:      wsshell.MessageTypeShellCommand,
+		SessionId: s.GetId(),
+		Status:    0,
+		Data:      []byte("echo ok;\n"),
+	})
+	assert.Error(t, err)
 }
 
 func TestMenderShellShellAlreadyStartedFailedToStart(t *testing.T) {
@@ -383,11 +393,13 @@ func TestMenderShellSessionGetByUserId(t *testing.T) {
 	assert.True(t, len(userSessions) > 0)
 	assert.NotNil(t, userSessions[0])
 	assert.True(t, userSessions[0].GetId() == s.id)
+	assert.True(t, userSessions[0].GetShellPid() == s.shellPid)
 
 	anotherUserSessions := MenderShellSessionsGetByUserId(anotherUserId)
 	assert.True(t, len(anotherUserSessions) > 0)
 	assert.NotNil(t, anotherUserSessions[0])
 	assert.True(t, anotherUserSessions[0].GetId() == anotherUserSession.id)
+	assert.True(t, anotherUserSessions[0].GetShellPid() == anotherUserSession.shellPid)
 
 	userSessions = MenderShellSessionsGetByUserId(userId + "-different")
 	assert.False(t, len(userSessions) > 0)
