@@ -49,6 +49,7 @@ type MenderShellDaemon struct {
 	username                string
 	shell                   string
 	serverUrl               string
+	serverCertificate       string
 	skipVerify              bool
 	deviceConnectUrl        string
 	expireSessionsAfter     time.Duration
@@ -69,6 +70,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		username:                config.User,
 		shell:                   config.ShellCommand,
 		serverUrl:               config.ServerURL,
+		serverCertificate:       config.ServerCertificate,
 		skipVerify:              config.SkipVerify,
 		expireSessionsAfter:     time.Second * time.Duration(config.Sessions.ExpireAfter),
 		expireSessionsAfterIdle: time.Second * time.Duration(config.Sessions.ExpireAfterIdle),
@@ -119,7 +121,7 @@ func (d *MenderShellDaemon) timeToSweepSessions() bool {
 
 func (d *MenderShellDaemon) wsReconnect(token string) (webSock *connection.Connection, err error) {
 	for reconnectAttempts := configuration.MaxReconnectAttempts; reconnectAttempts > 0; reconnectAttempts-- {
-		webSock, err = deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, d.skipVerify, token)
+		webSock, err = deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, d.skipVerify, d.serverCertificate, token)
 		if err != nil {
 			if reconnectAttempts == 1 {
 				log.Errorf("main-loop webSock failed to re-connect to %s%s, error: %s; giving up after %d tries", d.serverUrl, d.deviceConnectUrl, err.Error(), configuration.MaxReconnectAttempts)
@@ -273,7 +275,7 @@ func (d *MenderShellDaemon) Run() error {
 
 	//make websocket connection to the backend, this will be used to exchange messages
 	log.Infof("mender-shell connecting websocket; url: %s%s", d.serverUrl, d.deviceConnectUrl)
-	ws, err := deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, d.skipVerify, jwtToken)
+	ws, err := deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, d.skipVerify, d.serverCertificate, jwtToken)
 	if err != nil {
 		log.Errorf("mender-shall ws failed to connect to %s%s, error: %s", d.serverUrl, d.deviceConnectUrl, err.Error())
 		return err
