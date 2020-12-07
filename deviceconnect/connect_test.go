@@ -15,6 +15,8 @@
 package deviceconnect
 
 import (
+	"github.com/mendersoftware/go-lib-micro/ws"
+	"github.com/vmihailenco/msgpack"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,9 +57,9 @@ func TestGetWebSocketScheme(t *testing.T) {
 	}
 }
 
-func noopMmainServerLoop(w http.ResponseWriter, r *http.Request) {
-	var upgrader = websocket.Upgrader{}
-	c, err := upgrader.Upgrade(w, r, nil)
+func noopMainServerLoop(w http.ResponseWriter, r *http.Request) {
+	var upgrade = websocket.Upgrader{}
+	c, err := upgrade.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
@@ -65,41 +67,54 @@ func noopMmainServerLoop(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		c.SetWriteDeadline(time.Now().Add(2 * time.Second))
-		c.WriteMessage(websocket.BinaryMessage, []byte("echo"))
+		m := &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeShell,
+				MsgType:   "any",
+				SessionID: "any",
+				Properties: map[string]interface{}{
+					"status": "any",
+				},
+			},
+			Body: []byte("echo"),
+		}
+
+		data, _ := msgpack.Marshal(m)
+		c.WriteMessage(websocket.BinaryMessage, data)
 
 		time.Sleep(4 * time.Second)
 	}
 }
 
 func TestMenderShellDeviceConnect(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(noopMmainServerLoop))
+	server := httptest.NewServer(http.HandlerFunc(noopMainServerLoop))
 	defer server.Close()
 
 	// Convert http://127.0.0.1 to ws://127.0.0.
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	wsValid, err := Connect(u, "/", "token")
+	wsValid, err := Connect(u, "/", false, "token")
 	assert.Nil(t, err)
 	assert.NotNil(t, wsValid)
 	defer wsValid.Close()
 
-	ws0, err := Connect("%2Casdads://:/sadfa//a", " same here", "token")
+	t.Log("reading a message")
+	m, err := wsValid.ReadMessage()
+	assert.NoError(t, err)
+	assert.True(t, len(m.Body) > 1)
+	assert.Equal(t, "echo", string(m.Body))
+
+	t.Log("waiting for timeout")
+	time.Sleep(20 * time.Second)
+	_, err = wsValid.ReadMessage()
+	assert.Error(t, err)
+
+	ws0, err := Connect("%2Casdads://:/sadfa//a", " same here", false, "token")
 	assert.Error(t, err)
 	assert.Nil(t, ws0)
 
 	t.Log("waiting for connection timeout")
-	ws1, err := Connect("wss://127.1.1.1:443", "/this", "token")
+	ws1, err := Connect("wss://127.1.1.1:65534", "/this", false, "token")
 	assert.Error(t, err)
 	assert.Nil(t, ws1)
-
-	t.Log("reading a message")
-	_, b, err := wsValid.ReadMessage()
-	assert.NoError(t, err)
-	assert.True(t, len(b) > 1)
-	assert.Equal(t, "echo", string(b))
-
-	t.Log("waiting for timeout")
-	time.Sleep(20 * time.Second)
-	_, _, err = wsValid.ReadMessage()
-	assert.Error(t, err)
 }

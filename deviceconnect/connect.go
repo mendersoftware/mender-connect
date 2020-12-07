@@ -14,12 +14,10 @@
 package deviceconnect
 
 import (
-	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/mendersoftware/mender-shell/connection"
 )
 
 const (
@@ -37,8 +35,7 @@ const (
 )
 
 //Websocket connection routine. setup the ping-pong and connection settings
-func Connect(serverUrl string, connectUrl string, token string) (ws *websocket.Conn, err error) {
-	dialer := *websocket.DefaultDialer
+func Connect(serverUrl string, connectUrl string, skipVerify bool, token string) (ws *connection.Connection, err error) {
 	parsedUrl, err := url.Parse(serverUrl)
 	if err != nil {
 		return nil, err
@@ -46,22 +43,8 @@ func Connect(serverUrl string, connectUrl string, token string) (ws *websocket.C
 
 	scheme := getWebSocketScheme(parsedUrl.Scheme)
 	u := url.URL{Scheme: scheme, Host: parsedUrl.Host, Path: connectUrl}
-	headers := http.Header{}
-	headers.Set("Authorization", "Bearer "+token)
-	ws, _, err = dialer.Dial(u.String(), headers)
-	if err != nil {
-		return nil, err
-	}
-
-	// ping-pong
-	ws.SetReadLimit(maxMessageSize)
-	ws.SetReadDeadline(time.Now().Add(defaultPingWait))
-	ws.SetPingHandler(func(message string) error {
-		pongWait, _ := strconv.Atoi(message)
-		ws.SetReadDeadline(time.Now().Add(time.Duration(pongWait) * time.Second))
-		return ws.WriteControl(websocket.PongMessage, []byte{}, time.Now().Add(writeWait))
-	})
-	return ws, nil
+	ws, err = connection.NewConnection(u, token, writeWait, maxMessageSize, defaultPingWait, skipVerify)
+	return ws, err
 }
 
 func getWebSocketScheme(scheme string) string {

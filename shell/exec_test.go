@@ -15,9 +15,13 @@ package shell
 
 import (
 	"fmt"
+	"github.com/mendersoftware/go-lib-micro/ws"
+	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
+	"github.com/mendersoftware/mender-shell/connection"
 	"github.com/vmihailenco/msgpack"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -41,36 +45,43 @@ func TestNewMenderShell(t *testing.T) {
 	assert.NotNil(t, s)
 }
 
-func readMessage(ws *websocket.Conn, m *MenderShellMessage) error {
-	_, data, err := ws.ReadMessage()
+func readMessage(webSock *websocket.Conn) (*MenderShellMessage, error) {
+	_, data, err := webSock.ReadMessage()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	err = msgpack.Unmarshal(data, m)
+	msg := &ws.ProtoMsg{}
+	err = msgpack.Unmarshal(data, msg)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+
+	m := &MenderShellMessage{
+		Type:      msg.Header.MsgType,
+		SessionId: msg.Header.SessionID,
+		Status:    wsshell.NormalMessage,
+		Data:      msg.Body,
+	}
+
+	return m, nil
 }
 
 func echoMainServerLoop(w http.ResponseWriter, r *http.Request) {
-	var upgrader = websocket.Upgrader{}
-	c, err := upgrader.Upgrade(w, r, nil)
+	var upgrade = websocket.Upgrader{}
+	c, err := upgrade.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer c.Close()
 
 	for {
-		m := &MenderShellMessage{}
-		err = readMessage(c, m)
+		m, err := readMessage(c)
 		if err == nil {
 			messages = append(messages, strings.TrimRight(string(m.Data), "\r\n"))
 		}
 		time.Sleep(1 * time.Second)
-		m = &MenderShellMessage{}
-		err = readMessage(c, m)
+		m, err = readMessage(c)
 		if err == nil {
 			messages = append(messages, strings.TrimRight(string(m.Data), "\r\n"))
 		}
@@ -101,16 +112,20 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 	defer server.Close()
 
 	u := "ws" + strings.TrimPrefix(server.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, webSock)
 
 	var mutex sync.Mutex
-	s := NewMenderShell(uuid.NewV4().String(), &mutex, ws, pseudoTTY, pseudoTTY)
+	s := NewMenderShell(uuid.NewV4().String(), &mutex, webSock, pseudoTTY, pseudoTTY)
 	assert.NotNil(t, s)
+
+	timeout := s.GetWriteTimeout()
+	assert.True(t, timeout > 0)
 
 	s.Start()
 	assert.True(t, s.IsRunning())
@@ -120,24 +135,18 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 
 	time.Sleep(8 * time.Second)
 
-	writeWait = 10 * time.Millisecond
-	wsNew, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer wsNew.Close()
-	err = s.UpdateWSConnection(wsNew)
+	webSock, err = connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, webSock)
+
+	err = s.UpdateWSConnection(webSock)
 	assert.NoError(t, err)
 
-	wsNew.Close()
+	webSock.Close()
 	s.Stop()
 	assert.False(t, s.IsRunning())
 
 	assert.Contains(t, messages, message)
-}
-
-func TestMenderShellExecGetWriteTimeout(t *testing.T) {
-	assert.Equal(t, writeWait, MenderShellExecGetWriteTimeout())
 }
 
 func TestPipeStdout(t *testing.T) {
@@ -156,16 +165,17 @@ func TestPipeStdout(t *testing.T) {
 	defer s.Close()
 
 	u := "ws" + strings.TrimPrefix(s.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
 
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	defer ws.Close()
+	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, webSock)
 
 	shell := &MenderShell{
 		sessionId: "unit-tests-sessions-id",
-		ws:        ws,
+		ws:        webSock,
 		r:         reader,
 		w:         writer,
 		running:   false,

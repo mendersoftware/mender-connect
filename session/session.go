@@ -15,6 +15,7 @@ package session
 
 import (
 	"errors"
+	"github.com/mendersoftware/mender-shell/connection"
 	"github.com/mendersoftware/mender-shell/procps"
 	"io"
 	"os"
@@ -23,7 +24,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/mendersoftware/mender-shell/shell"
 	"github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
@@ -83,7 +83,7 @@ type MenderShellSession struct {
 	//all the writes to the websocket are protected by a mutex
 	writeMutex *sync.Mutex
 	//websocket to pass the messages via
-	ws *websocket.Conn
+	ws *connection.Connection
 	//mender shell represents a process of passing data between a running shell
 	//subprocess running
 	shell *shell.MenderShell
@@ -121,7 +121,7 @@ func timeNow() time.Time {
 	return time.Now().UTC()
 }
 
-func NewMenderShellSession(writeMutex *sync.Mutex, ws *websocket.Conn,
+func NewMenderShellSession(writeMutex *sync.Mutex, ws *connection.Connection,
 	userId string,
 	expireAfter time.Duration,
 	expireAfterIdle time.Duration) (s *MenderShellSession, err error) {
@@ -206,7 +206,7 @@ func MenderShellSessionsGetByUserId(userId string) []*MenderShellSession {
 	}
 }
 
-func UpdateWSConnection(ws *websocket.Conn) error {
+func UpdateWSConnection(ws *connection.Connection) error {
 	for id, s := range sessionsMap {
 		log.Debugf("updating ws in session %s and shell", id)
 		s.ws = ws
@@ -230,7 +230,7 @@ func MenderShellStopByUserId(userId string) (count uint, err error) {
 			continue
 		}
 		e := s.StopShell()
-		if e != nil {
+		if e != nil && procps.ProcessExists(s.shellPid) {
 			err = e
 			continue
 		}
@@ -348,6 +348,10 @@ func (s *MenderShellSession) GetId() string {
 	return s.id
 }
 
+func (s *MenderShellSession) GetShellPid() int {
+	return s.shellPid
+}
+
 func (s *MenderShellSession) IsExpired(setStatus bool) bool {
 	if defaultSessionIdleExpiredTimeout != NoExpirationTimeout {
 		idleTimeoutReached := s.activeAt.Add(defaultSessionIdleExpiredTimeout)
@@ -386,7 +390,7 @@ func (s *MenderShellSession) StopShell() (err error) {
 	p.Signal(syscall.SIGINT)
 	time.Sleep(2 * time.Second)
 	s.shell.Stop()
-	time.Sleep(2 * shell.MenderShellExecGetWriteTimeout())
+	time.Sleep(2 * s.shell.GetWriteTimeout())
 	s.pseudoTTY.Close()
 
 	err = procps.TerminateAndWait(s.shellPid, s.command, 2*time.Second)
