@@ -29,6 +29,7 @@ const (
 	DBusMethodNameGetJwtToken            = "GetJwtToken"
 	DBusMethodNameFetchJwtToken          = "FetchJwtToken"
 	DBusSignalNameValidJwtTokenAvailable = "ValidJwtTokenAvailable"
+	DBusSignalNameJwtTokenStateChange    = "JwtTokenStateChange"
 	DBusMethodTimeoutInSeconds           = 5
 )
 
@@ -44,7 +45,9 @@ type AuthClient interface {
 	// FetchJWTToken schedules the fetching of a new device JWT token
 	FetchJWTToken() (bool, error)
 	// WaitForValidJWTTokenAvailable synchronously waits for the ValidJwtTokenAvailable signal
-	WaitForValidJWTTokenAvailable() error
+	WaitForValidJWTTokenAvailable() ([]dbus.SignalParams, error)
+	// WaitForJwtTokenStateChange synchronously waits for the JwtTokenStateChange signal
+	WaitForJwtTokenStateChange() ([]dbus.SignalParams, error)
 	// FetchAndGetJWTToken fetches a new JWT token and returns it
 	FetchAndGetJWTToken() (string, error)
 }
@@ -105,8 +108,13 @@ func (a *AuthClientDBUS) FetchJWTToken() (bool, error) {
 }
 
 // WaitForValidJWTTokenAvailable synchronously waits for the ValidJwtTokenAvailable signal
-func (a *AuthClientDBUS) WaitForValidJWTTokenAvailable() error {
+func (a *AuthClientDBUS) WaitForValidJWTTokenAvailable() ([]dbus.SignalParams, error) {
 	return a.dbusAPI.WaitForSignal(DBusSignalNameValidJwtTokenAvailable, timeout)
+}
+
+// WaitForValidJWTTokenAvailable synchronously waits for the ValidJwtTokenAvailable signal
+func (a *AuthClientDBUS) WaitForJwtTokenStateChange() ([]dbus.SignalParams, error) {
+	return a.dbusAPI.WaitForSignal(DBusSignalNameJwtTokenStateChange, timeout)
 }
 
 // FetchAndGetJWTToken fetches a new JWT token and returns it
@@ -117,7 +125,7 @@ func (a *AuthClientDBUS) FetchAndGetJWTToken() (string, error) {
 	} else if fetch == false {
 		return "", errFetchTokenFailed
 	}
-	err = a.WaitForValidJWTTokenAvailable()
+	_, err = a.WaitForValidJWTTokenAvailable()
 	if err != nil {
 		return "", err
 	}

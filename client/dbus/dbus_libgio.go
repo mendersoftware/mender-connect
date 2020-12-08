@@ -29,7 +29,7 @@ import (
 )
 
 type dbusAPILibGio struct {
-	signals map[string]chan interface{}
+	signals map[string]chan []SignalParams
 }
 
 // constants for GDBusProxyFlags
@@ -47,6 +47,10 @@ const (
 	GDBusCallFlagsNone                          = 0
 	GDBusCallFlagsNoAutoStart                   = (1 << 0)
 	GDBusCallFlagsAllowInteractiveAuthorization = (1 << 1)
+)
+
+const (
+	GDBusTypeString = "s"
 )
 
 // BusGet synchronously connects to the message bus specified by bus_type
@@ -122,10 +126,10 @@ func (d *dbusAPILibGio) MainLoopQuit(loop MainLoop) {
 	C.g_main_loop_quit(gloop)
 }
 
-func (d *dbusAPILibGio) getChannelForSignal(signalName string) chan interface{} {
+func (d *dbusAPILibGio) getChannelForSignal(signalName string) chan []SignalParams {
 	channel, ok := d.signals[signalName]
 	if !ok {
-		channel := make(chan interface{}, 1)
+		channel := make(chan []SignalParams, 1)
 		d.signals[signalName] = channel
 	}
 	return channel
@@ -141,36 +145,67 @@ func (d *dbusAPILibGio) DrainSignal(signalName string) {
 }
 
 // HandleSignal handles a DBus signal
-func (d *dbusAPILibGio) HandleSignal(signalName string) {
+func (d *dbusAPILibGio) HandleSignal(signalName string, params []SignalParams) {
+	if len(params) < 1 {
+		params = []SignalParams{
+			{
+				ParamType: "?",
+				ParamData: "",
+			},
+		}
+	}
 	channel := d.getChannelForSignal(signalName)
 	select {
-	case channel <- true:
+	case channel <- params:
 	default:
 	}
 }
 
 // WaitForSignal waits for a DBus signal
-func (d *dbusAPILibGio) WaitForSignal(signalName string, timeout time.Duration) error {
+func (d *dbusAPILibGio) WaitForSignal(signalName string, timeout time.Duration) ([]SignalParams, error) {
 	channel := d.getChannelForSignal(signalName)
 	select {
-	case <-channel:
-		break
+	case p := <-channel:
+		return p, nil
 	case <-time.After(timeout):
-		return errors.New("timeout waiting for signal " + signalName)
+		return []SignalParams{}, errors.New("timeout waiting for signal " + signalName)
 	}
-	return nil
 }
 
 //export handle_on_signal_callback
 func handle_on_signal_callback(proxy *C.GDBusProxy, senderName *C.gchar, signalName *C.gchar, params *C.GVariant, userData C.gpointer) {
 	goSignalName := C.GoString(signalName)
 	api, _ := GetDBusAPI()
-	api.HandleSignal(goSignalName)
+	var goParams []SignalParams
+	i := C.g_variant_iter_new(params)
+	defer C.g_variant_iter_free(i)
+	for {
+		p := C.g_variant_iter_next_value(i)
+		if p == nil {
+			break
+		}
+		typeString := C.GoString(C.g_variant_get_type_string(p))
+		var goParam SignalParams
+		switch typeString {
+		case GDBusTypeString:
+			goParam = SignalParams{
+				ParamType: typeString,
+				ParamData: C.GoString(C.g_variant_get_string(p, nil)),
+			}
+		default:
+			goParam = SignalParams{
+				ParamType: typeString,
+				ParamData: "unsupported_type",
+			}
+		}
+		goParams = append(goParams, goParam)
+	}
+	api.HandleSignal(goSignalName, goParams)
 }
 
 func newDBusAPILibGio() *dbusAPILibGio {
 	return &dbusAPILibGio{
-		signals: make(map[string]chan interface{}),
+		signals: make(map[string]chan []SignalParams),
 	}
 }
 
