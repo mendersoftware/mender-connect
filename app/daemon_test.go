@@ -678,49 +678,6 @@ func TestWaitForJWTToken(t *testing.T) {
 	}
 }
 
-func TestDeviceUnauth(t *testing.T) {
-	testCases := []struct {
-		name  string
-		err   error
-		token string
-		rc    bool
-	}{
-		{
-			name:  "authorized",
-			token: "the-token",
-			rc:    false,
-		},
-		{
-			name:  "unauthorized",
-			token: "",
-			rc:    true,
-		},
-		{
-			name:  "unknown due to error assumed no change (authorized)",
-			token: "",
-			err:   errors.New("error getting the token"),
-			rc:    false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			dbusAPI := &dbusmocks.DBusAPI{}
-			defer dbusAPI.AssertExpectations(t)
-			client := &authmocks.AuthClient{}
-			client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
-				{
-					ParamType: "s",
-					ParamData: tc.token,
-				},
-			}, tc.err)
-			client.On("GetJWTToken").Return(tc.token, tc.err)
-			rc := deviceUnauth(client)
-			assert.Equal(t, tc.rc, rc)
-		})
-	}
-}
-
 func everySecondMessage(w http.ResponseWriter, r *http.Request) {
 	var upgrader = websocket.Upgrader{}
 	c, err := upgrader.Upgrade(w, r, nil)
@@ -786,7 +743,8 @@ func TestMessageMainLoop(t *testing.T) {
 						d.stop = true
 					}()
 				}
-				err = d.messageMainLoop(tc.ws, tc.token)
+				d.ws=tc.ws
+				err = d.messageMainLoop()
 				if tc.err != nil {
 					assert.Error(t, err)
 				} else {
