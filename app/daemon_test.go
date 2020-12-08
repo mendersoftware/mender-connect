@@ -139,7 +139,7 @@ func TestMenderShellSessionStart(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true)
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -248,7 +248,7 @@ func TestMenderShellStopByUserId(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second, true)
+	ws, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -329,7 +329,7 @@ func TestMenderShellSessionLimitPerUser(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true)
+	ws, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -445,7 +445,7 @@ func TestMenderShellReadMessage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second, true)
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -489,7 +489,7 @@ func TestMenderShellWsReconnect(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true)
+	ws, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -518,7 +518,7 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second, true)
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -726,7 +726,7 @@ func TestMessageMainLoop(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	webSock, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second, true)
+	webSock, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 

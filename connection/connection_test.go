@@ -103,7 +103,7 @@ func TestNewConnection(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait, true)
+	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, c)
 }
@@ -132,7 +132,7 @@ func TestConnection_ReadMessage(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait, true)
+	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait, true, "")
 	time.Sleep(time.Second)
 	m, err := c.ReadMessage()
 	assert.NoError(t, err)
@@ -154,7 +154,7 @@ func TestConnection_WriteMessage(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait, true)
+	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait, true, "")
 	time.Sleep(time.Second)
 	m, err := c.ReadMessage()
 	assert.NoError(t, err)
@@ -178,10 +178,36 @@ func TestConnection_Close(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait, true)
+	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait, true, "")
 	assert.NotNil(t, c)
 
 	time.Sleep(time.Second)
 	err = c.Close()
 	assert.NoError(t, err)
+}
+
+func TestMenderShellConnectionLoadServerTrust(t *testing.T) {
+	testCases := map[string]struct {
+		certificate string
+	}{
+		"ok-with-given-certificate": {
+			certificate: "testdata/server.crt",
+		},
+		"ok-with-given-un-parseable-pem-certificate": {
+			certificate: "testdata/server-broken.crt",
+		},
+		"ok-with-given-rubbish-certificate": {
+			certificate: "testdata/rubbish.txt",
+		},
+		"nil-without-certificate": {
+			certificate: "",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			pool := loadServerTrust(tc.certificate)
+			assert.True(t, pool != nil)
+		})
+	}
 }

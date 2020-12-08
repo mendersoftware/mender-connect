@@ -16,6 +16,9 @@ package connection
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -23,9 +26,20 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	log "github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
+)
+
+const (
+	errMissingServerCertF = "IGNORING ERROR: The client server-certificate can not be " +
+		"loaded: (%s). The client will continue running, but may not be able to " +
+		"communicate with the server. If this is not your intention please add a valid " +
+		"server certificate"
+	errMissingCerts = "No trusted certificates. The client will continue running, but will " +
+		"not be able to communicate with the server. Either specify ServerCertificate in " +
+		"mender.conf, or make sure that CA certificates are installed on the system"
 )
 
 type Connection struct {
@@ -40,18 +54,65 @@ type Connection struct {
 	defaultPingWait time.Duration
 }
 
+func loadServerTrust(serverCertFilePath string) *x509.CertPool {
+	systemPool, err := x509.SystemCertPool()
+	if err != nil {
+		log.Warnf("Error when loading system certificates: %s", err.Error())
+	}
+
+	if systemPool == nil {
+		log.Warn("No system certificates found.")
+		systemPool = x509.NewCertPool()
+	}
+
+	if len(serverCertFilePath) < 1 {
+		log.Warnf(errMissingServerCertF, "no file provided")
+		return systemPool
+	}
+
+	log.Infof("loadServerTrust loading certificate from %s", serverCertFilePath)
+	// Read certificate file.
+	serverCertificate, err := ioutil.ReadFile(serverCertFilePath)
+	if err != nil {
+		// Ignore server certificate error  (See: MEN-2378)
+		log.Warnf(errMissingServerCertF, err.Error())
+	}
+
+	if len(serverCertificate) > 0 {
+		block, _ := pem.Decode(serverCertificate)
+		if block != nil {
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err == nil {
+				log.Infof("API Gateway certificate (in PEM format): \n%s", string(serverCertificate))
+				log.Infof("Issuer: %s, Valid from: %s, Valid to: %s",
+					cert.Issuer.Organization, cert.NotBefore, cert.NotAfter)
+			} else {
+				log.Warnf("Unparseable certificate '%s': %s", serverCertFilePath, err.Error())
+			}
+		}
+
+		systemPool.AppendCertsFromPEM(serverCertificate)
+	}
+
+	if len(systemPool.Subjects()) == 0 {
+		log.Error(errMissingCerts)
+	}
+	return systemPool
+}
+
 //Websocket connection routine. setup the ping-pong and connection settings
 func NewConnection(u url.URL,
 	token string,
 	writeWait time.Duration,
 	maxMessageSize int64,
 	defaultPingWait time.Duration,
-	skipVerify bool) (*Connection, error) {
+	skipVerify bool,
+	serverCertFilePath string) (*Connection, error) {
 	// skip verification of HTTPS certificate if skipVerify is set in the config file
-	if skipVerify {
-		websocket.DefaultDialer.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true,
-		}
+
+	websocket.DefaultDialer.TLSClientConfig = &tls.Config{
+		RootCAs:            loadServerTrust(serverCertFilePath),
+		InsecureSkipVerify: skipVerify,
 	}
 
 	var ws *websocket.Conn

@@ -35,7 +35,7 @@ const (
 )
 
 //Websocket connection routine. setup the ping-pong and connection settings
-func Connect(serverUrl string, connectUrl string, skipVerify bool, token string) (ws *connection.Connection, err error) {
+func Connect(serverUrl string, connectUrl string, skipVerify bool, serverCertificate string, token string) (ws *connection.Connection, err error) {
 	parsedUrl, err := url.Parse(serverUrl)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func Connect(serverUrl string, connectUrl string, skipVerify bool, token string)
 
 	scheme := getWebSocketScheme(parsedUrl.Scheme)
 	u := url.URL{Scheme: scheme, Host: parsedUrl.Host, Path: connectUrl}
-	ws, err = connection.NewConnection(u, token, writeWait, maxMessageSize, defaultPingWait, skipVerify)
+	ws, err = connection.NewConnection(u, token, writeWait, maxMessageSize, defaultPingWait, skipVerify, serverCertificate)
 	return ws, err
 }
 

@@ -78,12 +78,18 @@ func echoMainServerLoop(w http.ResponseWriter, r *http.Request) {
 	for {
 		m, err := readMessage(c)
 		if err == nil {
-			messages = append(messages, strings.TrimRight(string(m.Data), "\r\n"))
+			lines := strings.Split(string(m.Data), "\r\n")
+			for _, l := range lines {
+				messages = append(messages, l)
+			}
 		}
 		time.Sleep(1 * time.Second)
 		m, err = readMessage(c)
 		if err == nil {
-			messages = append(messages, strings.TrimRight(string(m.Data), "\r\n"))
+			lines := strings.Split(string(m.Data), "\r\n")
+			for _, l := range lines {
+				messages = append(messages, l)
+			}
 		}
 	}
 }
@@ -116,7 +122,7 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true)
+	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, false, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 
@@ -135,7 +141,7 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 
 	time.Sleep(8 * time.Second)
 
-	webSock, err = connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true)
+	webSock, err = connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 
@@ -169,7 +175,7 @@ func TestPipeStdout(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true)
+	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 
