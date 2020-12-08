@@ -207,14 +207,12 @@ func deviceUnauth(client mender.AuthClient) bool {
 
 func waitForJWTToken(client mender.AuthClient) (jwtToken string, err error) {
 	for {
-		jwtToken, err = client.GetJWTToken()
-		if jwtToken != "" {
-			log.Infof("JWT token is available.")
-			break
+		p, _ := client.WaitForJwtTokenStateChange()
+		if len(p) > 0 && p[0].ParamType == "s" && len(p[0].ParamData.(string)) > 0 {
+			return p[0].ParamData.(string), nil
 		}
 		time.Sleep(time.Second)
 	}
-	return jwtToken, nil
 }
 
 //starts all needed elements of the mender-shell daemon
