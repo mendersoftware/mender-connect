@@ -15,6 +15,7 @@ package app
 
 import (
 	"errors"
+	"github.com/mendersoftware/mender-shell/client/dbus"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -628,6 +629,12 @@ func TestWaitForJWTToken(t *testing.T) {
 					dbusAPI := &dbusmocks.DBusAPI{}
 					defer dbusAPI.AssertExpectations(t)
 					client := &authmocks.AuthClient{}
+					client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
+						{
+							ParamType: "s",
+							ParamData: tc.token,
+						},
+					}, tc.err)
 					client.On("GetJWTToken").Return(tc.token, tc.err)
 					token, err := waitForJWTToken(client)
 					if tc.err != nil {
@@ -651,6 +658,12 @@ func TestWaitForJWTToken(t *testing.T) {
 				dbusAPI := &dbusmocks.DBusAPI{}
 				defer dbusAPI.AssertExpectations(t)
 				client := &authmocks.AuthClient{}
+				client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
+					{
+						ParamType: "s",
+						ParamData: tc.token,
+					},
+				}, tc.err)
 				client.On("GetJWTToken").Return(tc.token, tc.err)
 				token, err := waitForJWTToken(client)
 				if tc.err != nil {
@@ -695,6 +708,12 @@ func TestDeviceUnauth(t *testing.T) {
 			dbusAPI := &dbusmocks.DBusAPI{}
 			defer dbusAPI.AssertExpectations(t)
 			client := &authmocks.AuthClient{}
+			client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
+				{
+					ParamType: "s",
+					ParamData: tc.token,
+				},
+			}, tc.err)
 			client.On("GetJWTToken").Return(tc.token, tc.err)
 			rc := deviceUnauth(client)
 			assert.Equal(t, tc.rc, rc)
