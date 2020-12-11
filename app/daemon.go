@@ -302,7 +302,9 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	jwtToken, _ := client.GetJWTToken()
+	log.Debugf("calling GetJWTToken at startup.")
+	jwtToken, err := client.GetJWTToken()
+	log.Debugf("calling GetJWTToken()=%s,%v)",jwtToken,err)
 	if len(jwtToken) < 1 {
 		log.Infof("waiting for JWT token (GetJWTToken)")
 		jwtToken, _ = waitForJWTToken(client)

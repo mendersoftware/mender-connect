@@ -127,7 +127,7 @@ func TestAuthClientGetJWTToken(t *testing.T) {
 				dbus.Handle(nil),
 				DBusMethodNameGetJwtToken,
 				nil,
-				DBusMethodTimeoutInSeconds,
+				DBusMethodTimeoutInMilliSeconds,
 			).Return(response, tc.busProxyCallError)
 
 			client, err := NewAuthClient(dbusAPI)
@@ -176,7 +176,7 @@ func TestAuthClientFetchJWTToken(t *testing.T) {
 				dbus.Handle(nil),
 				DBusMethodNameFetchJwtToken,
 				nil,
-				DBusMethodTimeoutInSeconds,
+				DBusMethodTimeoutInMilliSeconds,
 			).Return(response, tc.busProxyCallError)
 
 			client, err := NewAuthClient(dbusAPI)
