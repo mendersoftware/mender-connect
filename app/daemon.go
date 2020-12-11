@@ -483,7 +483,9 @@ func (d *MenderShellDaemon) readMessage(webSock *connection.Connection) (*shell.
 
 	status := wsshell.NormalMessage
 	if v, ok := msg.Header.Properties["status"]; ok {
-		status = wsshell.MenderShellMessageStatus(v.(int64))
+		if vint64, ok := v.(int64); ok {
+			status = wsshell.MenderShellMessageStatus(vint64)
+		}
 	}
 
 	m := &shell.MenderShellMessage{
