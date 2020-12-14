@@ -485,7 +485,11 @@ func (d *MenderShellDaemon) readMessage(webSock *connection.Connection) (*shell.
 	if v, ok := msg.Header.Properties["status"]; ok {
 		if vint64, ok := v.(int64); ok {
 			status = wsshell.MenderShellMessageStatus(vint64)
+		} else {
+			log.Debugf("Unexpected type in status field of message: %v", v)
 		}
+	} else {
+		log.Debug("Received message without status field in it.")
 	}
 
 	m := &shell.MenderShellMessage{
