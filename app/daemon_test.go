@@ -743,7 +743,7 @@ func TestMessageMainLoop(t *testing.T) {
 						d.stop = true
 					}()
 				}
-				d.ws=tc.ws
+				d.ws = tc.ws
 				err = d.messageMainLoop()
 				if tc.err != nil {
 					assert.Error(t, err)

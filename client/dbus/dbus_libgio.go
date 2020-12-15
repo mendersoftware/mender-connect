@@ -146,14 +146,6 @@ func (d *dbusAPILibGio) DrainSignal(signalName string) {
 
 // HandleSignal handles a DBus signal
 func (d *dbusAPILibGio) HandleSignal(signalName string, params []SignalParams) {
-	if len(params) < 1 {
-		params = []SignalParams{
-			{
-				ParamType: "?",
-				ParamData: "",
-			},
-		}
-	}
 	channel := d.getChannelForSignal(signalName)
 	select {
 	case channel <- params:
@@ -192,13 +184,8 @@ func handle_on_signal_callback(proxy *C.GDBusProxy, senderName *C.gchar, signalN
 				ParamType: typeString,
 				ParamData: C.GoString(C.g_variant_get_string(p, nil)),
 			}
-		default:
-			goParam = SignalParams{
-				ParamType: typeString,
-				ParamData: "unsupported_type",
-			}
+			goParams = append(goParams, goParam)
 		}
-		goParams = append(goParams, goParam)
 	}
 	api.HandleSignal(goSignalName, goParams)
 }

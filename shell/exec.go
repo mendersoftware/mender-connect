@@ -16,11 +16,10 @@ package shell
 import (
 	"bufio"
 	"errors"
+	"github.com/mendersoftware/mender-shell/connectionmanager"
 	"io"
-	"sync"
 	"time"
 
-	"github.com/mendersoftware/mender-shell/connection"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
@@ -49,12 +48,10 @@ type MenderShellMessage struct {
 }
 
 type MenderShell struct {
-	writeMutex *sync.Mutex
-	sessionId  string
-	ws         *connection.Connection
-	r          io.Reader
-	w          io.Writer
-	running    bool
+	sessionId string
+	r         io.Reader
+	w         io.Writer
+	running   bool
 }
 
 type MenderShellCommand struct {
@@ -65,20 +62,18 @@ type MenderShellCommand struct {
 //are already connected to the i/o of the shell process and ws websocket
 //is connected and ws.SetReadDeadline(time.Now().Add(defaultPingWait))
 //was already called and ping-pong was established
-func NewMenderShell(sessionId string, writeMutex *sync.Mutex, webSock *connection.Connection, r io.Reader, w io.Writer) *MenderShell {
+func NewMenderShell(sessionId string, r io.Reader, w io.Writer) *MenderShell {
 	shell := MenderShell{
-		writeMutex: writeMutex,
-		sessionId:  sessionId,
-		ws:         webSock,
-		r:          r,
-		w:          w,
-		running:    false,
+		sessionId: sessionId,
+		r:         r,
+		w:         w,
+		running:   false,
 	}
 	return &shell
 }
 
 func (s *MenderShell) GetWriteTimeout() time.Duration {
-	return s.ws.GetWriteTimeout()
+	return connectionmanager.GetWriteTimeout()
 }
 
 func (s *MenderShell) Start() {
@@ -92,11 +87,6 @@ func (s *MenderShell) Stop() {
 
 func (s *MenderShell) IsRunning() bool {
 	return s.running
-}
-
-func (s *MenderShell) UpdateWSConnection(webSock *connection.Connection) error {
-	s.ws = webSock
-	return nil
 }
 
 func (s *MenderShell) pipeStdout() {
@@ -127,6 +117,10 @@ func (s *MenderShell) pipeStdout() {
 			},
 			Body: raw[:n],
 		}
-		err = s.ws.WriteMessage(msg)
+
+		err = connectionmanager.Write(ws.ProtoTypeShell, msg)
+		if err != nil {
+			log.Debugf("error on write: %s", err.Error())
+		}
 	}
 }

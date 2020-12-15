@@ -15,12 +15,10 @@ package session
 
 import (
 	"errors"
-	"github.com/mendersoftware/mender-shell/connection"
 	"github.com/mendersoftware/mender-shell/procps"
 	"io"
 	"os"
 	"os/exec"
-	"sync"
 	"syscall"
 	"time"
 
@@ -56,7 +54,6 @@ const (
 var (
 	ErrSessionShellAlreadyRunning         = errors.New("shell is already running")
 	ErrSessionShellNotRunning             = errors.New("shell is not running")
-	ErrSessionShellStillRunning           = errors.New("shell is still running")
 	ErrSessionShellTooManySessionsPerUser = errors.New("user has too many open sessions")
 	ErrSessionNotFound                    = errors.New("session not found")
 	ErrSessionTooManyShellsAlreadyRunning = errors.New("too many shells spawned")
@@ -66,7 +63,6 @@ var (
 	defaultSessionExpiredTimeout     = 1024 * time.Second
 	defaultSessionIdleExpiredTimeout = NoExpirationTimeout
 	defaultTimeFormat                = "Mon Jan 2 15:04:05 -0700 MST 2006"
-	shellProcessWaitTimeout          = 8 * time.Second
 	MaxUserSessions                  = 1
 )
 
@@ -80,10 +76,6 @@ type MenderShellTerminalSettings struct {
 }
 
 type MenderShellSession struct {
-	//all the writes to the websocket are protected by a mutex
-	writeMutex *sync.Mutex
-	//websocket to pass the messages via
-	ws *connection.Connection
 	//mender shell represents a process of passing data between a running shell
 	//subprocess running
 	shell *shell.MenderShell
@@ -121,10 +113,7 @@ func timeNow() time.Time {
 	return time.Now().UTC()
 }
 
-func NewMenderShellSession(writeMutex *sync.Mutex, ws *connection.Connection,
-	userId string,
-	expireAfter time.Duration,
-	expireAfterIdle time.Duration) (s *MenderShellSession, err error) {
+func NewMenderShellSession(userId string, expireAfter time.Duration, expireAfterIdle time.Duration) (s *MenderShellSession, err error) {
 	if userSessions, ok := sessionsByUserIdMap[userId]; ok {
 		log.Debugf("user %s has %d sessions.", userId, len(userSessions))
 		if len(userSessions) >= MaxUserSessions {
@@ -147,8 +136,6 @@ func NewMenderShellSession(writeMutex *sync.Mutex, ws *connection.Connection,
 
 	createdAt := timeNow()
 	s = &MenderShellSession{
-		writeMutex:  writeMutex,
-		ws:          ws,
 		id:          id,
 		userId:      userId,
 		createdAt:   createdAt,
@@ -204,17 +191,6 @@ func MenderShellSessionsGetByUserId(userId string) []*MenderShellSession {
 	} else {
 		return nil
 	}
-}
-
-func UpdateWSConnection(ws *connection.Connection) error {
-	for id, s := range sessionsMap {
-		log.Debugf("updating ws in session %s and shell", id)
-		s.ws = ws
-		if s.shell != nil {
-			s.shell.UpdateWSConnection(ws)
-		}
-	}
-	return nil
 }
 
 func MenderShellStopByUserId(userId string) (count uint, err error) {
@@ -330,7 +306,7 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 	//and the shell subprocess (started above via shell.ExecuteShell) over
 	//the websocket connection
 	log.Infof("mender-shell starting shell command passing process, pid: %d", pid)
-	s.shell = shell.NewMenderShell(sessionId, s.writeMutex, s.ws, pseudoTTY, pseudoTTY)
+	s.shell = shell.NewMenderShell(sessionId, pseudoTTY, pseudoTTY)
 	s.shell.Start()
 
 	s.shellPid = pid
