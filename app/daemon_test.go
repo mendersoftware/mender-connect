@@ -15,7 +15,7 @@ package app
 
 import (
 	"errors"
-	"github.com/mendersoftware/mender-shell/client/dbus"
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -38,8 +38,10 @@ import (
 	dbusmocks "github.com/mendersoftware/mender-shell/client/dbus/mocks"
 	authmocks "github.com/mendersoftware/mender-shell/client/mender/mocks"
 
+	"github.com/mendersoftware/mender-shell/client/dbus"
 	"github.com/mendersoftware/mender-shell/config"
 	"github.com/mendersoftware/mender-shell/connection"
+	"github.com/mendersoftware/mender-shell/connectionmanager"
 	"github.com/mendersoftware/mender-shell/session"
 	"github.com/mendersoftware/mender-shell/shell"
 )
@@ -65,9 +67,9 @@ func sendMessage(webSock *websocket.Conn, t string, sessionId string, data strin
 	if err != nil {
 		return err
 	}
-	webSock.SetWriteDeadline(time.Now().Add(2 * time.Second))
-	webSock.WriteMessage(websocket.BinaryMessage, d)
-	return nil
+	err = webSock.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	err = webSock.WriteMessage(websocket.BinaryMessage, d)
+	return err
 }
 
 func readMessage(webSock *websocket.Conn) (*shell.MenderShellMessage, error) {
@@ -99,16 +101,22 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-f6723467-561234ff")
-	time.Sleep(4 * time.Second)
+	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-f6723467-561234ff")
+	fmt.Printf("newShellTransaction sendMessage(SpwanShell)=%v\n", err)
+	//time.Sleep(4 * time.Second)
 	//m := &shell.MenderShellMessage{}
 	m, err := readMessage(c)
-	sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "echo "+testData+" > "+testFileNameTemporary+"\n")
-	sendMessage(c, wsshell.MessageTypeShellCommand, "undefined-session-id", "rm -f "+testFileNameTemporary+"\n")
-	sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "thiscommand probably does not exist\n")
-	sendMessage(c, wsshell.MessageTypeStopShell, "undefined-session-id", "")
+	fmt.Printf("newShellTransaction (0) sendMessage=%+v,%v\n", m, err)
+	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "echo "+testData+" > "+testFileNameTemporary+"\n")
+	fmt.Printf("newShellTransaction (1) sendMessage=%v\n", err)
+	err = sendMessage(c, wsshell.MessageTypeShellCommand, "undefined-session-id", "rm -f "+testFileNameTemporary+"\n")
+	fmt.Printf("newShellTransaction (2) sendMessage=%v\n", err)
+	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "thiscommand probably does not exist\n")
+	fmt.Printf("newShellTransaction (3) sendMessage=%v\n", err)
+	err = sendMessage(c, wsshell.MessageTypeStopShell, "undefined-session-id", "")
+	fmt.Printf("newShellTransaction (4) sendMessage=%v\n", err)
 	time.Sleep(4 * time.Second)
-	sendMessage(c, wsshell.MessageTypeStopShell, m.SessionId, "")
+	err = sendMessage(c, wsshell.MessageTypeStopShell, m.SessionId, "")
 	for {
 		time.Sleep(4 * time.Second)
 	}
@@ -140,9 +148,8 @@ func TestMenderShellSessionStart(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true, "")
-	assert.NoError(t, err)
-	assert.NotNil(t, ws)
+	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -154,46 +161,46 @@ func TestMenderShellSessionStart(t *testing.T) {
 			},
 		},
 	})
-	message, err := d.readMessage(ws)
+	message, err := d.readMessage()
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
-	message, err = d.readMessage(ws)
+	message, err = d.readMessage()
 	assert.NoError(t, err)
 	assert.NotNil(t, message)
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
-	message, err = d.readMessage(ws)
+	message, err = d.readMessage()
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
-	message, err = d.readMessage(ws)
+	message, err = d.readMessage()
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
-	message, err = d.readMessage(ws)
+	message, err = d.readMessage()
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
-	message, err = d.readMessage(ws)
+	message, err = d.readMessage()
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
@@ -215,19 +222,24 @@ func TestMenderShellSessionStart(t *testing.T) {
 }
 
 func newShellStopByUserId(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(os.Stderr, "newShellStopByUserId starting\n")
 	var upgrader = websocket.Upgrader{}
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer c.Close()
-	sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-a00908-f6723467-561234ff")
+	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-a00908-f6723467-561234ff")
+	fmt.Fprintf(os.Stderr, "(0) newShellStopByUserId sendMessage: %v\n", err)
 	//time.Sleep(1 * time.Second)
 	//m := &shell.MenderShellMessage{}
-	readMessage(c)
+	_, err = readMessage(c)
+	fmt.Fprintf(os.Stderr, "(1) newShellStopByUserId sendMessage: %v\n", err)
 	//time.Sleep(1 * time.Second)
-	sendMessage(c, wsshell.MessageTypeStopShell, "", "")
-	sendMessage(c, wsshell.MessageTypeStopShell, "", "user-id-unit-tests-a00908-f6723467-561234ff")
+	err = sendMessage(c, wsshell.MessageTypeStopShell, "", "")
+	fmt.Fprintf(os.Stderr, "(2) newShellStopByUserId sendMessage: %v\n", err)
+	err = sendMessage(c, wsshell.MessageTypeStopShell, "", "user-id-unit-tests-a00908-f6723467-561234ff")
+	fmt.Fprintf(os.Stderr, "(3) newShellStopByUserId sendMessage: %v\n", err)
 	for {
 		time.Sleep(4 * time.Second)
 	}
@@ -249,9 +261,8 @@ func TestMenderShellStopByUserId(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second, true, "")
-	assert.NoError(t, err)
-	assert.NotNil(t, ws)
+	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -263,9 +274,11 @@ func TestMenderShellStopByUserId(t *testing.T) {
 			},
 		},
 	})
-	message, err := d.readMessage(ws)
+	time.Sleep(time.Second * 2)
+	message, err := d.readMessage()
+	assert.NotNil(t, message)
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
@@ -275,18 +288,18 @@ func TestMenderShellStopByUserId(t *testing.T) {
 	assert.NotNil(t, sessions[0])
 	sessionsCount := d.shellsSpawned
 
-	message, err = d.readMessage(ws)
+	message, err = d.readMessage()
 	assert.NoError(t, err)
 	assert.NotNil(t, message)
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
-	message, err = d.readMessage(ws)
+	message, err = d.readMessage()
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
@@ -296,6 +309,7 @@ func TestMenderShellStopByUserId(t *testing.T) {
 }
 
 func newShellMulti(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("newShellMulti: starting\n\n")
 	var upgrader = websocket.Upgrader{}
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -306,9 +320,9 @@ func newShellMulti(w http.ResponseWriter, r *http.Request) {
 		sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-7f00f6723467-561234ff")
 	}
 	sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-7f00f6723467-561234ff")
-	time.Sleep(4 * time.Second)
+	sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-7f00f6723467-561234ff")
 	for {
-		time.Sleep(4 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -330,9 +344,8 @@ func TestMenderShellSessionLimitPerUser(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true, "")
-	assert.NoError(t, err)
-	assert.NotNil(t, ws)
+	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -342,28 +355,35 @@ func TestMenderShellSessionLimitPerUser(t *testing.T) {
 				Width:  24,
 				Height: 80,
 			},
+			Sessions: config.SessionsConfig{
+				StopExpired:     true,
+				ExpireAfter:     128,
+				ExpireAfterIdle: 32,
+				MaxPerUser:      2,
+			},
 		},
 	})
 
 	for i := 0; i < session.MaxUserSessions; i++ {
-		message, err := d.readMessage(ws)
+		message, err := d.readMessage()
 		assert.NoError(t, err)
 		assert.NotNil(t, message)
 		t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-		err = d.routeMessage(ws, message)
+		err = d.routeMessage(message)
 		if err != nil {
 			t.Logf("route message error: %s", err.Error())
 		}
 		assert.NoError(t, err)
 	}
 
-	message, err := d.readMessage(ws)
+	message, err := d.readMessage()
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 	assert.Error(t, err)
+	connectionmanager.Close(ws.ProtoTypeShell)
 }
 
 func TestMenderShellStopDaemon(t *testing.T) {
@@ -446,19 +466,17 @@ func TestMenderShellReadMessage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second, true, "")
-	assert.NoError(t, err)
-	assert.NotNil(t, ws)
+	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	time.Sleep(2 * time.Second)
-	m, err := d.readMessage(ws)
+	m, err := d.readMessage()
 	assert.NoError(t, err)
 	assert.NotNil(t, m)
 	assert.Equal(t, m.Data, []byte("hello ws"))
 	time.Sleep(2 * time.Second)
 
-	ws.Close()
-	m, err = d.readMessage(ws)
+	m, err = d.readMessage()
 	assert.Error(t, err)
 	assert.Nil(t, m)
 }
@@ -490,15 +508,51 @@ func TestMenderShellWsReconnect(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	ws, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true, "")
-	assert.NoError(t, err)
-	assert.NotNil(t, ws)
+	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	t.Log("attempting reconnect")
 	d.serverUrl = u
-	ws, err = d.wsReconnect("atoken")
-	assert.NotNil(t, ws)
+	err = d.wsReconnect("atoken")
 	assert.NoError(t, err)
+}
+
+func TestMenderShellWsReconnectError(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Errorf("cant get current user: %s", err.Error())
+		return
+	}
+
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         currentUser.Name,
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+
+	t.Log("starting mock httpd with websockets")
+	s := httptest.NewServer(http.HandlerFunc(oneMsgMainServerLoop))
+	defer s.Close()
+
+	u := "ws" + strings.TrimPrefix(s.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
+
+	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, "this"+u+"wontwork", "/", "token", true, "", 8)
+	config.MaxReconnectAttempts = 8
+	err = d.wsReconnect("atoken")
+	assert.Error(t, err)
+
+	d.serverUrl = "this" + u + "wontwork"
+	err = d.wsReconnect("atoken")
+	assert.Error(t, err)
 }
 
 func TestMenderShellMaxShellsLimit(t *testing.T) {
@@ -519,6 +573,9 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
+	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
+
 	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
@@ -536,20 +593,20 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 
 	for i := 0; i < int(config.MaxShellsSpawned); i++ {
 		time.Sleep(time.Second)
-		message, err := d.readMessage(ws)
+		message, err := d.readMessage()
 		assert.NoError(t, err)
 		assert.NotNil(t, message)
 		t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-		err = d.routeMessage(ws, message)
+		err = d.routeMessage(message)
 		if err != nil {
 			t.Logf("route message error: %s", err.Error())
 		}
 		assert.NoError(t, err)
 	}
 
-	message, err := d.readMessage(ws)
+	message, err := d.readMessage()
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
-	err = d.routeMessage(ws, message)
+	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
@@ -569,7 +626,12 @@ func TestOutputStatus(t *testing.T) {
 	})
 	assert.NotNil(t, d)
 
+	assert.False(t, d.printStatus)
+	d.PrintStatus()
+	assert.True(t, d.printStatus)
+	assert.True(t, d.shouldPrintStatus())
 	d.outputStatus()
+	assert.False(t, d.printStatus)
 }
 
 func TestTimeToSweepSessions(t *testing.T) {
@@ -702,6 +764,9 @@ func TestMessageMainLoop(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
+	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
+
 	webSock, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second, true, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
@@ -743,8 +808,7 @@ func TestMessageMainLoop(t *testing.T) {
 						d.stop = true
 					}()
 				}
-				d.ws = tc.ws
-				err = d.messageMainLoop()
+				err = d.messageLoop()
 				if tc.err != nil {
 					assert.Error(t, err)
 				} else {
