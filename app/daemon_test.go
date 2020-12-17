@@ -149,6 +149,7 @@ func TestMenderShellSessionStart(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	d := NewDaemon(&config.MenderShellConfig{
@@ -262,6 +263,7 @@ func TestMenderShellStopByUserId(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	d := NewDaemon(&config.MenderShellConfig{
@@ -345,6 +347,7 @@ func TestMenderShellSessionLimitPerUser(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	d := NewDaemon(&config.MenderShellConfig{
@@ -467,6 +470,7 @@ func TestMenderShellReadMessage(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	time.Sleep(2 * time.Second)
@@ -509,10 +513,12 @@ func TestMenderShellWsReconnect(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	t.Log("attempting reconnect")
 	d.serverUrl = u
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	err = d.wsReconnect("atoken")
 	assert.NoError(t, err)
 }
@@ -545,6 +551,7 @@ func TestMenderShellWsReconnectError(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, "this"+u+"wontwork", "/", "token", true, "", 8)
 	config.MaxReconnectAttempts = 8
 	err = d.wsReconnect("atoken")
@@ -574,6 +581,7 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second, true, "")
@@ -1049,6 +1057,7 @@ func TestEventLoop(t *testing.T) {
 		},
 	}
 
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	for _, tc := range testCases {
 		if tc.name == "run_forever" {
 			timeout := time.After(tc.timeout)
@@ -1129,6 +1138,7 @@ func TestMessageMainLoop(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
 
 	webSock, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second, true, "")

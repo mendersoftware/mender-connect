@@ -171,6 +171,7 @@ func validateConfiguration(t *testing.T, actual *MenderShellConfig) {
 			ExpireAfterIdle: 8,
 			MaxPerUser:      4,
 		},
+		ReconnectIntervalSeconds: DefaultReconnectIntervalsSeconds,
 	}
 	if !assert.True(t, reflect.DeepEqual(actual, expectedConfig)) {
 		t.Logf("got:      %+v", actual)
