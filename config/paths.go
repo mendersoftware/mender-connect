@@ -35,9 +35,10 @@ var (
 	DefaultConfFile         = path.Join(GetConfDirPath(), "mender-shell.conf")
 	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "mender-shell.conf")
 
-	MaxReconnectAttempts = uint(128)
-	MessageWriteTimeout  = 2 * time.Second
-	MaxShellsSpawned     = uint(16)
+	MaxReconnectAttempts             = uint(128)
+	DefaultReconnectIntervalsSeconds = 300
+	MessageWriteTimeout              = 2 * time.Second
+	MaxShellsSpawned                 = uint(16)
 )
 
 // GetStateDirPath returns the default data store directory

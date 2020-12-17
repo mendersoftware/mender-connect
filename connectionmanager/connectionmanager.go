@@ -51,9 +51,14 @@ type ProtocolHandler struct {
 
 var handlersByTypeMutex = &sync.Mutex{}
 var handlersByType = map[ws.ProtoType]*ProtocolHandler{}
+var reconnectIntervalSeconds = 300
 
 func GetWriteTimeout() time.Duration {
 	return writeWait
+}
+
+func SetReconnectIntervalSeconds(i int) {
+	reconnectIntervalSeconds = i
 }
 
 func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint) error {
@@ -83,7 +88,7 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 				}
 				log.Errorf("try:%d/%d connection manager failed to connect to %s%s, error: %s;"+
 					"reconnecting in 1s; len(token)=%d", i, retries, serverUrl, connectUrl, err.Error(), len(token))
-				time.Sleep(time.Second)
+				time.Sleep(time.Second * time.Duration(reconnectIntervalSeconds))
 				continue
 			}
 			return err

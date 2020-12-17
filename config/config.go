@@ -70,6 +70,8 @@ type MenderShellConfigFromFile struct {
 	Terminal TerminalConfig `json:"Terminal"`
 	// User sessions settings
 	Sessions SessionsConfig `json:"Sessions"`
+	// Reconnect interval
+	ReconnectIntervalSeconds int
 }
 
 // MenderShellConfig holds the configuration settings for the Mender shell client
@@ -229,6 +231,10 @@ func (c *MenderShellConfig) Validate() (err error) {
 		if c.Sessions.ExpireAfter > 0 && c.Sessions.ExpireAfterIdle > 0 {
 			log.Warnf("both ExpireAfter and ExpireAfterIdle specified.")
 		}
+	}
+
+	if c.ReconnectIntervalSeconds == 0 {
+		c.ReconnectIntervalSeconds = DefaultReconnectIntervalsSeconds
 	}
 
 	c.HTTPSClient.Validate()
