@@ -613,6 +613,200 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestMenderShellGotAuthToken(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Errorf("cant get current user: %s", err.Error())
+		return
+	}
+
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         currentUser.Name,
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+
+	testCases := map[string]struct {
+		params         []dbus.SignalParams
+		needsReconnect bool
+		token          string
+	}{
+		"non-zero-length-params-and-needs-false": {
+			params: []dbus.SignalParams{
+				{
+					ParamType: "any",
+					ParamData: "anyAny",
+				},
+				{
+					ParamType: "some",
+					ParamData: "someSome",
+				},
+			},
+			needsReconnect: false,
+			token:          "anyAny",
+		},
+		"empty-data-params-and-needs-false": {
+			params: []dbus.SignalParams{
+				{
+					ParamType: "any",
+					ParamData: "",
+				},
+				{
+					ParamType: "some",
+					ParamData: "someSome",
+				},
+			},
+			needsReconnect: false,
+			token:          "",
+		},
+		"non-zero-length-params-and-needs-true": {
+			params: []dbus.SignalParams{
+				{
+					ParamType: "any",
+					ParamData: "anyAny",
+				},
+				{
+					ParamType: "some",
+					ParamData: "someSome",
+				},
+			},
+			needsReconnect: true,
+			token:          "anyAny",
+		},
+		"empty-data-params-and-needs-true": {
+			params: []dbus.SignalParams{
+				{
+					ParamType: "any",
+					ParamData: "",
+				},
+				{
+					ParamType: "some",
+					ParamData: "someSome",
+				},
+			},
+			needsReconnect: true,
+			token:          "",
+		},
+	}
+
+	go func() {
+		for {
+			<-d.eventChan
+			time.Sleep(time.Second)
+		}
+	}()
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			c := make(chan string)
+			go func() {
+				s := d.gotAuthToken(tc.params, tc.needsReconnect)
+				c <- s
+			}()
+			s := <-c
+			assert.Equal(t, tc.token, s)
+		})
+	}
+}
+
+func TestMenderShellNeedsReconnect(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Errorf("cant get current user: %s", err.Error())
+		return
+	}
+
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         currentUser.Name,
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+
+	assert.False(t, d.needsReconnect())
+
+	go func() {
+		d.reconnectChan <- MenderShellDaemonEvent{
+			event: "any",
+			data:  "anyAny",
+			id:    "some",
+		}
+	}()
+
+	assert.True(t, d.needsReconnect())
+}
+
+func TestMenderShellPostEvent(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Errorf("cant get current user: %s", err.Error())
+		return
+	}
+
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         currentUser.Name,
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+
+	event := MenderShellDaemonEvent{
+		event: "this event",
+		data:  "event data",
+		id:    "id of the data",
+	}
+	go func() {
+		d.postEvent(event)
+	}()
+
+	e := <-d.eventChan
+	assert.Equal(t, event, e)
+}
+
+func TestMenderShellReadEvent(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Errorf("cant get current user: %s", err.Error())
+		return
+	}
+
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         currentUser.Name,
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+
+	event := MenderShellDaemonEvent{
+		event: "this event",
+		data:  "event data",
+		id:    "id of the data",
+	}
+	go func() {
+		d.postEvent(event)
+	}()
+
+	e := d.readEvent()
+	assert.Equal(t, event, e)
+}
+
 func TestOutputStatus(t *testing.T) {
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -735,6 +929,176 @@ func TestWaitForJWTToken(t *testing.T) {
 					assert.True(t, tc.token != "")
 					assert.Equal(t, tc.token, token)
 				}
+			})
+		}
+	}
+}
+
+func TestDBusEventLoop(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Errorf("cant get current user: %s", err.Error())
+		return
+	}
+
+	testCases := []struct {
+		name    string
+		err     error
+		token   string
+		timeout time.Duration
+	}{
+		{
+			name:  "stopped-gracefully",
+			token: "the-token",
+		},
+		{
+			name:    "token_not_returned_wait_forever",
+			token:   "",
+			timeout: 15 * time.Second,
+		},
+	}
+
+	for _, tc := range testCases {
+		if tc.name == "token_not_returned_wait_forever" {
+			timeout := time.After(tc.timeout)
+			done := make(chan bool)
+			go func() {
+				t.Run(tc.name, func(t *testing.T) {
+					d := NewDaemon(&config.MenderShellConfig{
+						MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+							ShellCommand: "/bin/sh",
+							User:         currentUser.Name,
+							Terminal: config.TerminalConfig{
+								Width:  24,
+								Height: 80,
+							},
+						},
+					})
+
+					dbusAPI := &dbusmocks.DBusAPI{}
+					defer dbusAPI.AssertExpectations(t)
+					client := &authmocks.AuthClient{}
+					client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
+						{
+							ParamType: "s",
+							ParamData: tc.token,
+						},
+					}, tc.err)
+					client.On("GetJWTToken").Return(tc.token, tc.err)
+					d.dbusEventLoop(client)
+				})
+				done <- true
+			}()
+
+			select {
+			case <-timeout:
+				t.Logf("ok: expected to run forever")
+			case <-done:
+			}
+		} else {
+			t.Run(tc.name, func(t *testing.T) {
+				d := NewDaemon(&config.MenderShellConfig{
+					MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+						ShellCommand: "/bin/sh",
+						User:         currentUser.Name,
+						Terminal: config.TerminalConfig{
+							Width:  24,
+							Height: 80,
+						},
+					},
+				})
+
+				dbusAPI := &dbusmocks.DBusAPI{}
+				defer dbusAPI.AssertExpectations(t)
+				client := &authmocks.AuthClient{}
+				client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
+					{
+						ParamType: "s",
+						ParamData: tc.token,
+					},
+				}, tc.err)
+				client.On("GetJWTToken").Return(tc.token, tc.err)
+				go func() {
+					time.Sleep(time.Second)
+					d.stop = true
+				}()
+				d.dbusEventLoop(client)
+			})
+		}
+	}
+}
+
+func TestEventLoop(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Errorf("cant get current user: %s", err.Error())
+		return
+	}
+
+	testCases := []struct {
+		name    string
+		err     error
+		timeout time.Duration
+	}{
+		{
+			name: "stopped-gracefully",
+		},
+		{
+			name:    "run_forever",
+			timeout: 15 * time.Second,
+		},
+	}
+
+	for _, tc := range testCases {
+		if tc.name == "run_forever" {
+			timeout := time.After(tc.timeout)
+			done := make(chan bool)
+			go func() {
+				t.Run(tc.name, func(t *testing.T) {
+					d := NewDaemon(&config.MenderShellConfig{
+						MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+							ShellCommand: "/bin/sh",
+							User:         currentUser.Name,
+							Terminal: config.TerminalConfig{
+								Width:  24,
+								Height: 80,
+							},
+						},
+					})
+
+					d.eventLoop()
+				})
+				done <- true
+			}()
+
+			select {
+			case <-timeout:
+				t.Logf("ok: expected to run forever")
+			case <-done:
+			}
+		} else {
+			t.Run(tc.name, func(t *testing.T) {
+				d := NewDaemon(&config.MenderShellConfig{
+					MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+						ShellCommand: "/bin/sh",
+						User:         currentUser.Name,
+						Terminal: config.TerminalConfig{
+							Width:  24,
+							Height: 80,
+						},
+					},
+				})
+
+				go func() {
+					time.Sleep(time.Second)
+					d.postEvent(MenderShellDaemonEvent{
+						event: "event",
+						data:  "data",
+						id:    "id",
+					})
+					d.stop = true
+				}()
+				d.eventLoop()
 			})
 		}
 	}

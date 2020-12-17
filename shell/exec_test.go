@@ -198,4 +198,9 @@ func TestPipeStdout(t *testing.T) {
 	assert.True(t, rc)
 	reader.Close()
 	writer.Close()
+
+	shell.running = false
+	time.Sleep(4 * time.Second)
+	rc = shell.IsRunning()
+	assert.False(t, rc)
 }

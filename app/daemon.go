@@ -256,7 +256,6 @@ func (d *MenderShellDaemon) needsReconnect() bool {
 func (d *MenderShellDaemon) dbusEventLoop(client mender.AuthClient) {
 	needsReconnect := false
 	for {
-		log.Debugf("dbusEventLoop tick: %+v",d)
 		if d.shouldStop() {
 			break
 		}
