@@ -35,7 +35,7 @@ var (
 	DefaultConfFile         = path.Join(GetConfDirPath(), "mender-shell.conf")
 	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "mender-shell.conf")
 
-	MaxReconnectAttempts = 128
+	MaxReconnectAttempts = uint(128)
 	MessageWriteTimeout  = 2 * time.Second
 	MaxShellsSpawned     = uint(16)
 )

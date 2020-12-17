@@ -34,6 +34,11 @@ type DBusCallResponse interface {
 	GetBoolean() bool
 }
 
+type SignalParams struct {
+	ParamType string
+	ParamData interface{}
+}
+
 // DBusAPI is the interface which describes a DBus API
 type DBusAPI interface {
 	// BusGet synchronously connects to the message bus specified by bus_type
@@ -49,9 +54,9 @@ type DBusAPI interface {
 	// MainLoopQuit stops a main loop from running
 	MainLoopQuit(MainLoop)
 	// HandleSignal handles a DBus signal
-	HandleSignal(signalName string)
+	HandleSignal(signalName string, params []SignalParams)
 	// WaitForSignal waits for a DBus signal
-	WaitForSignal(signalName string, timeout time.Duration) error
+	WaitForSignal(signalName string, timeout time.Duration) ([]SignalParams, error)
 }
 
 // GetDBusAPI returns the global DBusAPI object

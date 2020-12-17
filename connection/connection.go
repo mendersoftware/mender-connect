@@ -159,14 +159,6 @@ func (c *Connection) WriteMessage(m *ws.ProtoMsg) (err error) {
 	return c.connection.WriteMessage(websocket.BinaryMessage, data)
 }
 
-// keeping those for debugging and internal use
-func (c *Connection) writeMessageRaw(data []byte) (err error) {
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
-	c.connection.SetWriteDeadline(time.Now().Add(c.writeWait))
-	return c.connection.WriteMessage(websocket.BinaryMessage, data)
-}
-
 func (c *Connection) ReadMessage() (*ws.ProtoMsg, error) {
 	_, data, err := c.connection.ReadMessage()
 	if err != nil {
@@ -179,16 +171,6 @@ func (c *Connection) ReadMessage() (*ws.ProtoMsg, error) {
 		return nil, err
 	}
 	return m, nil
-}
-
-// keeping those for debugging and internal use
-func (c *Connection) readMessageRaw() ([]byte, error) {
-	_, data, err := c.connection.ReadMessage()
-	if err != nil {
-		return nil, err
-	}
-
-	return data, nil
 }
 
 func (c *Connection) Close() error {

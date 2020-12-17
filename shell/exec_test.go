@@ -15,17 +15,12 @@ package shell
 
 import (
 	"fmt"
-	"github.com/mendersoftware/go-lib-micro/ws"
-	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
-	"github.com/mendersoftware/mender-shell/connection"
-	"github.com/vmihailenco/msgpack"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -35,13 +30,18 @@ import (
 	"github.com/gorilla/websocket"
 	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/vmihailenco/msgpack"
+
+	"github.com/mendersoftware/go-lib-micro/ws"
+	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
+	"github.com/mendersoftware/mender-shell/connection"
+	"github.com/mendersoftware/mender-shell/connectionmanager"
 )
 
 var messages []string
 
 func TestNewMenderShell(t *testing.T) {
-	var mutex sync.Mutex
-	s := NewMenderShell("", &mutex, nil, nil, nil)
+	s := NewMenderShell("", nil, nil)
 	assert.NotNil(t, s)
 }
 
@@ -122,12 +122,14 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
+	err = connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
+	assert.NoError(t, err)
+
 	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, false, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 
-	var mutex sync.Mutex
-	s := NewMenderShell(uuid.NewV4().String(), &mutex, webSock, pseudoTTY, pseudoTTY)
+	s := NewMenderShell(uuid.NewV4().String(), pseudoTTY, pseudoTTY)
 	assert.NotNil(t, s)
 
 	timeout := s.GetWriteTimeout()
@@ -141,14 +143,7 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 
 	time.Sleep(8 * time.Second)
 
-	webSock, err = connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true, "")
-	assert.NoError(t, err)
-	assert.NotNil(t, webSock)
-
-	err = s.UpdateWSConnection(webSock)
-	assert.NoError(t, err)
-
-	webSock.Close()
+	connectionmanager.Close(ws.ProtoTypeShell)
 	s.Stop()
 	assert.False(t, s.IsRunning())
 
@@ -181,7 +176,6 @@ func TestPipeStdout(t *testing.T) {
 
 	shell := &MenderShell{
 		sessionId: "unit-tests-sessions-id",
-		ws:        webSock,
 		r:         reader,
 		w:         writer,
 		running:   false,
@@ -204,4 +198,9 @@ func TestPipeStdout(t *testing.T) {
 	assert.True(t, rc)
 	reader.Close()
 	writer.Close()
+
+	shell.running = false
+	time.Sleep(4 * time.Second)
+	rc = shell.IsRunning()
+	assert.False(t, rc)
 }

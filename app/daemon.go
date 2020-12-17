@@ -28,8 +28,7 @@ import (
 	"github.com/mendersoftware/mender-shell/client/dbus"
 	"github.com/mendersoftware/mender-shell/client/mender"
 	configuration "github.com/mendersoftware/mender-shell/config"
-	"github.com/mendersoftware/mender-shell/connection"
-	"github.com/mendersoftware/mender-shell/deviceconnect"
+	"github.com/mendersoftware/mender-shell/connectionmanager"
 	"github.com/mendersoftware/mender-shell/procps"
 	"github.com/mendersoftware/mender-shell/session"
 	"github.com/mendersoftware/mender-shell/shell"
@@ -38,13 +37,25 @@ import (
 var lastExpiredSessionSweep = time.Now()
 var expiredSessionsSweepFrequency = time.Second * 32
 
-var (
-	ErrNilParameterUnexpected = errors.New("unexpected nil parameter")
+const (
+	EventReconnect             = "reconnect"
+	EventReconnectRequest      = "reconnect-req"
+	EventConnectionEstablished = "connected"
 )
+
+type MenderShellDaemonEvent struct {
+	event string
+	data  string
+	id    string
+}
 
 type MenderShellDaemon struct {
 	writeMutex              *sync.Mutex
+	eventChan               chan MenderShellDaemonEvent
+	connectionEstChan       chan MenderShellDaemonEvent
+	reconnectChan           chan MenderShellDaemonEvent
 	stop                    bool
+	authorized              bool
 	printStatus             bool
 	username                string
 	shell                   string
@@ -66,7 +77,11 @@ type MenderShellDaemon struct {
 func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 	daemon := MenderShellDaemon{
 		writeMutex:              &sync.Mutex{},
+		eventChan:               make(chan MenderShellDaemonEvent),
+		connectionEstChan:       make(chan MenderShellDaemonEvent),
+		reconnectChan:           make(chan MenderShellDaemonEvent),
 		stop:                    false,
+		authorized:              false,
 		username:                config.User,
 		shell:                   config.ShellCommand,
 		serverUrl:               config.ServerURL,
@@ -119,23 +134,13 @@ func (d *MenderShellDaemon) timeToSweepSessions() bool {
 	}
 }
 
-func (d *MenderShellDaemon) wsReconnect(token string) (webSock *connection.Connection, err error) {
-	for reconnectAttempts := configuration.MaxReconnectAttempts; reconnectAttempts > 0; reconnectAttempts-- {
-		webSock, err = deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, d.skipVerify, d.serverCertificate, token)
-		if err != nil {
-			if reconnectAttempts == 1 {
-				log.Errorf("main-loop webSock failed to re-connect to %s%s, error: %s; giving up after %d tries", d.serverUrl, d.deviceConnectUrl, err.Error(), configuration.MaxReconnectAttempts)
-				return nil, err
-			}
-			log.Errorf("main-loop webSock failed to connect to %s%s, error: %s", d.serverUrl, d.deviceConnectUrl, err.Error())
-			time.Sleep(time.Second)
-		} else {
-			log.Info("reconnected")
-			session.UpdateWSConnection(webSock)
-			return webSock, nil
-		}
+func (d *MenderShellDaemon) wsReconnect(token string) (err error) {
+	err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, token, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts)
+	if err != nil {
+		return errors.New("failed to reconnect after " + strconv.Itoa(int(configuration.MaxReconnectAttempts)) + " tries: " + err.Error())
+	} else {
+		return nil
 	}
-	return nil, errors.New("failed to reconnect after " + strconv.Itoa(configuration.MaxReconnectAttempts) + " tries")
 }
 
 func (d *MenderShellDaemon) outputStatus() {
@@ -152,69 +157,169 @@ func (d *MenderShellDaemon) outputStatus() {
 	d.printStatus = false
 }
 
-func (d *MenderShellDaemon) messageMainLoop(webSock *connection.Connection, token string) (err error) {
-	log.Info("messageMainLoop: starting")
+func (d *MenderShellDaemon) messageLoop() (err error) {
+	log.Info("messageLoop: starting")
 	for {
 		if d.shouldStop() {
-			log.Debug("messageMainLoop: returning")
+			log.Debug("messageLoop: returning")
 			break
 		}
 
-		if d.shouldPrintStatus() {
-			d.outputStatus()
-		}
-
 		var message *shell.MenderShellMessage
-		log.Debugf("messageMainLoop: calling readMessage")
-		message, err = d.readMessage(webSock)
-		log.Debugf("messageMainLoop: calling readMessage: %v,%v", message, err)
+		log.Debugf("messageLoop: calling readMessage")
+		message, err = d.readMessage()
+		log.Debugf("messageLoop: called readMessage: %v,%v", message, err)
 		if err != nil {
-			log.Errorf("main-loop: error reading message: %s; attempting reconnect.", err.Error())
-			if webSock != nil {
-				err = webSock.Close()
-				if err != nil {
-					log.Errorf("main-loop: error on closing the connection: %s", err.Error())
-				}
+			log.Errorf("messageLoop: error on readMessage: %v; disconnecting, waiting for reconnect.", err)
+			connectionmanager.Close(ws.ProtoTypeShell)
+			e := MenderShellDaemonEvent{
+				event: EventReconnectRequest,
 			}
-			time.Sleep(time.Second)
+			log.Debugf("messageLoop: posting event: %s; waiting for response", e.event)
+			d.reconnectChan <- e
+			response := <-d.connectionEstChan
+			log.Debugf("messageLoop: got response: %+v", response)
 			continue
 		}
 
 		log.Debugf("got message: type:%s data length:%d", message.Type, len(message.Data))
-		err = d.routeMessage(webSock, message)
+		err = d.routeMessage(message)
 		if err != nil {
-			log.Debugf("error routing message")
+			log.Debugf("error routing message: %s", err.Error())
 		}
 	}
 
-	log.Debug("messageMainLoop: returning")
+	log.Debug("messageLoop: returning")
 	return err
-}
-
-//returns true if GetJWTToken returns "" meaning that we lost auth status
-//see below for some notes
-func deviceUnauth(client mender.AuthClient) bool {
-	jwtToken, err := client.GetJWTToken()
-	if err == nil {
-		//in case there is an error, it can mean that client was stopped, and/or there is
-		//a problem with DBus communication. the decision here is: we only assume that
-		//the device is unauthorized when there is a successful response from DBus
-		//in hope to save someone when mender-shell is the last access point
-		return jwtToken == ""
-	}
-	return false
 }
 
 func waitForJWTToken(client mender.AuthClient) (jwtToken string, err error) {
 	for {
-		jwtToken, err = client.GetJWTToken()
-		if jwtToken != "" {
-			log.Infof("JWT token is available.")
+		p, _ := client.WaitForJwtTokenStateChange()
+		if len(p) > 0 && p[0].ParamType == dbus.GDBusTypeString && len(p[0].ParamData.(string)) > 0 {
+			return p[0].ParamData.(string), nil
+		}
+	}
+}
+
+func (d *MenderShellDaemon) gotAuthToken(p []dbus.SignalParams, needsReconnect bool) string {
+	jwtToken := p[0].ParamData.(string)
+	jwtTokenLength := len(jwtToken)
+	if jwtTokenLength > 0 {
+		if !d.authorized {
+			log.Debugf("dbusEventLoop: StateChanged from unauthorized"+
+				" to authorized, len(token)=%d", jwtTokenLength)
+			//in hereT technically it is possible we close a closed connection
+			//but it is not a critical error, the important thing is not to leave
+			//messageLoop waiting forever on readMessage
+			connectionmanager.Close(ws.ProtoTypeShell)
+			if needsReconnect {
+				e := MenderShellDaemonEvent{
+					event: EventReconnect,
+					data:  jwtToken,
+					id:    "(gotAuthToken)",
+				}
+				log.Debugf("d.connected set to false, posting Event: %s", e.event)
+				d.postEvent(e)
+			}
+		}
+		d.authorized = true
+	} else {
+		if d.authorized {
+			log.Debugf("dbusEventLoop: StateChanged from authorized to unauthorized." +
+				"terminating all sessions and disconnecting.")
+			shellsCount, sessionsCount, err := session.MenderSessionTerminateAll()
+			if err == nil {
+				log.Infof("dbusEventLoop terminated %d sessions, %d shells",
+					shellsCount, sessionsCount)
+			} else {
+				log.Errorf("dbusEventLoop error terminating all sessions: %s",
+					err.Error())
+			}
+		}
+		connectionmanager.Close(ws.ProtoTypeShell)
+		d.authorized = false
+	}
+	return jwtToken
+}
+
+func (d *MenderShellDaemon) needsReconnect() bool {
+	select {
+	case e := <-d.reconnectChan:
+		log.Debugf("needsReconnect: got event: %s", e.event)
+		return true
+	case <-time.After(time.Second):
+		return false
+	}
+}
+
+func (d *MenderShellDaemon) dbusEventLoop(client mender.AuthClient) {
+	needsReconnect := false
+	for {
+		if d.shouldStop() {
 			break
 		}
-		time.Sleep(time.Second)
+
+		if d.needsReconnect() {
+			log.Debugf("dbusEventLoop: daemon needs to reconnect")
+			needsReconnect = true
+		}
+
+		p, _ := client.WaitForJwtTokenStateChange()
+		if len(p) > 0 && p[0].ParamType == dbus.GDBusTypeString {
+			token := d.gotAuthToken(p, needsReconnect)
+			if len(token) > 0 {
+				log.Debugf("dbusEventLoop: got a token len=%d", len(token))
+				needsReconnect = false
+			}
+		}
+		if needsReconnect && d.authorized {
+			jwtToken, _ := client.GetJWTToken()
+			e := MenderShellDaemonEvent{
+				event: EventReconnect,
+				data:  jwtToken,
+				id:    "(dbusEventLoop)",
+			}
+			log.Debugf("d.connected set to false, posting Event: %s", e.event)
+			d.postEvent(e)
+		}
 	}
-	return jwtToken, nil
+
+	log.Debug("dbusEventLoop: returning")
+}
+
+func (d *MenderShellDaemon) postEvent(event MenderShellDaemonEvent) {
+	d.eventChan <- event
+}
+
+func (d *MenderShellDaemon) readEvent() MenderShellDaemonEvent {
+	return <-d.eventChan
+}
+
+func (d *MenderShellDaemon) eventLoop() {
+	var err error
+	for {
+		if d.shouldStop() {
+			break
+		}
+
+		event := d.readEvent()
+		log.Debugf("eventLoop: got event: %s", event.event)
+		switch event.event {
+		case EventReconnect:
+			err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, event.data, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts)
+			if err != nil {
+				log.Errorf("eventLoop: event: error reconnecting: %s", err.Error())
+			} else {
+				log.Infof("eventLoop: reconnected")
+				d.connectionEstChan <- MenderShellDaemonEvent{
+					event: EventConnectionEstablished,
+				}
+			}
+		}
+	}
+
+	log.Debug("eventLoop: returning")
 }
 
 //starts all needed elements of the mender-shell daemon
@@ -248,7 +353,7 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	log.Info("mender-shell connecting dbus and getting the token")
+	log.Info("mender-shell connecting to dbus")
 	//dbus main loop, required.
 	dbusAPI, err := dbus.GetDBusAPI()
 	loop := dbusAPI.MainLoopNew()
@@ -269,19 +374,33 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	log.Infof("waiting for JWT token (GetJWTToken)")
-	jwtToken, err := waitForJWTToken(client)
+	jwtToken, err := client.GetJWTToken()
+	log.Debugf("GetJWTToken()=%s,%v", jwtToken, err)
+	if len(jwtToken) < 1 {
+		log.Infof("waiting for JWT token (waitForJWTToken)")
+		jwtToken, _ = waitForJWTToken(client)
+		d.authorized = true
+	} else {
+		d.authorized = true
+	}
 	log.Debugf("mender-shell got len(JWT)=%d", len(jwtToken))
 
-	//make websocket connection to the backend, this will be used to exchange messages
-	log.Infof("mender-shell connecting websocket; url: %s%s", d.serverUrl, d.deviceConnectUrl)
-	ws, err := deviceconnect.Connect(d.serverUrl, d.deviceConnectUrl, d.skipVerify, d.serverCertificate, jwtToken)
+	err = connectionmanager.Connect(ws.ProtoTypeShell,
+		d.serverUrl,
+		d.deviceConnectUrl,
+		jwtToken,
+		d.skipVerify,
+		d.serverCertificate,
+		0)
 	if err != nil {
-		log.Errorf("mender-shall ws failed to connect to %s%s, error: %s", d.serverUrl, d.deviceConnectUrl, err.Error())
+		log.Errorf("error on connecting, probably interrupted: %s", err.Error())
 		return err
 	}
+	log.Debugf("d.connected set to true")
 
-	go d.messageMainLoop(ws, jwtToken)
+	go d.messageLoop()
+	go d.dbusEventLoop(client)
+	go d.eventLoop()
 
 	log.Infof("mender-shell entering main loop.")
 	for {
@@ -293,45 +412,25 @@ func (d *MenderShellDaemon) Run() error {
 			d.outputStatus()
 		}
 
-		if deviceUnauth(client) {
-			log.Warnf("device was denied authorization, terminating all shells.")
-			shellsCount, sessionsCount, err := session.MenderSessionTerminateAll()
-			if err == nil {
-				log.Infof("terminated %d sessions, %d shells", shellsCount, sessionsCount)
-			} else {
-				log.Errorf("error terminating all sessions: %s", err.Error())
-			}
-			log.Infof("waiting for JWT token (GetJWTToken)")
-			jwtToken, err = waitForJWTToken(client)
-			if err != nil {
-				//shall we make waitForJWTToken wait even if there is an error?
-				//now we just stop
-				break
-			}
-
-			//in here technically it is possible we close a closed connection
-			//but it is not a critical error, the important thing is not to leave
-			//any messageMainLoop running -- since it waits forever on readMessage
-			ws.Close()
-			ws, _ = d.wsReconnect(jwtToken)
-			go d.messageMainLoop(ws, jwtToken)
-		}
-
 		if d.timeToSweepSessions() {
 			shellStoppedCount, sessionStoppedCount, totalExpiredLeft, err := session.MenderSessionTerminateExpired()
 			if err != nil {
-				log.Errorf("main-loop: failed to terminate some expired sessions, left: %d", totalExpiredLeft)
+				log.Errorf("main-loop: failed to terminate some expired sessions, left: %d",
+					totalExpiredLeft)
 			} else if sessionStoppedCount != 0 {
-				log.Infof("main-loop: stopped %d sessions, %d shells, expired sessions left: %d", shellStoppedCount, sessionStoppedCount, totalExpiredLeft)
+				log.Infof("main-loop: stopped %d sessions, %d shells, expired sessions left: %d",
+					shellStoppedCount, sessionStoppedCount, totalExpiredLeft)
 			}
 		}
 
 		time.Sleep(time.Second)
 	}
+
+	log.Debug("mainLoop: returning")
 	return nil
 }
 
-func (d *MenderShellDaemon) responseMessage(webSock *connection.Connection, m *shell.MenderShellMessage) (err error) {
+func (d *MenderShellDaemon) responseMessage(m *shell.MenderShellMessage) (err error) {
 	msg := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
 			Proto:     ws.ProtoTypeShell,
@@ -344,11 +443,10 @@ func (d *MenderShellDaemon) responseMessage(webSock *connection.Connection, m *s
 		Body: m.Data,
 	}
 	log.Debugf("responseMessage: webSock.WriteMessage(%+v)", msg)
-	err = webSock.WriteMessage(msg)
-	return err
+	return connectionmanager.Write(ws.ProtoTypeShell, msg)
 }
 
-func (d *MenderShellDaemon) routeMessage(webSock *connection.Connection, message *shell.MenderShellMessage) (err error) {
+func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) (err error) {
 	switch message.Type {
 	case wsshell.MessageTypeSpawnShell:
 		if d.shellsSpawned >= configuration.MaxShellsSpawned {
@@ -357,7 +455,7 @@ func (d *MenderShellDaemon) routeMessage(webSock *connection.Connection, message
 		s := session.MenderShellSessionGetById(message.SessionId)
 		if s == nil {
 			userId := string(message.Data)
-			s, err = session.NewMenderShellSession(d.writeMutex, webSock, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle)
+			s, err = session.NewMenderShellSession(userId, d.expireSessionsAfter, d.expireSessionsAfterIdle)
 			if err != nil {
 				return err
 			}
@@ -385,7 +483,7 @@ func (d *MenderShellDaemon) routeMessage(webSock *connection.Connection, message
 			d.shellsSpawned++
 		}
 
-		err = d.responseMessage(webSock, &shell.MenderShellMessage{
+		err = d.responseMessage(&shell.MenderShellMessage{
 			Type:      wsshell.MessageTypeSpawnShell,
 			Status:    status,
 			SessionId: s.GetId(),
@@ -421,7 +519,7 @@ func (d *MenderShellDaemon) routeMessage(webSock *connection.Connection, message
 
 		err = s.StopShell()
 		if err != nil {
-			rErr := d.responseMessage(webSock, &shell.MenderShellMessage{
+			rErr := d.responseMessage(&shell.MenderShellMessage{
 				Type:      wsshell.MessageTypeSpawnShell,
 				Status:    wsshell.ErrorMessage,
 				SessionId: s.GetId(),
@@ -470,12 +568,8 @@ func (d *MenderShellDaemon) routeMessage(webSock *connection.Connection, message
 	return nil
 }
 
-func (d *MenderShellDaemon) readMessage(webSock *connection.Connection) (*shell.MenderShellMessage, error) {
-	if webSock == nil {
-		return nil, ErrNilParameterUnexpected
-	}
-
-	msg, err := webSock.ReadMessage()
+func (d *MenderShellDaemon) readMessage() (*shell.MenderShellMessage, error) {
+	msg, err := connectionmanager.Read(ws.ProtoTypeShell)
 	log.Debugf("webSock.ReadMessage()=%+v,%v", msg, err)
 	if err != nil {
 		return nil, err

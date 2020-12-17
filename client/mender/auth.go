@@ -15,7 +15,6 @@
 package mender
 
 import (
-	"errors"
 	"time"
 
 	"github.com/mendersoftware/mender-shell/client/dbus"
@@ -23,17 +22,16 @@ import (
 
 // DbBus constants for the Mender Authentication Manager
 const (
-	DBusObjectName                       = "io.mender.AuthenticationManager"
-	DBusObjectPath                       = "/io/mender/AuthenticationManager"
-	DBusInterfaceName                    = "io.mender.Authentication1"
-	DBusMethodNameGetJwtToken            = "GetJwtToken"
-	DBusMethodNameFetchJwtToken          = "FetchJwtToken"
-	DBusSignalNameValidJwtTokenAvailable = "ValidJwtTokenAvailable"
-	DBusMethodTimeoutInSeconds           = 5
+	DBusObjectName                    = "io.mender.AuthenticationManager"
+	DBusObjectPath                    = "/io/mender/AuthenticationManager"
+	DBusInterfaceName                 = "io.mender.Authentication1"
+	DBusMethodNameGetJwtToken         = "GetJwtToken"
+	DBusMethodNameFetchJwtToken       = "FetchJwtToken"
+	DBusSignalNameJwtTokenStateChange = "JwtTokenStateChange"
+	DBusMethodTimeoutInMilliSeconds   = 5000
 )
 
 var timeout = 10 * time.Second
-var errFetchTokenFailed = errors.New("FetchJwtToken failed")
 
 // AuthClient is the interface for the Mender Authentication Manager clilents
 type AuthClient interface {
@@ -43,10 +41,8 @@ type AuthClient interface {
 	GetJWTToken() (string, error)
 	// FetchJWTToken schedules the fetching of a new device JWT token
 	FetchJWTToken() (bool, error)
-	// WaitForValidJWTTokenAvailable synchronously waits for the ValidJwtTokenAvailable signal
-	WaitForValidJWTTokenAvailable() error
-	// FetchAndGetJWTToken fetches a new JWT token and returns it
-	FetchAndGetJWTToken() (string, error)
+	// WaitForJwtTokenStateChange synchronously waits for the JwtTokenStateChange signal
+	WaitForJwtTokenStateChange() ([]dbus.SignalParams, error)
 }
 
 // AuthClientDBUS is the implementation of the client for the Mender
@@ -88,7 +84,7 @@ func (a *AuthClientDBUS) Connect(objectName, objectPath, interfaceName string) e
 
 // GetJWTToken returns a device JWT token
 func (a *AuthClientDBUS) GetJWTToken() (string, error) {
-	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameGetJwtToken, nil, DBusMethodTimeoutInSeconds)
+	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameGetJwtToken, nil, DBusMethodTimeoutInMilliSeconds)
 	if err != nil {
 		return "", err
 	}
@@ -97,29 +93,14 @@ func (a *AuthClientDBUS) GetJWTToken() (string, error) {
 
 // FetchJWTToken schedules the fetching of a new device JWT token
 func (a *AuthClientDBUS) FetchJWTToken() (bool, error) {
-	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameFetchJwtToken, nil, DBusMethodTimeoutInSeconds)
+	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameFetchJwtToken, nil, DBusMethodTimeoutInMilliSeconds)
 	if err != nil {
 		return false, err
 	}
 	return response.GetBoolean(), nil
 }
 
-// WaitForValidJWTTokenAvailable synchronously waits for the ValidJwtTokenAvailable signal
-func (a *AuthClientDBUS) WaitForValidJWTTokenAvailable() error {
-	return a.dbusAPI.WaitForSignal(DBusSignalNameValidJwtTokenAvailable, timeout)
-}
-
-// FetchAndGetJWTToken fetches a new JWT token and returns it
-func (a *AuthClientDBUS) FetchAndGetJWTToken() (string, error) {
-	fetch, err := a.FetchJWTToken()
-	if err != nil {
-		return "", err
-	} else if fetch == false {
-		return "", errFetchTokenFailed
-	}
-	err = a.WaitForValidJWTTokenAvailable()
-	if err != nil {
-		return "", err
-	}
-	return a.GetJWTToken()
+// WaitForJwtTokenStateChange synchronously waits for the JwtTokenStateChange signal
+func (a *AuthClientDBUS) WaitForJwtTokenStateChange() ([]dbus.SignalParams, error) {
+	return a.dbusAPI.WaitForSignal(DBusSignalNameJwtTokenStateChange, timeout)
 }

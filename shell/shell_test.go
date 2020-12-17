@@ -14,7 +14,6 @@
 package shell
 
 import (
-	"github.com/mendersoftware/mender-shell/procps"
 	"os"
 	"os/user"
 	"strconv"
@@ -23,6 +22,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/mendersoftware/mender-shell/procps"
 )
 
 func TestMenderShellExecShell(t *testing.T) {

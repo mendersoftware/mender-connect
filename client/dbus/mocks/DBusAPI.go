@@ -94,7 +94,7 @@ func (_m *DBusAPI) BusProxyNew(_a0 dbus.Handle, _a1 string, _a2 string, _a3 stri
 }
 
 // HandleSignal provides a mock function with given fields: signalName
-func (_m *DBusAPI) HandleSignal(signalName string) {
+func (_m *DBusAPI) HandleSignal(signalName string, params []dbus.SignalParams) {
 	_m.Called(signalName)
 }
 
@@ -123,15 +123,22 @@ func (_m *DBusAPI) MainLoopRun(_a0 dbus.MainLoop) {
 }
 
 // WaitForSignal provides a mock function with given fields: signalName, timeout
-func (_m *DBusAPI) WaitForSignal(signalName string, timeout time.Duration) error {
+func (_m *DBusAPI) WaitForSignal(signalName string, timeout time.Duration) ([]dbus.SignalParams, error) {
 	ret := _m.Called(signalName, timeout)
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, time.Duration) error); ok {
+	var r0 []dbus.SignalParams
+	if rf, ok := ret.Get(0).(func(string, time.Duration) []dbus.SignalParams); ok {
 		r0 = rf(signalName, timeout)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).([]dbus.SignalParams)
 	}
 
-	return r0
+	var r1 error
+	if rf, ok := ret.Get(1).(func(string, time.Duration) error); ok {
+		r1 = rf(signalName, timeout)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }

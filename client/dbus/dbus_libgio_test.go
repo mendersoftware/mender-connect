@@ -135,13 +135,13 @@ func TestWaitForSignal(t *testing.T) {
 
 	// received signal
 	libgio.DrainSignal(signalName)
-	go libgio.HandleSignal(signalName)
-	err := libgio.WaitForSignal(signalName, 100*time.Millisecond)
+	go libgio.HandleSignal(signalName, []SignalParams{})
+	_, err := libgio.WaitForSignal(signalName, 100*time.Millisecond)
 	assert.NoError(t, err)
 
 	// timeout
 	libgio.DrainSignal(signalName)
-	err = libgio.WaitForSignal(signalName, 100*time.Millisecond)
+	_, err = libgio.WaitForSignal(signalName, 100*time.Millisecond)
 	assert.Error(t, err)
 
 	// multiple drains are idempotent
@@ -208,7 +208,7 @@ func TestMenderclient(t *testing.T) {
 			}
 
 			if tc.signalName != "" {
-				err = libgio.WaitForSignal(tc.signalName, 5*time.Second)
+				_, err = libgio.WaitForSignal(tc.signalName, 5*time.Second)
 				assert.NoError(t, err)
 			}
 		})

@@ -181,6 +181,8 @@ func TestConnection_Close(t *testing.T) {
 	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait, true, "")
 	assert.NotNil(t, c)
 
+	assert.True(t, c.GetWriteTimeout() > 0)
+
 	time.Sleep(time.Second)
 	err = c.Close()
 	assert.NoError(t, err)
