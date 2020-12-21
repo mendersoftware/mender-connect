@@ -220,7 +220,7 @@ func (d *MenderShellDaemon) gotAuthToken(p []dbus.SignalParams, needsReconnect b
 					data:  jwtToken,
 					id:    "(gotAuthToken)",
 				}
-				log.Debugf("d.connected set to false, posting Event: %s", e.event)
+				log.Debugf("(gotAuthToken) posting Event: %s", e.event)
 				d.postEvent(e)
 			}
 		}
@@ -281,8 +281,9 @@ func (d *MenderShellDaemon) dbusEventLoop(client mender.AuthClient) {
 				data:  jwtToken,
 				id:    "(dbusEventLoop)",
 			}
-			log.Debugf("d.connected set to false, posting Event: %s", e.event)
+			log.Debugf("(dbusEventLoop) posting Event: %s", e.event)
 			d.postEvent(e)
+			needsReconnect = false
 		}
 	}
 
@@ -376,7 +377,7 @@ func (d *MenderShellDaemon) Run() error {
 	}
 
 	jwtToken, err := client.GetJWTToken()
-	log.Debugf("GetJWTToken()=%s,%v", jwtToken, err)
+	log.Debugf("GetJWTToken().len=%d,%v", len(jwtToken), err)
 	if len(jwtToken) < 1 {
 		log.Infof("waiting for JWT token (waitForJWTToken)")
 		jwtToken, _ = waitForJWTToken(client)
@@ -397,7 +398,6 @@ func (d *MenderShellDaemon) Run() error {
 		log.Errorf("error on connecting, probably interrupted: %s", err.Error())
 		return err
 	}
-	log.Debugf("d.connected set to true")
 
 	go d.messageLoop()
 	go d.dbusEventLoop(client)
