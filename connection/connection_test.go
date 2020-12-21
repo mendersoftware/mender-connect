@@ -15,9 +15,6 @@
 package connection
 
 import (
-	"github.com/gorilla/websocket"
-	"github.com/mendersoftware/go-lib-micro/ws"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,6 +22,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/mendersoftware/go-lib-micro/ws"
 )
 
 const (

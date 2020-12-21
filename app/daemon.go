@@ -97,6 +97,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		debug:                   true,
 	}
 
+	connectionmanager.SetReconnectIntervalSeconds(config.ReconnectIntervalSeconds)
 	if config.Sessions.MaxPerUser > 0 {
 		session.MaxUserSessions = int(config.Sessions.MaxPerUser)
 	}
