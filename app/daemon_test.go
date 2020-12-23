@@ -66,11 +66,12 @@ func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID str
 		Body: []byte(data),
 	}
 	d, err := msgpack.Marshal(m)
-	if err != nil {
-		return err
+	if err == nil {
+		err = webSock.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	}
-	err = webSock.SetWriteDeadline(time.Now().Add(2 * time.Second))
-	err = webSock.WriteMessage(websocket.BinaryMessage, d)
+	if err == nil {
+		err = webSock.WriteMessage(websocket.BinaryMessage, d)
+	}
 	return err
 }
 
@@ -118,7 +119,7 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 	err = sendMessage(c, wsshell.MessageTypeStopShell, "undefined-session-id", "", "")
 	fmt.Printf("newShellTransaction (4) sendMessage=%v\n", err)
 	time.Sleep(4 * time.Second)
-	err = sendMessage(c, wsshell.MessageTypeStopShell, m.SessionId, "", "")
+	_ = sendMessage(c, wsshell.MessageTypeStopShell, m.SessionId, "", "")
 	for {
 		time.Sleep(4 * time.Second)
 	}

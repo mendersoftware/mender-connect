@@ -525,7 +525,7 @@ func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) (err
 		err = s.StopShell()
 		if err != nil {
 			rErr := d.responseMessage(&shell.MenderShellMessage{
-				Type:      wsshell.MessageTypeSpawnShell,
+				Type:      wsshell.MessageTypeStopShell,
 				Status:    wsshell.ErrorMessage,
 				SessionId: s.GetId(),
 				Data:      []byte("failed to stop shell: " + err.Error()),
@@ -554,6 +554,13 @@ func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) (err
 				log.Error("can't decrement shellsSpawned count: it is 0.")
 			} else {
 				d.shellsSpawned--
+			}
+			if rErr := d.responseMessage(&shell.MenderShellMessage{
+				Type:      wsshell.MessageTypeStopShell,
+				Status:    wsshell.NormalMessage,
+				SessionId: s.GetId(),
+			}); rErr != nil {
+				log.Errorf("failed to send response (%s) to stop-shell command", rErr.Error())
 			}
 		}
 		return session.MenderShellDeleteById(s.GetId())
