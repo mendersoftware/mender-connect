@@ -15,16 +15,17 @@ package session
 
 import (
 	"errors"
-	"github.com/mendersoftware/mender-shell/procps"
 	"io"
 	"os"
 	"os/exec"
 	"syscall"
 	"time"
 
-	"github.com/mendersoftware/mender-shell/shell"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
+ù
+	"github.com/mendersoftware/mender-shell/procps"
+	"github.com/mendersoftware/mender-shell/shell"
 )
 
 type MenderSessionType int

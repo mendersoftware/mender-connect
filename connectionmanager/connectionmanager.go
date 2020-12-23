@@ -16,12 +16,14 @@ package connectionmanager
 
 import (
 	"errors"
-	"github.com/mendersoftware/go-lib-micro/ws"
-	"github.com/mendersoftware/mender-shell/connection"
-	log "github.com/sirupsen/logrus"
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/mendersoftware/go-lib-micro/ws"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/mendersoftware/mender-shell/connection"
 )
 
 const (

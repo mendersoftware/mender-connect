@@ -16,14 +16,14 @@ package shell
 import (
 	"bufio"
 	"errors"
-	"github.com/mendersoftware/mender-shell/connectionmanager"
 	"io"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/mendersoftware/mender-shell/connectionmanager"
 )
 
 var (
