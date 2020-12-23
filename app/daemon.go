@@ -159,7 +159,7 @@ func (d *MenderShellDaemon) outputStatus() {
 }
 
 func (d *MenderShellDaemon) messageLoop() (err error) {
-	log.Info("messageLoop: starting")
+	log.Debug("messageLoop: starting")
 	for {
 		if d.shouldStop() {
 			log.Debug("messageLoop: returning")
@@ -167,7 +167,7 @@ func (d *MenderShellDaemon) messageLoop() (err error) {
 		}
 
 		var message *shell.MenderShellMessage
-		log.Debugf("messageLoop: calling readMessage")
+		log.Debug("messageLoop: calling readMessage")
 		message, err = d.readMessage()
 		log.Debugf("messageLoop: called readMessage: %v,%v", message, err)
 		if err != nil {
@@ -262,7 +262,7 @@ func (d *MenderShellDaemon) dbusEventLoop(client mender.AuthClient) {
 		}
 
 		if d.needsReconnect() {
-			log.Debugf("dbusEventLoop: daemon needs to reconnect")
+			log.Debug("dbusEventLoop: daemon needs to reconnect")
 			needsReconnect = true
 		}
 
@@ -313,7 +313,7 @@ func (d *MenderShellDaemon) eventLoop() {
 			if err != nil {
 				log.Errorf("eventLoop: event: error reconnecting: %s", err.Error())
 			} else {
-				log.Infof("eventLoop: reconnected")
+				log.Debug("eventLoop: reconnected")
 				d.connectionEstChan <- MenderShellDaemonEvent{
 					event: EventConnectionEstablished,
 				}
@@ -336,7 +336,7 @@ func (d *MenderShellDaemon) Run() error {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	log.Infof("daemon Run starting")
+	log.Debug("daemon Run starting")
 	u, err := user.Lookup(d.username)
 	if err == nil && u == nil {
 		return errors.New("unknown error while getting a user id")
@@ -355,7 +355,7 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	log.Info("mender-shell connecting to dbus")
+	log.Debug("mender-shell connecting to dbus")
 	//dbus main loop, required.
 	dbusAPI, err := dbus.GetDBusAPI()
 	loop := dbusAPI.MainLoopNew()
@@ -379,7 +379,7 @@ func (d *MenderShellDaemon) Run() error {
 	jwtToken, err := client.GetJWTToken()
 	log.Debugf("GetJWTToken().len=%d,%v", len(jwtToken), err)
 	if len(jwtToken) < 1 {
-		log.Infof("waiting for JWT token (waitForJWTToken)")
+		log.Info("waiting for JWT token (waitForJWTToken)")
 		jwtToken, _ = waitForJWTToken(client)
 		d.authorized = true
 	} else {
@@ -403,7 +403,7 @@ func (d *MenderShellDaemon) Run() error {
 	go d.dbusEventLoop(client)
 	go d.eventLoop()
 
-	log.Infof("mender-shell entering main loop.")
+	log.Debug("mender-shell entering main loop.")
 	for {
 		if d.shouldStop() {
 			break
@@ -480,7 +480,7 @@ func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) (err
 			message = "failed to start shell: " + err.Error()
 			status = wsshell.ErrorMessage
 		} else {
-			log.Debugf("started shell")
+			log.Debug("started shell")
 			d.shellsSpawned++
 		}
 
