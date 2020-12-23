@@ -35,7 +35,7 @@ const (
 	// Maximum message size allowed from peer.
 	maxMessageSize = 8192
 	// Time allowed to read the next pong message from the peer.
-	defaultPingWait = 10 * time.Second
+	defaultPingWait = time.Minute
 )
 
 func sleepyHandler(w http.ResponseWriter, r *http.Request) {
