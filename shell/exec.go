@@ -37,6 +37,8 @@ type MenderShellMessage struct {
 	//session id, as returned to the caller in a response to the MessageTypeSpawnShell
 	//message.
 	SessionId string `json:"session_id" msgpack:"session_id"`
+	//user id contains the ID of the user
+	UserId string `json:"user_id" msgpack:"user_id"`
 	//message status, currently normal and error message types are supported
 	Status wsshell.MenderShellMessageStatus `json:"status_code" msgpack:"status_code"`
 	//the message payload, if

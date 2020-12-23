@@ -43,6 +43,10 @@ const (
 	EventConnectionEstablished = "connected"
 )
 
+const (
+	propertyUserID = "user_id"
+)
+
 type MenderShellDaemonEvent struct {
 	event string
 	data  string
@@ -455,8 +459,8 @@ func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) (err
 		}
 		s := session.MenderShellSessionGetById(message.SessionId)
 		if s == nil {
-			userId := string(message.Data)
-			s, err = session.NewMenderShellSession(userId, d.expireSessionsAfter, d.expireSessionsAfterIdle)
+			userId := message.UserId
+			s, err = session.NewMenderShellSession(message.SessionId, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle)
 			if err != nil {
 				return err
 			}
@@ -493,7 +497,7 @@ func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) (err
 		return err
 	case wsshell.MessageTypeStopShell:
 		if len(message.SessionId) < 1 {
-			userId := string(message.Data)
+			userId := message.UserId
 			if len(userId) < 1 {
 				log.Error("routeMessage: StopShellMessage: sessionId not given and userId empty")
 				return errors.New("StopShellMessage: sessionId not given and userId empty")
@@ -587,9 +591,12 @@ func (d *MenderShellDaemon) readMessage() (*shell.MenderShellMessage, error) {
 		log.Debug("Received message without status field in it.")
 	}
 
+	userID, _ := msg.Header.Properties[propertyUserID].(string)
+
 	m := &shell.MenderShellMessage{
 		Type:      msg.Header.MsgType,
 		SessionId: msg.Header.SessionID,
+		UserId:    userID,
 		Status:    status,
 		Data:      msg.Body,
 	}
