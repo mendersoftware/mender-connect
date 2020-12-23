@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack"
 
@@ -51,14 +52,15 @@ var (
 	testData              string
 )
 
-func sendMessage(webSock *websocket.Conn, t string, sessionId string, data string) error {
+func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID string, data string) error {
 	m := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
 			Proto:     ws.ProtoTypeShell,
 			MsgType:   t,
 			SessionID: sessionId,
 			Properties: map[string]interface{}{
-				"status": wsshell.NormalMessage,
+				"user_id": userID,
+				"status":  wsshell.NormalMessage,
 			},
 		},
 		Body: []byte(data),
@@ -101,22 +103,22 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-f6723467-561234ff")
+	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-f6723467-561234ff", "")
 	fmt.Printf("newShellTransaction sendMessage(SpwanShell)=%v\n", err)
 	//time.Sleep(4 * time.Second)
 	//m := &shell.MenderShellMessage{}
 	m, err := readMessage(c)
 	fmt.Printf("newShellTransaction (0) sendMessage=%+v,%v\n", m, err)
-	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "echo "+testData+" > "+testFileNameTemporary+"\n")
+	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "", "echo "+testData+" > "+testFileNameTemporary+"\n")
 	fmt.Printf("newShellTransaction (1) sendMessage=%v\n", err)
-	err = sendMessage(c, wsshell.MessageTypeShellCommand, "undefined-session-id", "rm -f "+testFileNameTemporary+"\n")
+	err = sendMessage(c, wsshell.MessageTypeShellCommand, "undefined-session-id", "", "rm -f "+testFileNameTemporary+"\n")
 	fmt.Printf("newShellTransaction (2) sendMessage=%v\n", err)
-	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "thiscommand probably does not exist\n")
+	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "", "thiscommand probably does not exist\n")
 	fmt.Printf("newShellTransaction (3) sendMessage=%v\n", err)
-	err = sendMessage(c, wsshell.MessageTypeStopShell, "undefined-session-id", "")
+	err = sendMessage(c, wsshell.MessageTypeStopShell, "undefined-session-id", "", "")
 	fmt.Printf("newShellTransaction (4) sendMessage=%v\n", err)
 	time.Sleep(4 * time.Second)
-	err = sendMessage(c, wsshell.MessageTypeStopShell, m.SessionId, "")
+	err = sendMessage(c, wsshell.MessageTypeStopShell, m.SessionId, "", "")
 	for {
 		time.Sleep(4 * time.Second)
 	}
@@ -230,16 +232,16 @@ func newShellStopByUserId(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-a00908-f6723467-561234ff")
+	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-a00908-f6723467-561234ff", "")
 	fmt.Fprintf(os.Stderr, "(0) newShellStopByUserId sendMessage: %v\n", err)
 	//time.Sleep(1 * time.Second)
 	//m := &shell.MenderShellMessage{}
 	_, err = readMessage(c)
 	fmt.Fprintf(os.Stderr, "(1) newShellStopByUserId sendMessage: %v\n", err)
 	//time.Sleep(1 * time.Second)
-	err = sendMessage(c, wsshell.MessageTypeStopShell, "", "")
+	err = sendMessage(c, wsshell.MessageTypeStopShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "", "")
 	fmt.Fprintf(os.Stderr, "(2) newShellStopByUserId sendMessage: %v\n", err)
-	err = sendMessage(c, wsshell.MessageTypeStopShell, "", "user-id-unit-tests-a00908-f6723467-561234ff")
+	err = sendMessage(c, wsshell.MessageTypeStopShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-a00908-f6723467-561234ff", "")
 	fmt.Fprintf(os.Stderr, "(3) newShellStopByUserId sendMessage: %v\n", err)
 	for {
 		time.Sleep(4 * time.Second)
@@ -319,10 +321,10 @@ func newShellMulti(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.Close()
 	for i := 0; i < session.MaxUserSessions; i++ {
-		sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-7f00f6723467-561234ff")
+		sendMessage(c, wsshell.MessageTypeSpawnShell, uuid.NewV4().String(), "user-id-unit-tests-7f00f6723467-561234ff", "")
 	}
-	sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-7f00f6723467-561234ff")
-	sendMessage(c, wsshell.MessageTypeSpawnShell, "", "user-id-unit-tests-7f00f6723467-561234ff")
+	sendMessage(c, wsshell.MessageTypeSpawnShell, uuid.NewV4().String(), "user-id-unit-tests-7f00f6723467-561234ff", "")
+	sendMessage(c, wsshell.MessageTypeSpawnShell, uuid.NewV4().String(), "user-id-unit-tests-7f00f6723467-561234ff", "")
 	for {
 		time.Sleep(1 * time.Second)
 	}
@@ -1122,7 +1124,7 @@ func everySecondMessage(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 
 	for {
-		sendMessage(c, wsshell.MessageTypeShellCommand, "any-session-id", "echo;")
+		sendMessage(c, wsshell.MessageTypeShellCommand, "any-session-id", "", "echo;")
 		time.Sleep(400 * time.Millisecond)
 	}
 }
