@@ -15,16 +15,16 @@ package session
 
 import (
 	"errors"
-	"github.com/mendersoftware/mender-shell/procps"
 	"io"
 	"os"
 	"os/exec"
 	"syscall"
 	"time"
 
-	"github.com/mendersoftware/mender-shell/shell"
-	"github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/mendersoftware/mender-shell/procps"
+	"github.com/mendersoftware/mender-shell/shell"
 )
 
 type MenderSessionType int
@@ -113,7 +113,7 @@ func timeNow() time.Time {
 	return time.Now().UTC()
 }
 
-func NewMenderShellSession(userId string, expireAfter time.Duration, expireAfterIdle time.Duration) (s *MenderShellSession, err error) {
+func NewMenderShellSession(sessionId string, userId string, expireAfter time.Duration, expireAfterIdle time.Duration) (s *MenderShellSession, err error) {
 	if userSessions, ok := sessionsByUserIdMap[userId]; ok {
 		log.Debugf("user %s has %d sessions.", userId, len(userSessions))
 		if len(userSessions) >= MaxUserSessions {
@@ -122,9 +122,6 @@ func NewMenderShellSession(userId string, expireAfter time.Duration, expireAfter
 	} else {
 		sessionsByUserIdMap[userId] = []*MenderShellSession{}
 	}
-
-	uid := uuid.NewV4()
-	id := uid.String()
 
 	if expireAfter == NoExpirationTimeout {
 		expireAfter = defaultSessionExpiredTimeout
@@ -136,14 +133,14 @@ func NewMenderShellSession(userId string, expireAfter time.Duration, expireAfter
 
 	createdAt := timeNow()
 	s = &MenderShellSession{
-		id:          id,
+		id:          sessionId,
 		userId:      userId,
 		createdAt:   createdAt,
 		expiresAt:   createdAt.Add(expireAfter),
 		sessionType: ShellInteractiveSession,
 		status:      NewSession,
 	}
-	sessionsMap[id] = s
+	sessionsMap[sessionId] = s
 	sessionsByUserIdMap[userId] = append(sessionsByUserIdMap[userId], s)
 	return s, nil
 }

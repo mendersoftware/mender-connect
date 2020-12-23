@@ -77,6 +77,7 @@ type MenderShellConfigFromFile struct {
 // MenderShellConfig holds the configuration settings for the Mender shell client
 type MenderShellConfig struct {
 	MenderShellConfigFromFile
+	Debug bool
 }
 
 // NewMenderShellConfig initializes a new MenderShellConfig struct
