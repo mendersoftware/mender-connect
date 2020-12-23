@@ -99,7 +99,7 @@ func (s *MenderShell) pipeStdout() {
 		}
 		raw := make([]byte, 255)
 		n, err := sr.Read(raw)
-		if err != nil {
+		if err != nil || !s.IsRunning() {
 			if !s.IsRunning() {
 				return
 			}
