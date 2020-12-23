@@ -53,6 +53,13 @@ func SetupCLI(args []string) error {
 				Value:       config.DefaultFallbackConfFile,
 				Destination: &runOptions.fallbackConfig,
 			},
+			&cli.BoolFlag{
+				Name:        "debug",
+				Aliases:     []string{"d"},
+				Usage:       "Enable the debug mode",
+				Value:       config.DefaultDebug,
+				Destination: &runOptions.debug,
+			},
 		},
 	}
 
@@ -65,6 +72,8 @@ func (runOptions *runOptionsType) handleCLIOptions(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
+	config.Debug = runOptions.debug
 
 	err = config.Validate()
 	if err != nil {

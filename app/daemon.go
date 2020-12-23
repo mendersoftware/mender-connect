@@ -94,7 +94,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		terminalWidth:           config.Terminal.Width,
 		terminalHeight:          config.Terminal.Height,
 		shellsSpawned:           0,
-		debug:                   true,
+		debug:                   config.Debug,
 	}
 
 	connectionmanager.SetReconnectIntervalSeconds(config.ReconnectIntervalSeconds)

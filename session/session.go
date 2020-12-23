@@ -23,7 +23,7 @@ import (
 
 	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
-ù
+
 	"github.com/mendersoftware/mender-shell/procps"
 	"github.com/mendersoftware/mender-shell/shell"
 )

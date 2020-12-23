@@ -25,6 +25,7 @@ import (
 type runOptionsType struct {
 	config         string
 	fallbackConfig string
+	debug          bool
 }
 
 func initDaemon(config *config.MenderShellConfig) (*app.MenderShellDaemon, error) {
