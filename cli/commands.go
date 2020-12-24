@@ -18,8 +18,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mendersoftware/mender-shell/app"
-	"github.com/mendersoftware/mender-shell/config"
+	"github.com/mendersoftware/mender-connect/app"
+	"github.com/mendersoftware/mender-connect/config"
 )
 
 type runOptionsType struct {

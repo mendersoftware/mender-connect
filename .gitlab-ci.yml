@@ -1,5 +1,5 @@
 variables:
-  DOCKER_REPOSITORY: mendersoftware/mender-shell
+  DOCKER_REPOSITORY: mendersoftware/mender-connect
 
 stages:
   - test_prep

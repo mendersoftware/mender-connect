@@ -16,15 +16,15 @@ package cli
 import (
 	"github.com/urfave/cli/v2"
 
-	"github.com/mendersoftware/mender-shell/config"
+	"github.com/mendersoftware/mender-connect/config"
 )
 
 func SetupCLI(args []string) error {
 	runOptions := &runOptionsType{}
 	app := &cli.App{
 		Description: "",
-		Name:        "mender-shell",
-		Usage:       "manage and start the Mender shell.",
+		Name:        "mender-connect",
+		Usage:       "manage and start the Mender Connect service.",
 		Version:     config.ShowVersion(),
 		Commands: []*cli.Command{
 			{

@@ -23,8 +23,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/mendersoftware/mender-shell/procps"
-	"github.com/mendersoftware/mender-shell/shell"
+	"github.com/mendersoftware/mender-connect/procps"
+	"github.com/mendersoftware/mender-connect/shell"
 )
 
 type MenderSessionType int
@@ -302,7 +302,7 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 	//MenderShell represents a process of passing messages between backend
 	//and the shell subprocess (started above via shell.ExecuteShell) over
 	//the websocket connection
-	log.Infof("mender-shell starting shell command passing process, pid: %d", pid)
+	log.Infof("mender-connect starting shell command passing process, pid: %d", pid)
 	s.shell = shell.NewMenderShell(sessionId, pseudoTTY, pseudoTTY)
 	s.shell.Start()
 

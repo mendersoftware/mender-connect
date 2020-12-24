@@ -24,7 +24,7 @@ func TestMainExitCodes(t *testing.T) {
 	// Cache args.
 	args := os.Args
 	// Successful main call (0)
-	os.Args = []string{"mender-shell", "--version"}
+	os.Args = []string{"mender-connect", "--version"}
 	exitCode := doMain()
 	assert.Equal(t, 0, exitCode)
 	os.Args = args
@@ -32,7 +32,7 @@ func TestMainExitCodes(t *testing.T) {
 
 func TestMainRequiresConfig(t *testing.T) {
 	args := os.Args
-	os.Args = []string{"mender-shell", "daemon"}
+	os.Args = []string{"mender-connect", "daemon"}
 	exitCode := doMain()
 	//without any configuration we expect to fail the startup sequence
 	assert.Equal(t, 1, exitCode)

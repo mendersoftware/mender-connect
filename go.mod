@@ -1,4 +1,4 @@
-module github.com/mendersoftware/mender-shell
+module github.com/mendersoftware/mender-connect
 
 go 1.14
 

@@ -24,7 +24,7 @@ TOOLS = \
 VERSION = $(shell git describe --tags --dirty --exact-match 2>/dev/null || git rev-parse --short HEAD)
 
 GO_LDFLAGS = \
-	-ldflags "-X github.com/mendersoftware/mender-shell/config.Version=$(VERSION)"
+	-ldflags "-X github.com/mendersoftware/mender-connect/config.Version=$(VERSION)"
 
 ifeq ($(V),1)
 BUILDV = -v
@@ -39,37 +39,37 @@ ifneq ($(TAGS),)
 BUILDTAGS = -tags '$(TAGS)'
 endif
 
-build: mender-shell
+build: mender-connect
 
 clean:
 	@$(GO) clean
 	@-rm -f coverage.txt
 
-mender-shell: $(PKGFILES)
+mender-connect: $(PKGFILES)
 	@$(GO) build $(GO_LDFLAGS) $(BUILDV) $(BUILDTAGS)
 
 install: install-bin install-systemd
 
-install-bin: mender-shell
+install-bin: mender-connect
 	@install -m 755 -d $(prefix)$(bindir)
-	@install -m 755 mender-shell $(prefix)$(bindir)/
+	@install -m 755 mender-connect $(prefix)$(bindir)/
 
 install-conf:
 	@install -m 755 -d $(prefix)$(sysconfdir)/mender
-	@install -m 600 examples/mender-shell.conf $(prefix)$(sysconfdir)/mender/
+	@install -m 600 examples/mender-connect.conf $(prefix)$(sysconfdir)/mender/
 
 install-systemd:
 	@install -m 755 -d $(prefix)$(systemd_unitdir)/system
-	@install -m 0644 support/mender-shell.service $(prefix)$(systemd_unitdir)/system/
+	@install -m 0644 support/mender-connect.service $(prefix)$(systemd_unitdir)/system/
 
 uninstall: uninstall-bin uninstall-systemd
 
 uninstall-bin:
-	@rm -f $(prefix)$(bindir)/mender-shell
+	@rm -f $(prefix)$(bindir)/mender-connect
 	@-rmdir -p $(prefix)$(bindir)
 
 uninstall-systemd:
-	@rm -f $(prefix)$(systemd_unitdir)/system/mender-shell.service
+	@rm -f $(prefix)$(systemd_unitdir)/system/mender-connect.service
 	@-rmdir -p $(prefix)$(systemd_unitdir)/system
 
 check: test extracheck
