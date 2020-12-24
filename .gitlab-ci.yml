@@ -1,6 +1,3 @@
-variables:
-  DOCKER_REPOSITORY: mendersoftware/mender-connect
-
 stages:
   - test_prep
   - test
@@ -16,8 +13,6 @@ include:
     file: '.gitlab-ci-check-commits.yml'
   - project: 'Northern.tech/Mender/mendertesting'
     file: '.gitlab-ci-check-license.yml'
-#   - project: 'Northern.tech/Mender/mendertesting'
-#     file: '.gitlab-ci-check-docker-acceptance.yml'
   - project: 'Northern.tech/Mender/mendertesting'
     file: '.gitlab-ci-github-status-updates.yml'
 
