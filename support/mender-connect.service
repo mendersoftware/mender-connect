@@ -1,5 +1,5 @@
 [Unit]
-Description=Mender remote-shell service
+Description=Mender Connect service
 Wants=network-online.target
 After=systemd-resolved.service network-online.target mender-client.service
 Requires=mender-client.service
@@ -8,7 +8,7 @@ Requires=mender-client.service
 Type=idle
 User=root
 Group=root
-ExecStart=/usr/bin/mender-shell daemon
+ExecStart=/usr/bin/mender-connect daemon
 Restart=on-abort
 
 [Install]

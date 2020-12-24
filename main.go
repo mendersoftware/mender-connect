@@ -16,7 +16,7 @@ package main
 import (
 	"os"
 
-	"github.com/mendersoftware/mender-shell/cli"
+	"github.com/mendersoftware/mender-connect/cli"
 	log "github.com/sirupsen/logrus"
 )
 

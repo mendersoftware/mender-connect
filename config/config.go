@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/mendersoftware/mender-shell/client/https"
+	"github.com/mendersoftware/mender-connect/client/https"
 )
 
 const httpsSchema = "https"
@@ -88,7 +88,7 @@ func NewMenderShellConfig() *MenderShellConfig {
 }
 
 // LoadConfig parses the mender configuration json-files
-// (/etc/mender/mender-shell.conf and /var/lib/mender/mender-shell.conf)
+// (/etc/mender/mender-connect.conf and /var/lib/mender/mender-connect.conf)
 // and loads the values into the MenderShellConfig structure defining high level
 // client configurations.
 func LoadConfig(mainConfigFile string, fallbackConfigFile string) (*MenderShellConfig, error) {
@@ -167,12 +167,12 @@ func (c *MenderShellConfig) Validate() (err error) {
 		c.Servers = make([]https.MenderServer, 1)
 		c.Servers[0].ServerURL = c.ServerURL
 	} else if c.ServerURL != "" {
-		log.Error("In mender-shell.conf: don't specify both Servers field " +
+		log.Error("In mender-connect.conf: don't specify both Servers field " +
 			"AND the corresponding fields in base structure (i.e. " +
 			"ServerURL). The first server on the list overwrites" +
 			"these fields.")
 		return errors.New("Both Servers AND ServerURL given in " +
-			"mender-shell.conf")
+			"mender-connect.conf")
 	}
 	for i, u := range c.Servers {
 		_, err := url.Parse(u.ServerURL)

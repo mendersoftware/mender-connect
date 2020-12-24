@@ -25,13 +25,13 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 
-	"github.com/mendersoftware/mender-shell/client/dbus"
-	"github.com/mendersoftware/mender-shell/client/mender"
-	configuration "github.com/mendersoftware/mender-shell/config"
-	"github.com/mendersoftware/mender-shell/connectionmanager"
-	"github.com/mendersoftware/mender-shell/procps"
-	"github.com/mendersoftware/mender-shell/session"
-	"github.com/mendersoftware/mender-shell/shell"
+	"github.com/mendersoftware/mender-connect/client/dbus"
+	"github.com/mendersoftware/mender-connect/client/mender"
+	configuration "github.com/mendersoftware/mender-connect/config"
+	"github.com/mendersoftware/mender-connect/connectionmanager"
+	"github.com/mendersoftware/mender-connect/procps"
+	"github.com/mendersoftware/mender-connect/session"
+	"github.com/mendersoftware/mender-connect/shell"
 )
 
 var lastExpiredSessionSweep = time.Now()
@@ -149,7 +149,7 @@ func (d *MenderShellDaemon) wsReconnect(token string) (err error) {
 }
 
 func (d *MenderShellDaemon) outputStatus() {
-	log.Infof("mender-shell daemon v%s", configuration.VersionString())
+	log.Infof("mender-connect daemon v%s", configuration.VersionString())
 	log.Info(" status: ")
 	log.Infof("  sessions: %d", session.MenderShellSessionGetCount())
 	sessionIds := session.MenderShellSessionGetSessionIds()
@@ -328,7 +328,7 @@ func (d *MenderShellDaemon) eventLoop() {
 	log.Debug("eventLoop: returning")
 }
 
-//starts all needed elements of the mender-shell daemon
+//starts all needed elements of the mender-connect daemon
 // * executes given shell (shell.ExecuteShell)
 // * get dbus API and starts the dbus main loop (dbus.GetDBusAPI(), go dbusAPI.MainLoopRun(loop))
 // * creates a new dbus client and connects to dbus (mender.NewAuthClient(dbusAPI), client.Connect(...))
@@ -359,7 +359,7 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	log.Debug("mender-shell connecting to dbus")
+	log.Debug("mender-connect connecting to dbus")
 	//dbus main loop, required.
 	dbusAPI, err := dbus.GetDBusAPI()
 	loop := dbusAPI.MainLoopNew()
@@ -389,7 +389,7 @@ func (d *MenderShellDaemon) Run() error {
 	} else {
 		d.authorized = true
 	}
-	log.Debugf("mender-shell got len(JWT)=%d", len(jwtToken))
+	log.Debugf("mender-connect got len(JWT)=%d", len(jwtToken))
 
 	err = connectionmanager.Connect(ws.ProtoTypeShell,
 		d.serverUrl,
@@ -407,7 +407,7 @@ func (d *MenderShellDaemon) Run() error {
 	go d.dbusEventLoop(client)
 	go d.eventLoop()
 
-	log.Debug("mender-shell entering main loop.")
+	log.Debug("mender-connect entering main loop.")
 	for {
 		if d.shouldStop() {
 			break

@@ -32,8 +32,8 @@ var (
 	DefaultTerminalHeight = uint16(40)
 	DefaultTerminalWidth  = uint16(80)
 
-	DefaultConfFile         = path.Join(GetConfDirPath(), "mender-shell.conf")
-	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "mender-shell.conf")
+	DefaultConfFile         = path.Join(GetConfDirPath(), "mender-connect.conf")
+	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "mender-connect.conf")
 
 	DefaultDebug = false
 

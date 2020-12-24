@@ -1,6 +1,6 @@
-[![Build Status](https://gitlab.com/Northern.tech/Mender/mender-shell/badges/master/pipeline.svg)](https://gitlab.com/Northern.tech/Mender/mender-shell/pipelines)
-[![Coverage Status](https://coveralls.io/repos/github/mendersoftware/mender-shell/badge.svg?branch=master)](https://coveralls.io/github/mendersoftware/mender-shell?branch=master)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mendersoftware/mender-shell)](https://goreportcard.com/report/github.com/mendersoftware/mender-shell)
+[![Build Status](https://gitlab.com/Northern.tech/Mender/mender-connect/badges/master/pipeline.svg)](https://gitlab.com/Northern.tech/Mender/mender-connect/pipelines)
+[![Coverage Status](https://coveralls.io/repos/github/mendersoftware/mender-connect/badge.svg?branch=master)](https://coveralls.io/github/mendersoftware/mender-connect?branch=master)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mendersoftware/mender-connect)](https://goreportcard.com/report/github.com/mendersoftware/mender-connect)
 
 Mender: remote shell access add-on
 ==================================
@@ -34,7 +34,7 @@ documentation](https://github.com/mendersoftware/mender/blob/master/CONTRIBUTING
 ## License
 
 Mender is licensed under the Apache License, Version 2.0. See
-[LICENSE](https://github.com/mendersoftware/mender-shell/blob/master/LICENSE) for the
+[LICENSE](https://github.com/mendersoftware/mender-connect/blob/master/LICENSE) for the
 full license text.
 
 ## Security disclosure

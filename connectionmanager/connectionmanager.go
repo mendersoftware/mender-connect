@@ -23,7 +23,7 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/mendersoftware/mender-shell/connection"
+	"github.com/mendersoftware/mender-connect/connection"
 )
 
 const (

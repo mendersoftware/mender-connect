@@ -23,7 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mendersoftware/mender-shell/procps"
+	"github.com/mendersoftware/mender-connect/procps"
 )
 
 func TestMenderShellExecShell(t *testing.T) {

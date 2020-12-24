@@ -32,10 +32,10 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 
-	"github.com/mendersoftware/mender-shell/connection"
-	"github.com/mendersoftware/mender-shell/connectionmanager"
-	"github.com/mendersoftware/mender-shell/procps"
-	"github.com/mendersoftware/mender-shell/shell"
+	"github.com/mendersoftware/mender-connect/connection"
+	"github.com/mendersoftware/mender-connect/connectionmanager"
+	"github.com/mendersoftware/mender-connect/procps"
+	"github.com/mendersoftware/mender-connect/shell"
 )
 
 func newShellTransaction(w http.ResponseWriter, r *http.Request) {

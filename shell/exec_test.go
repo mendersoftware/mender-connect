@@ -34,8 +34,8 @@ import (
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
-	"github.com/mendersoftware/mender-shell/connection"
-	"github.com/mendersoftware/mender-shell/connectionmanager"
+	"github.com/mendersoftware/mender-connect/connection"
+	"github.com/mendersoftware/mender-connect/connectionmanager"
 )
 
 var messages []string

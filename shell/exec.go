@@ -23,7 +23,7 @@ import (
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/mendersoftware/mender-shell/connectionmanager"
+	"github.com/mendersoftware/mender-connect/connectionmanager"
 )
 
 var (

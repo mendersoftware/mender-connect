@@ -36,7 +36,7 @@ type Config struct {
 
 // Client holds the configuration for the client side mTLS configuration
 // NOTE: Careful when changing this, the struct is exposed directly in the
-// 'mender-shell.conf' file.
+// 'mender-connect.conf' file.
 type Client struct {
 	Certificate string
 	Key         string

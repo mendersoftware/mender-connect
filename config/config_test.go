@@ -24,7 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mendersoftware/mender-shell/client/https"
+	"github.com/mendersoftware/mender-connect/client/https"
 )
 
 const testConfig = `{
@@ -126,12 +126,12 @@ func Test_readConfigFile_noFile_returnsError(t *testing.T) {
 }
 
 func Test_readConfigFile_brokenContent_returnsError(t *testing.T) {
-	// create a temporary mender-shell.conf file
+	// create a temporary mender-connect.conf file
 	tdir, err := ioutil.TempDir("", "mendertest")
 	assert.NoError(t, err)
 	defer os.RemoveAll(tdir)
 
-	configPath := path.Join(tdir, "mender-shell.conf")
+	configPath := path.Join(tdir, "mender-connect.conf")
 	configFile, err := os.Create(configPath)
 	assert.NoError(t, err)
 
@@ -180,12 +180,12 @@ func validateConfiguration(t *testing.T, actual *MenderShellConfig) {
 }
 
 func Test_LoadConfig_correctConfFile_returnsConfiguration(t *testing.T) {
-	// create a temporary mender-shell.conf file
+	// create a temporary mender-connect.conf file
 	tdir, err := ioutil.TempDir("", "mendertest")
 	assert.NoError(t, err)
 	defer os.RemoveAll(tdir)
 
-	configPath := path.Join(tdir, "mender-shell.conf")
+	configPath := path.Join(tdir, "mender-connect.conf")
 	configFile, err := os.Create(configPath)
 	assert.NoError(t, err)
 	configFile.WriteString(testConfig)
@@ -220,12 +220,12 @@ func Test_LoadConfig_correctConfFile_returnsConfiguration(t *testing.T) {
 }
 
 func TestServerURLConfig(t *testing.T) {
-	// create a temporary mender-shell.conf file
+	// create a temporary mender-connect.conf file
 	tdir, err := ioutil.TempDir("", "mendertest")
 	assert.NoError(t, err)
 	defer os.RemoveAll(tdir)
 
-	configPath := path.Join(tdir, "mender-shell.conf")
+	configPath := path.Join(tdir, "mender-connect.conf")
 	configFile, err := os.Create(configPath)
 	assert.NoError(t, err)
 
@@ -250,12 +250,12 @@ func TestServerURLConfig(t *testing.T) {
 // TestMultipleServersConfig attempts to add multiple servers to config-
 // file, as well as overriding the ServerURL from the first server.
 func TestMultipleServersConfig(t *testing.T) {
-	// create a temporary mender-shell.conf file
+	// create a temporary mender-connect.conf file
 	tdir, err := ioutil.TempDir("", "mendertest")
 	assert.NoError(t, err)
 	defer os.RemoveAll(tdir)
 
-	configPath := path.Join(tdir, "mender-shell.conf")
+	configPath := path.Join(tdir, "mender-connect.conf")
 	configFile, err := os.Create(configPath)
 	assert.NoError(t, err)
 
@@ -273,12 +273,12 @@ func TestMultipleServersConfig(t *testing.T) {
 }
 
 func TestEmptyServerURL(t *testing.T) {
-	// create a temporary mender-shell.conf file
+	// create a temporary mender-connect.conf file
 	tdir, err := ioutil.TempDir("", "mendertest")
 	assert.NoError(t, err)
 	defer os.RemoveAll(tdir)
 
-	configPath := path.Join(tdir, "mender-shell.conf")
+	configPath := path.Join(tdir, "mender-connect.conf")
 	configFile, err := os.Create(configPath)
 	assert.NoError(t, err)
 
@@ -328,13 +328,13 @@ func TestConfigurationMergeSettings(t *testing.T) {
 }
 
 func Test_LoadConfig_various_errors(t *testing.T) {
-	// create a temporary mender-shell.conf file
+	// create a temporary mender-connect.conf file
 	tdir, err := ioutil.TempDir("", "mendertest")
 	assert.NoError(t, err)
 	defer os.RemoveAll(tdir)
 
 	//one of the serverURLs is not valid
-	configPath := path.Join(tdir, "mender-shell.conf")
+	configPath := path.Join(tdir, "mender-connect.conf")
 	configFile, err := os.Create(configPath)
 	assert.NoError(t, err)
 	configFile.WriteString(testMultipleServersOneNotValidConfig)
