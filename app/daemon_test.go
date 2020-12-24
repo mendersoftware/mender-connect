@@ -59,8 +59,10 @@ func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID str
 			MsgType:   t,
 			SessionID: sessionId,
 			Properties: map[string]interface{}{
-				"user_id": userID,
-				"status":  wsshell.NormalMessage,
+				propertyUserID:         userID,
+				propertyTerminalWidth:  int64(80),
+				propertyTerminalHeight: int64(60),
+				"status":               wsshell.NormalMessage,
 			},
 		},
 		Body: []byte(data),

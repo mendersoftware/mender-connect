@@ -45,7 +45,9 @@ const (
 )
 
 const (
-	propertyUserID = "user_id"
+	propertyTerminalHeight = "terminal_height"
+	propertyTerminalWidth  = "terminal_width"
+	propertyUserID         = "user_id"
 )
 
 type MenderShellDaemonEvent struct {
@@ -502,14 +504,28 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMes
 
 	response.SessionId = s.GetId()
 
+	terminalHeight := d.terminalHeight
+	terminalWidth := d.terminalWidth
+
+	requestedHeight, requestedHeightOk := message.Properties[propertyTerminalHeight]
+	requestedWidth, requestedWidthOk := message.Properties[propertyTerminalWidth]
+	if requestedHeightOk && requestedWidthOk {
+		if val, _ := requestedHeight.(int64); val > 0 {
+			terminalHeight = uint16(val)
+		}
+		if val, _ := requestedWidth.(int64); val > 0 {
+			terminalWidth = uint16(val)
+		}
+	}
+
 	log.Debugf("starting shell session_id=%s", s.GetId())
 	if err = s.StartShell(s.GetId(), session.MenderShellTerminalSettings{
 		Uid:            uint32(d.uid),
 		Gid:            uint32(d.gid),
 		Shell:          d.shell,
 		TerminalString: d.terminalString,
-		Height:         d.terminalHeight,
-		Width:          d.terminalWidth,
+		Height:         terminalHeight,
+		Width:          terminalWidth,
 	}); err != nil {
 		err = errors.Wrap(err, "failed to start shell")
 		return err
@@ -634,10 +650,11 @@ func (d *MenderShellDaemon) readMessage() (*shell.MenderShellMessage, error) {
 	userID, _ := msg.Header.Properties[propertyUserID].(string)
 
 	return &shell.MenderShellMessage{
-		Type:      msg.Header.MsgType,
-		SessionId: msg.Header.SessionID,
-		UserId:    userID,
-		Status:    status,
-		Data:      msg.Body,
+		Type:       msg.Header.MsgType,
+		SessionId:  msg.Header.SessionID,
+		Properties: msg.Header.Properties,
+		UserId:     userID,
+		Status:     status,
+		Data:       msg.Body,
 	}, nil
 }

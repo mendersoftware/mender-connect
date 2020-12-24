@@ -41,6 +41,8 @@ type MenderShellMessage struct {
 	UserId string `json:"user_id" msgpack:"user_id"`
 	//message status, currently normal and error message types are supported
 	Status wsshell.MenderShellMessageStatus `json:"status_code" msgpack:"status_code"`
+	//message properties (headers)
+	Properties map[string]interface{}
 	//the message payload, if
 	// * .Type===MessageTypeShellCommand interpreted as keystrokes and passed
 	//   to the stdin of the terminal running the shell.
