@@ -353,6 +353,10 @@ func (s *MenderShellSession) ShellCommand(m *shell.MenderShellMessage) error {
 	return err
 }
 
+func (s *MenderShellSession) ResizeShell(height, width uint16) {
+	shell.ResizeShell(s.pseudoTTY, height, width)
+}
+
 func (s *MenderShellSession) StopShell() (err error) {
 	log.Infof("session %s status:%d stopping shell", s.id, s.status)
 	if s.status != ActiveSession && s.status != HangedSession {

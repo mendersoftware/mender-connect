@@ -33,6 +33,7 @@ import (
 	"github.com/mendersoftware/mender-connect/procps"
 	"github.com/mendersoftware/mender-connect/session"
 	"github.com/mendersoftware/mender-connect/shell"
+	"github.com/mendersoftware/mender-connect/utils"
 )
 
 var lastExpiredSessionSweep = time.Now()
@@ -462,6 +463,8 @@ func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) erro
 		return d.routeMessageStopShell(message)
 	case wsshell.MessageTypeShellCommand:
 		return d.routeMessageShellCommand(message)
+	case wsshell.MessageTypeResizeShell:
+		return d.routeMessageShellResize(message)
 	}
 	return errors.New(fmt.Sprintf("unknown message type: %s", message.Type))
 }
@@ -507,15 +510,10 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMes
 	terminalHeight := d.terminalHeight
 	terminalWidth := d.terminalWidth
 
-	requestedHeight, requestedHeightOk := message.Properties[propertyTerminalHeight]
-	requestedWidth, requestedWidthOk := message.Properties[propertyTerminalWidth]
-	if requestedHeightOk && requestedWidthOk {
-		if val, _ := requestedHeight.(int64); val > 0 {
-			terminalHeight = uint16(val)
-		}
-		if val, _ := requestedWidth.(int64); val > 0 {
-			terminalWidth = uint16(val)
-		}
+	requestedHeight, requestedWidth := mapPropertiesToTerminalHeightAndWidth(message.Properties)
+	if requestedHeight > 0 && requestedWidth > 0 {
+		terminalHeight = requestedHeight
+		terminalWidth = requestedWidth
 	}
 
 	log.Debugf("starting shell session_id=%s", s.GetId())
@@ -626,6 +624,38 @@ func (d *MenderShellDaemon) routeMessageShellCommand(message *shell.MenderShellM
 	// suppress the response message setting the variable to nil
 	response = nil
 	_ = response
+	return nil
+}
+
+func mapPropertiesToTerminalHeightAndWidth(properties map[string]interface{}) (uint16, uint16) {
+	var terminalHeight, terminalWidth uint16
+	requestedHeight, requestedHeightOk := properties[propertyTerminalHeight]
+	requestedWidth, requestedWidthOk := properties[propertyTerminalWidth]
+	if requestedHeightOk && requestedWidthOk {
+		if val, _ := utils.Num64(requestedHeight); val > 0 {
+			terminalHeight = uint16(val)
+		}
+		if val, _ := utils.Num64(requestedWidth); val > 0 {
+			terminalWidth = uint16(val)
+		}
+	}
+	return terminalHeight, terminalWidth
+}
+
+func (d *MenderShellDaemon) routeMessageShellResize(message *shell.MenderShellMessage) error {
+	var err error
+	defer d.routeMessageResponse(nil, err)
+
+	s := session.MenderShellSessionGetById(message.SessionId)
+	if s == nil {
+		err = session.ErrSessionNotFound
+		return err
+	}
+
+	terminalHeight, terminalWidth := mapPropertiesToTerminalHeightAndWidth(message.Properties)
+	if terminalHeight > 0 && terminalWidth > 0 {
+		s.ResizeShell(terminalHeight, terminalWidth)
+	}
 	return nil
 }
 

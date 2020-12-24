@@ -12,19 +12,32 @@
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
 
-package shell
+package utils
 
-type MenderShellMessageStatus int
-
-const (
-	MessageTypeShellCommand = "shell"
-	MessageTypeSpawnShell   = "new"
-	MessageTypeStopShell    = "stop"
-	MessageTypeResizeShell  = "resize"
-)
-
-const (
-	NormalMessage MenderShellMessageStatus = iota + 1
-	ErrorMessage
-	ControlMessage
-)
+func Num64(n interface{}) (int64, bool) {
+	switch n := n.(type) {
+	case int:
+		return int64(n), true
+	case int8:
+		return int64(n), true
+	case int16:
+		return int64(n), true
+	case int32:
+		return int64(n), true
+	case int64:
+		return int64(n), true
+	case uint:
+		return int64(n), true
+	case uintptr:
+		return int64(n), true
+	case uint8:
+		return int64(n), true
+	case uint16:
+		return int64(n), true
+	case uint32:
+		return int64(n), true
+	case uint64:
+		return int64(n), true
+	}
+	return 0, false
+}
