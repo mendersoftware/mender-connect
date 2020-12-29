@@ -226,6 +226,9 @@ func (c *Connection) ReadMessage() (*ws.ProtoMsg, error) {
 }
 
 func (c *Connection) Close() error {
-	c.done <- true
+	select {
+	case c.done <- true:
+	default:
+	}
 	return c.connection.Close()
 }
