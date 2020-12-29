@@ -52,6 +52,10 @@ var (
 	testData              string
 )
 
+func init() {
+	connectionmanager.SetDefaultPingWait(10 * time.Second)
+}
+
 func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID string, data string) error {
 	m := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
@@ -454,17 +458,6 @@ func TestMenderShellReadMessage(t *testing.T) {
 		return
 	}
 
-	d := NewDaemon(&config.MenderShellConfig{
-		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
-			ShellCommand: "/bin/sh",
-			User:         currentUser.Name,
-			Terminal: config.TerminalConfig{
-				Width:  24,
-				Height: 80,
-			},
-		},
-	})
-
 	t.Log("starting mock httpd with websockets")
 	s := httptest.NewServer(http.HandlerFunc(oneMsgMainServerLoop))
 	defer s.Close()
@@ -477,6 +470,17 @@ func TestMenderShellReadMessage(t *testing.T) {
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
+
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         currentUser.Name,
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
 
 	time.Sleep(2 * time.Second)
 	m, err := d.readMessage()
