@@ -490,16 +490,16 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMes
 		Data:   []byte{},
 	}
 
-	defer d.routeMessageResponse(response, err)
-
 	if d.shellsSpawned >= configuration.MaxShellsSpawned {
 		err = session.ErrSessionTooManyShellsAlreadyRunning
+		d.routeMessageResponse(response, err)
 		return err
 	}
 	s := session.MenderShellSessionGetById(message.SessionId)
 	if s == nil {
 		userId := message.UserId
 		if s, err = session.NewMenderShellSession(message.SessionId, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle); err != nil {
+			d.routeMessageResponse(response, err)
 			return err
 		}
 		log.Debugf("created a new session: %s", s.GetId())
@@ -526,6 +526,7 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMes
 		Width:          terminalWidth,
 	}); err != nil {
 		err = errors.Wrap(err, "failed to start shell")
+		d.routeMessageResponse(response, err)
 		return err
 	}
 
@@ -533,6 +534,7 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMes
 	d.shellsSpawned++
 
 	response.Data = []byte("Shell started")
+	d.routeMessageResponse(response, err)
 	return nil
 }
 
@@ -544,12 +546,12 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMess
 		SessionId: message.SessionId,
 		Data:      []byte{},
 	}
-	defer d.routeMessageResponse(response, err)
 
 	if len(message.SessionId) < 1 {
 		userId := message.UserId
 		if len(userId) < 1 {
 			err = errors.New("StopShellMessage: sessionId not given and userId empty")
+			d.routeMessageResponse(response, err)
 			return err
 		}
 		shellsStoppedCount, err := session.MenderShellStopByUserId(userId)
@@ -559,18 +561,21 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMess
 				err = errors.New(fmt.Sprintf("StopByUserId: the shells stopped count (%d) "+
 					"greater than total shells spawned (%d). resetting shells "+
 					"spawned to 0.", shellsStoppedCount, d.shellsSpawned))
+				d.routeMessageResponse(response, err)
 				return err
 			} else {
 				log.Debugf("StopByUserId: stopped %d shells.", shellsStoppedCount)
 				d.shellsSpawned -= shellsStoppedCount
 			}
 		}
+		d.routeMessageResponse(response, err)
 		return err
 	}
 
 	s := session.MenderShellSessionGetById(message.SessionId)
 	if s == nil {
 		err = errors.New(fmt.Sprintf("routeMessage: StopShellMessage: session not found for id %s", message.SessionId))
+		d.routeMessageResponse(response, err)
 		return err
 	}
 
@@ -591,6 +596,7 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMess
 				d.shellsSpawned--
 			}
 		}
+		d.routeMessageResponse(response, err)
 		return err
 	}
 	if d.shellsSpawned == 0 {
@@ -598,7 +604,9 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMess
 	} else {
 		d.shellsSpawned--
 	}
-	return session.MenderShellDeleteById(s.GetId())
+	err = session.MenderShellDeleteById(s.GetId())
+	d.routeMessageResponse(response, err)
+	return err
 }
 
 func (d *MenderShellDaemon) routeMessageShellCommand(message *shell.MenderShellMessage) error {
@@ -609,16 +617,17 @@ func (d *MenderShellDaemon) routeMessageShellCommand(message *shell.MenderShellM
 		SessionId: message.SessionId,
 		Data:      []byte{},
 	}
-	defer d.routeMessageResponse(response, err)
 
 	s := session.MenderShellSessionGetById(message.SessionId)
 	if s == nil {
 		err = session.ErrSessionNotFound
+		d.routeMessageResponse(response, err)
 		return err
 	}
 	err = s.ShellCommand(message)
 	if err != nil {
 		err = errors.Wrapf(err, "routeMessage: shell command execution error, session_id=%s", message.SessionId)
+		d.routeMessageResponse(response, err)
 		return err
 	}
 	// suppress the response message setting the variable to nil
@@ -644,11 +653,11 @@ func mapPropertiesToTerminalHeightAndWidth(properties map[string]interface{}) (u
 
 func (d *MenderShellDaemon) routeMessageShellResize(message *shell.MenderShellMessage) error {
 	var err error
-	defer d.routeMessageResponse(nil, err)
 
 	s := session.MenderShellSessionGetById(message.SessionId)
 	if s == nil {
 		err = session.ErrSessionNotFound
+		d.routeMessageResponse(nil, err)
 		return err
 	}
 
