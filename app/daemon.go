@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -485,9 +485,10 @@ func (d *MenderShellDaemon) routeMessageResponse(response *shell.MenderShellMess
 func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMessage) error {
 	var err error
 	response := &shell.MenderShellMessage{
-		Type:   message.Type,
-		Status: wsshell.NormalMessage,
-		Data:   []byte{},
+		Type:      message.Type,
+		Status:    wsshell.NormalMessage,
+		SessionId: message.SessionId,
+		Data:      []byte{},
 	}
 
 	if d.shellsSpawned >= configuration.MaxShellsSpawned {
