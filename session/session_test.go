@@ -51,6 +51,10 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func init() {
+	connectionmanager.SetDefaultPingWait(10 * time.Second)
+}
+
 func TestMenderShellStartStopShell(t *testing.T) {
 	MaxUserSessions = 2
 	t.Log("starting mock httpd with websockets")

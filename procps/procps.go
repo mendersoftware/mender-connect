@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ func TerminateAndWait(pid int, command *exec.Cmd, waitTimeout time.Duration) (er
 	}()
 	select {
 	case err := <-done:
-		if err != nil && err.Error() != "signal: killed" && err.Error() != "signal: hangup" {
+		if err != nil && err.Error() != "signal: killed" && err.Error() != "signal: hangup" && err.Error() != "exit status 130" {
 			return errors.New("error waiting for the process: " + err.Error())
 		}
 	case <-time.After(waitTimeout):

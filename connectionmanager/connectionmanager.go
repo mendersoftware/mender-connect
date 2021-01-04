@@ -31,12 +31,11 @@ const (
 	writeWait = 4 * time.Second
 	// Maximum message size allowed from peer.
 	maxMessageSize = 8192
-	// Time allowed to read the next pong message from the peer.
-	defaultPingWait = time.Minute
-	httpsProtocol   = "https"
-	httpProtocol    = "http"
-	wssProtocol     = "wss"
-	wsProtocol      = "ws"
+
+	httpsProtocol = "https"
+	httpProtocol  = "http"
+	wssProtocol   = "wss"
+	wsProtocol    = "ws"
 )
 
 var (
@@ -54,6 +53,7 @@ type ProtocolHandler struct {
 var handlersByTypeMutex = &sync.Mutex{}
 var handlersByType = map[ws.ProtoType]*ProtocolHandler{}
 var reconnectIntervalSeconds = 300
+var defaultPingWait = time.Minute
 
 func GetWriteTimeout() time.Duration {
 	return writeWait
@@ -61,6 +61,10 @@ func GetWriteTimeout() time.Duration {
 
 func SetReconnectIntervalSeconds(i int) {
 	reconnectIntervalSeconds = i
+}
+
+func SetDefaultPingWait(wait time.Duration) {
+	defaultPingWait = wait
 }
 
 func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint) error {

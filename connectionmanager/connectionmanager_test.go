@@ -16,9 +16,14 @@ package connectionmanager
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func init() {
+	SetDefaultPingWait(10 * time.Second)
+}
 
 func TestSetReconnectIntervalSeconds(t *testing.T) {
 	SetReconnectIntervalSeconds(15)

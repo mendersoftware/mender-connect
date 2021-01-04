@@ -52,6 +52,8 @@ type Connection struct {
 	maxMessageSize int64
 	// Time allowed to read the next pong message from the peer.
 	defaultPingWait time.Duration
+	// Channel to stop the go routines
+	done chan bool
 }
 
 func loadServerTrust(serverCertFilePath string) *x509.CertPool {
@@ -130,18 +132,68 @@ func NewConnection(u url.URL,
 		writeWait:       writeWait,
 		maxMessageSize:  maxMessageSize,
 		defaultPingWait: defaultPingWait,
+		done:            make(chan bool),
 	}
-	// ping-pong
 	ws.SetReadLimit(maxMessageSize)
-	ws.SetReadDeadline(time.Now().Add(defaultPingWait))
-	ws.SetPingHandler(func(message string) error {
-		pongWait, _ := strconv.Atoi(message)
-		ws.SetReadDeadline(time.Now().Add(time.Duration(pongWait) * time.Second))
+
+	go c.pingPongHandler()
+
+	return c, nil
+}
+
+func (c *Connection) pingPongHandler() {
+	// handle the ping-pong connection health check
+	err := c.connection.SetReadDeadline(time.Now().Add(c.defaultPingWait))
+	if err != nil {
+		return
+	}
+
+	pingPeriod := (c.defaultPingWait * 9) / 10
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+
+	c.connection.SetPongHandler(func(string) error {
+		log.Debug("PongHandler called")
+		// requires go >= 1.15
+		// ticker.Reset(pingPeriod)
+		return c.connection.SetReadDeadline(time.Now().Add(c.defaultPingWait))
+	})
+
+	c.connection.SetPingHandler(func(msg string) error {
+		log.Debug("PingHandler called")
+		// requires go >= 1.15
+		// ticker.Reset(pingPeriod)
+		err := c.connection.SetReadDeadline(time.Now().Add(c.defaultPingWait))
+		if err != nil {
+			return err
+		}
 		c.writeMutex.Lock()
 		defer c.writeMutex.Unlock()
-		return ws.WriteControl(websocket.PongMessage, []byte{}, time.Now().Add(writeWait))
+		return c.connection.WriteControl(
+			websocket.PongMessage,
+			[]byte(msg),
+			time.Now().Add(c.writeWait),
+		)
 	})
-	return c, nil
+
+	running := true
+	for running {
+		select {
+		case <-c.done:
+			running = false
+			break
+		case <-ticker.C:
+			log.Debug("ping message")
+			pongWaitString := strconv.Itoa(int(c.defaultPingWait.Seconds()))
+			c.writeMutex.Lock()
+			_ = c.connection.WriteControl(
+				websocket.PingMessage,
+				[]byte(pongWaitString),
+				time.Now().Add(c.defaultPingWait),
+			)
+			c.writeMutex.Unlock()
+		}
+	}
 }
 
 func (c *Connection) GetWriteTimeout() time.Duration {
@@ -155,7 +207,7 @@ func (c *Connection) WriteMessage(m *ws.ProtoMsg) (err error) {
 	}
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
-	c.connection.SetWriteDeadline(time.Now().Add(c.writeWait))
+	_ = c.connection.SetWriteDeadline(time.Now().Add(c.writeWait))
 	return c.connection.WriteMessage(websocket.BinaryMessage, data)
 }
 
@@ -174,5 +226,9 @@ func (c *Connection) ReadMessage() (*ws.ProtoMsg, error) {
 }
 
 func (c *Connection) Close() error {
+	select {
+	case c.done <- true:
+	default:
+	}
 	return c.connection.Close()
 }

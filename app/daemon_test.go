@@ -52,6 +52,10 @@ var (
 	testData              string
 )
 
+func init() {
+	connectionmanager.SetDefaultPingWait(10 * time.Second)
+}
+
 func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID string, data string) error {
 	m := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
@@ -59,18 +63,21 @@ func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID str
 			MsgType:   t,
 			SessionID: sessionId,
 			Properties: map[string]interface{}{
-				"user_id": userID,
-				"status":  wsshell.NormalMessage,
+				propertyUserID:         userID,
+				propertyTerminalWidth:  int64(80),
+				propertyTerminalHeight: int64(60),
+				"status":               wsshell.NormalMessage,
 			},
 		},
 		Body: []byte(data),
 	}
 	d, err := msgpack.Marshal(m)
-	if err != nil {
-		return err
+	if err == nil {
+		err = webSock.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	}
-	err = webSock.SetWriteDeadline(time.Now().Add(2 * time.Second))
-	err = webSock.WriteMessage(websocket.BinaryMessage, d)
+	if err == nil {
+		err = webSock.WriteMessage(websocket.BinaryMessage, d)
+	}
 	return err
 }
 
@@ -118,7 +125,7 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 	err = sendMessage(c, wsshell.MessageTypeStopShell, "undefined-session-id", "", "")
 	fmt.Printf("newShellTransaction (4) sendMessage=%v\n", err)
 	time.Sleep(4 * time.Second)
-	err = sendMessage(c, wsshell.MessageTypeStopShell, m.SessionId, "", "")
+	_ = sendMessage(c, wsshell.MessageTypeStopShell, m.SessionId, "", "")
 	for {
 		time.Sleep(4 * time.Second)
 	}
@@ -451,17 +458,6 @@ func TestMenderShellReadMessage(t *testing.T) {
 		return
 	}
 
-	d := NewDaemon(&config.MenderShellConfig{
-		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
-			ShellCommand: "/bin/sh",
-			User:         currentUser.Name,
-			Terminal: config.TerminalConfig{
-				Width:  24,
-				Height: 80,
-			},
-		},
-	})
-
 	t.Log("starting mock httpd with websockets")
 	s := httptest.NewServer(http.HandlerFunc(oneMsgMainServerLoop))
 	defer s.Close()
@@ -474,6 +470,17 @@ func TestMenderShellReadMessage(t *testing.T) {
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
 	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8)
+
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         currentUser.Name,
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
 
 	time.Sleep(2 * time.Second)
 	m, err := d.readMessage()

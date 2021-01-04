@@ -353,26 +353,37 @@ func (s *MenderShellSession) ShellCommand(m *shell.MenderShellMessage) error {
 	return err
 }
 
+func (s *MenderShellSession) ResizeShell(height, width uint16) {
+	shell.ResizeShell(s.pseudoTTY, height, width)
+}
+
 func (s *MenderShellSession) StopShell() (err error) {
 	log.Infof("session %s status:%d stopping shell", s.id, s.status)
 	if s.status != ActiveSession && s.status != HangedSession {
 		return ErrSessionShellNotRunning
 	}
 
-	p, _ := os.FindProcess(s.shellPid)
-	p.Signal(syscall.SIGINT)
-	time.Sleep(2 * time.Second)
 	s.shell.Stop()
-	time.Sleep(2 * s.shell.GetWriteTimeout())
+	s.terminal = MenderShellTerminalSettings{}
+	s.status = EmptySession
+
+	p, err := os.FindProcess(s.shellPid)
+	if err != nil {
+		log.Errorf("session %s, shell pid %d, find process error: %s", s.id, s.shellPid, err.Error())
+		return err
+	}
+	err = p.Signal(syscall.SIGINT)
+	if err != nil {
+		log.Errorf("session %s, shell pid %d, signal error: %s", s.id, s.shellPid, err.Error())
+		return err
+	}
 	s.pseudoTTY.Close()
 
 	err = procps.TerminateAndWait(s.shellPid, s.command, 2*time.Second)
 	if err != nil {
 		log.Errorf("session %s, shell pid %d, termination error: %s", s.id, s.shellPid, err.Error())
+		return err
 	}
 
-	s.shell.Stop()
-	s.terminal = MenderShellTerminalSettings{}
-	s.status = EmptySession
-	return err
+	return nil
 }

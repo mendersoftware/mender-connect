@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -41,6 +41,8 @@ type MenderShellMessage struct {
 	UserId string `json:"user_id" msgpack:"user_id"`
 	//message status, currently normal and error message types are supported
 	Status wsshell.MenderShellMessageStatus `json:"status_code" msgpack:"status_code"`
+	//message properties (headers)
+	Properties map[string]interface{}
 	//the message payload, if
 	// * .Type===MessageTypeShellCommand interpreted as keystrokes and passed
 	//   to the stdin of the terminal running the shell.
@@ -100,12 +102,10 @@ func (s *MenderShell) pipeStdout() {
 		raw := make([]byte, 255)
 		n, err := sr.Read(raw)
 		if err != nil {
-			if !s.IsRunning() {
-				return
-			}
-
 			log.Errorf("error reading stdout: '%s'; restart is needed.", err)
 			break
+		} else if !s.IsRunning() {
+			return
 		}
 
 		msg := &ws.ProtoMsg{

@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 package app
 
 import (
-	"errors"
+	"fmt"
 	"os/user"
 	"strconv"
 	"sync"
@@ -24,6 +24,7 @@ import (
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
+	"github.com/pkg/errors"
 
 	"github.com/mendersoftware/mender-connect/client/dbus"
 	"github.com/mendersoftware/mender-connect/client/mender"
@@ -32,6 +33,7 @@ import (
 	"github.com/mendersoftware/mender-connect/procps"
 	"github.com/mendersoftware/mender-connect/session"
 	"github.com/mendersoftware/mender-connect/shell"
+	"github.com/mendersoftware/mender-connect/utils"
 )
 
 var lastExpiredSessionSweep = time.Now()
@@ -44,7 +46,9 @@ const (
 )
 
 const (
-	propertyUserID = "user_id"
+	propertyTerminalHeight = "terminal_height"
+	propertyTerminalWidth  = "terminal_width"
+	propertyUserID         = "user_id"
 )
 
 type MenderShellDaemonEvent struct {
@@ -451,124 +455,216 @@ func (d *MenderShellDaemon) responseMessage(m *shell.MenderShellMessage) (err er
 	return connectionmanager.Write(ws.ProtoTypeShell, msg)
 }
 
-func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) (err error) {
+func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) error {
 	switch message.Type {
 	case wsshell.MessageTypeSpawnShell:
-		if d.shellsSpawned >= configuration.MaxShellsSpawned {
-			return session.ErrSessionTooManyShellsAlreadyRunning
-		}
-		s := session.MenderShellSessionGetById(message.SessionId)
-		if s == nil {
-			userId := message.UserId
-			s, err = session.NewMenderShellSession(message.SessionId, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle)
-			if err != nil {
-				return err
-			}
-			log.Debugf("created a new session: %s", s.GetId())
-		}
-
-		log.Debugf("starting shell session_id=%s", s.GetId())
-		err = s.StartShell(s.GetId(), session.MenderShellTerminalSettings{
-			Uid:            uint32(d.uid),
-			Gid:            uint32(d.gid),
-			Shell:          d.shell,
-			TerminalString: d.terminalString,
-			Height:         d.terminalHeight,
-			Width:          d.terminalWidth,
-		})
-
-		message := "Shell started"
-		status := wsshell.NormalMessage
-		if err != nil {
-			log.Errorf("failed to start shell: %s", err.Error())
-			message = "failed to start shell: " + err.Error()
-			status = wsshell.ErrorMessage
-		} else {
-			log.Debug("started shell")
-			d.shellsSpawned++
-		}
-
-		err = d.responseMessage(&shell.MenderShellMessage{
-			Type:      wsshell.MessageTypeSpawnShell,
-			Status:    status,
-			SessionId: s.GetId(),
-			Data:      []byte(message),
-		})
-		return err
+		return d.routeMessageSpawnShell(message)
 	case wsshell.MessageTypeStopShell:
-		if len(message.SessionId) < 1 {
-			userId := message.UserId
-			if len(userId) < 1 {
-				log.Error("routeMessage: StopShellMessage: sessionId not given and userId empty")
-				return errors.New("StopShellMessage: sessionId not given and userId empty")
-			}
-			shellsStoppedCount, err := session.MenderShellStopByUserId(userId)
-			if err == nil {
-				if shellsStoppedCount > d.shellsSpawned {
-					log.Errorf("StopByUserId: the shells stopped count (%d)"+
-						"greater than total shells spawned (%d). resetting shells"+
-						"spawned to 0.", shellsStoppedCount, d.shellsSpawned)
-					d.shellsSpawned = 0
-				} else {
-					log.Debugf("StopByUserId: stopped %d shells.", shellsStoppedCount)
-					d.shellsSpawned -= shellsStoppedCount
-				}
-			}
-			return err
-		}
-		s := session.MenderShellSessionGetById(message.SessionId)
-		if s == nil {
-			log.Infof("routeMessage: StopShellMessage: session not found for id %s", message.SessionId)
-			return err
-		}
+		return d.routeMessageStopShell(message)
+	case wsshell.MessageTypeShellCommand:
+		return d.routeMessageShellCommand(message)
+	case wsshell.MessageTypeResizeShell:
+		return d.routeMessageShellResize(message)
+	}
+	return errors.New(fmt.Sprintf("unknown message type: %s", message.Type))
+}
 
-		err = s.StopShell()
-		if err != nil {
-			rErr := d.responseMessage(&shell.MenderShellMessage{
-				Type:      wsshell.MessageTypeSpawnShell,
-				Status:    wsshell.ErrorMessage,
-				SessionId: s.GetId(),
-				Data:      []byte("failed to stop shell: " + err.Error()),
-			})
-			if rErr != nil {
-				log.Errorf("failed to send response (%s) to failed stop-shell command (%s)", rErr.Error(), err.Error())
+func (d *MenderShellDaemon) routeMessageResponse(response *shell.MenderShellMessage, err error) {
+	if err != nil {
+		log.Errorf(err.Error())
+		response.Status = wsshell.ErrorMessage
+		response.Data = []byte(err.Error())
+	} else if response == nil {
+		return
+	}
+	if err := d.responseMessage(response); err != nil {
+		log.Errorf(errors.Wrap(err, "unable to send the response message").Error())
+	}
+}
+
+func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMessage) error {
+	var err error
+	response := &shell.MenderShellMessage{
+		Type:      message.Type,
+		Status:    wsshell.NormalMessage,
+		SessionId: message.SessionId,
+		Data:      []byte{},
+	}
+
+	if d.shellsSpawned >= configuration.MaxShellsSpawned {
+		err = session.ErrSessionTooManyShellsAlreadyRunning
+		d.routeMessageResponse(response, err)
+		return err
+	}
+	s := session.MenderShellSessionGetById(message.SessionId)
+	if s == nil {
+		userId := message.UserId
+		if s, err = session.NewMenderShellSession(message.SessionId, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle); err != nil {
+			d.routeMessageResponse(response, err)
+			return err
+		}
+		log.Debugf("created a new session: %s", s.GetId())
+	}
+
+	response.SessionId = s.GetId()
+
+	terminalHeight := d.terminalHeight
+	terminalWidth := d.terminalWidth
+
+	requestedHeight, requestedWidth := mapPropertiesToTerminalHeightAndWidth(message.Properties)
+	if requestedHeight > 0 && requestedWidth > 0 {
+		terminalHeight = requestedHeight
+		terminalWidth = requestedWidth
+	}
+
+	log.Debugf("starting shell session_id=%s", s.GetId())
+	if err = s.StartShell(s.GetId(), session.MenderShellTerminalSettings{
+		Uid:            uint32(d.uid),
+		Gid:            uint32(d.gid),
+		Shell:          d.shell,
+		TerminalString: d.terminalString,
+		Height:         terminalHeight,
+		Width:          terminalWidth,
+	}); err != nil {
+		err = errors.Wrap(err, "failed to start shell")
+		d.routeMessageResponse(response, err)
+		return err
+	}
+
+	log.Debug("Shell started")
+	d.shellsSpawned++
+
+	response.Data = []byte("Shell started")
+	d.routeMessageResponse(response, err)
+	return nil
+}
+
+func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMessage) error {
+	var err error
+	response := &shell.MenderShellMessage{
+		Type:      message.Type,
+		Status:    wsshell.NormalMessage,
+		SessionId: message.SessionId,
+		Data:      []byte{},
+	}
+
+	if len(message.SessionId) < 1 {
+		userId := message.UserId
+		if len(userId) < 1 {
+			err = errors.New("StopShellMessage: sessionId not given and userId empty")
+			d.routeMessageResponse(response, err)
+			return err
+		}
+		shellsStoppedCount, err := session.MenderShellStopByUserId(userId)
+		if err == nil {
+			if shellsStoppedCount > d.shellsSpawned {
+				d.shellsSpawned = 0
+				err = errors.New(fmt.Sprintf("StopByUserId: the shells stopped count (%d) "+
+					"greater than total shells spawned (%d). resetting shells "+
+					"spawned to 0.", shellsStoppedCount, d.shellsSpawned))
+				d.routeMessageResponse(response, err)
+				return err
 			} else {
-				log.Errorf("failed to stop shell: %s", err.Error())
+				log.Debugf("StopByUserId: stopped %d shells.", shellsStoppedCount)
+				d.shellsSpawned -= shellsStoppedCount
 			}
-			if procps.ProcessExists(s.GetShellPid()) {
-				log.Errorf("could not terminate shell (pid %d) for session %s, user"+
-					"will not be able to start another one if the limit is reached.",
-					s.GetShellPid(),
-					s.GetId())
-				return errors.New("could not terminate shell: " + err.Error() + ".")
-			} else {
-				log.Infof("shell exit rc: %s", err.Error())
-				if d.shellsSpawned == 0 {
-					log.Error("can't decrement shellsSpawned count: it is 0.")
-				} else {
-					d.shellsSpawned--
-				}
-			}
+		}
+		d.routeMessageResponse(response, err)
+		return err
+	}
+
+	s := session.MenderShellSessionGetById(message.SessionId)
+	if s == nil {
+		err = errors.New(fmt.Sprintf("routeMessage: StopShellMessage: session not found for id %s", message.SessionId))
+		d.routeMessageResponse(response, err)
+		return err
+	}
+
+	err = s.StopShell()
+	if err != nil {
+		if procps.ProcessExists(s.GetShellPid()) {
+			log.Errorf("could not terminate shell (pid %d) for session %s, user"+
+				"will not be able to start another one if the limit is reached.",
+				s.GetShellPid(),
+				s.GetId())
+			err = errors.New("could not terminate shell: " + err.Error() + ".")
+			return err
 		} else {
+			log.Infof("shell exit rc: %s", err.Error())
 			if d.shellsSpawned == 0 {
-				log.Error("can't decrement shellsSpawned count: it is 0.")
+				log.Warn("can't decrement shellsSpawned count: it is 0.")
 			} else {
 				d.shellsSpawned--
 			}
 		}
-		return session.MenderShellDeleteById(s.GetId())
-	case wsshell.MessageTypeShellCommand:
-		s := session.MenderShellSessionGetById(message.SessionId)
-		if s == nil {
-			log.Debugf("routeMessage: session not found for id %s", message.SessionId)
-			return session.ErrSessionNotFound
-		}
+		d.routeMessageResponse(response, err)
+		return err
+	}
+	if d.shellsSpawned == 0 {
+		log.Warn("can't decrement shellsSpawned count: it is 0.")
+	} else {
+		d.shellsSpawned--
+	}
+	err = session.MenderShellDeleteById(s.GetId())
+	d.routeMessageResponse(response, err)
+	return err
+}
 
-		err = s.ShellCommand(message)
-		if err != nil {
-			log.Debugf("routeMessage: shell command execution error, session_id=%s", message.SessionId)
-			return err
+func (d *MenderShellDaemon) routeMessageShellCommand(message *shell.MenderShellMessage) error {
+	var err error
+	response := &shell.MenderShellMessage{
+		Type:      message.Type,
+		Status:    wsshell.NormalMessage,
+		SessionId: message.SessionId,
+		Data:      []byte{},
+	}
+
+	s := session.MenderShellSessionGetById(message.SessionId)
+	if s == nil {
+		err = session.ErrSessionNotFound
+		d.routeMessageResponse(response, err)
+		return err
+	}
+	err = s.ShellCommand(message)
+	if err != nil {
+		err = errors.Wrapf(err, "routeMessage: shell command execution error, session_id=%s", message.SessionId)
+		d.routeMessageResponse(response, err)
+		return err
+	}
+	// suppress the response message setting the variable to nil
+	response = nil
+	_ = response
+	return nil
+}
+
+func mapPropertiesToTerminalHeightAndWidth(properties map[string]interface{}) (uint16, uint16) {
+	var terminalHeight, terminalWidth uint16
+	requestedHeight, requestedHeightOk := properties[propertyTerminalHeight]
+	requestedWidth, requestedWidthOk := properties[propertyTerminalWidth]
+	if requestedHeightOk && requestedWidthOk {
+		if val, _ := utils.Num64(requestedHeight); val > 0 {
+			terminalHeight = uint16(val)
 		}
+		if val, _ := utils.Num64(requestedWidth); val > 0 {
+			terminalWidth = uint16(val)
+		}
+	}
+	return terminalHeight, terminalWidth
+}
+
+func (d *MenderShellDaemon) routeMessageShellResize(message *shell.MenderShellMessage) error {
+	var err error
+
+	s := session.MenderShellSessionGetById(message.SessionId)
+	if s == nil {
+		err = session.ErrSessionNotFound
+		d.routeMessageResponse(nil, err)
+		return err
+	}
+
+	terminalHeight, terminalWidth := mapPropertiesToTerminalHeightAndWidth(message.Properties)
+	if terminalHeight > 0 && terminalWidth > 0 {
+		s.ResizeShell(terminalHeight, terminalWidth)
 	}
 	return nil
 }
@@ -593,13 +689,12 @@ func (d *MenderShellDaemon) readMessage() (*shell.MenderShellMessage, error) {
 
 	userID, _ := msg.Header.Properties[propertyUserID].(string)
 
-	m := &shell.MenderShellMessage{
-		Type:      msg.Header.MsgType,
-		SessionId: msg.Header.SessionID,
-		UserId:    userID,
-		Status:    status,
-		Data:      msg.Body,
-	}
-
-	return m, nil
+	return &shell.MenderShellMessage{
+		Type:       msg.Header.MsgType,
+		SessionId:  msg.Header.SessionID,
+		Properties: msg.Header.Properties,
+		UserId:     userID,
+		Status:     status,
+		Data:       msg.Body,
+	}, nil
 }

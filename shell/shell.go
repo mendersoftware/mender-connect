@@ -53,19 +53,23 @@ func ExecuteShell(uid uint32,
 		return -1, nil, nil, err
 	}
 
+	ResizeShell(pseudoTTY, height, width)
+
 	pid = cmd.Process.Pid
 	log.Debugf("started shell: %s pid:%d", shell, pid)
 
+	return pid, pseudoTTY, cmd, nil
+}
+
+func ResizeShell(pseudoTTY *os.File, height uint16, width uint16) {
 	log.Debugf("resizing terminal %v to %dx%d", *pseudoTTY, height, width)
-	_, _, err = syscall.Syscall(syscall.SYS_IOCTL, pseudoTTY.Fd(), uintptr(syscall.TIOCSWINSZ),
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, pseudoTTY.Fd(), uintptr(syscall.TIOCSWINSZ),
 		uintptr(unsafe.Pointer(&struct {
 			h, w, x, y uint16
 		}{
 			height, width, 0, 0,
 		})))
-	if err != nil {
-		log.Debugf("failed to resize terminal: %s", err.Error())
+	if errno != 0 {
+		log.Debugf("failed to resize terminal: %d", errno)
 	}
-
-	return pid, pseudoTTY, cmd, nil
 }
