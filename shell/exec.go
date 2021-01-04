@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -101,13 +101,11 @@ func (s *MenderShell) pipeStdout() {
 		}
 		raw := make([]byte, 255)
 		n, err := sr.Read(raw)
-		if err != nil || !s.IsRunning() {
-			if !s.IsRunning() {
-				return
-			}
-
+		if err != nil {
 			log.Errorf("error reading stdout: '%s'; restart is needed.", err)
 			break
+		} else if !s.IsRunning() {
+			return
 		}
 
 		msg := &ws.ProtoMsg{
