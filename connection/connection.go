@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -33,13 +33,12 @@ import (
 )
 
 const (
-	errMissingServerCertF = "IGNORING ERROR: The client server-certificate can not be " +
-		"loaded: (%s). The client will continue running, but may not be able to " +
-		"communicate with the server. If this is not your intention please add a valid " +
-		"server certificate"
-	errMissingCerts = "No trusted certificates. The client will continue running, but will " +
+	errMissingServerCertF = "The client server-certificate cannot be loaded: %s. " +
+		"The client will continue running, but may not be able to communicate with the " +
+		"server. If this is not your intention, please add a valid server certificate"
+	errMissingCerts = "No trusted certificates. The client will continue running but will " +
 		"not be able to communicate with the server. Either specify ServerCertificate in " +
-		"mender.conf, or make sure that CA certificates are installed on the system"
+		"mender-connect.conf, or make sure that CA certificates are installed on the system"
 )
 
 type Connection struct {
