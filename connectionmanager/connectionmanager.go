@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ type ProtocolHandler struct {
 
 var handlersByTypeMutex = &sync.Mutex{}
 var handlersByType = map[ws.ProtoType]*ProtocolHandler{}
-var reconnectIntervalSeconds = 300
+var reconnectIntervalSeconds = 5
 var defaultPingWait = time.Minute
 
 func GetWriteTimeout() time.Duration {
@@ -92,8 +92,9 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 				if err == nil {
 					err = errors.New("unknown error: connection was nil but no error provided by connection.NewConnection")
 				}
-				log.Errorf("try:%d/%d connection manager failed to connect to %s%s, error: %s;"+
-					"reconnecting in 1s; len(token)=%d", i, retries, serverUrl, connectUrl, err.Error(), len(token))
+				log.Errorf("connection manager failed to connect to %s%s: %s;"+
+					"reconnecting in %ds (try %d/%d); len(token)=%d", serverUrl, connectUrl,
+					err.Error(), reconnectIntervalSeconds, i, retries, len(token))
 				time.Sleep(time.Second * time.Duration(reconnectIntervalSeconds))
 				continue
 			}
