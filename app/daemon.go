@@ -63,6 +63,7 @@ type MenderShellDaemon struct {
 	connectionEstChan       chan MenderShellDaemonEvent
 	reconnectChan           chan MenderShellDaemonEvent
 	stop                    bool
+	stopChan                chan bool
 	authorized              bool
 	printStatus             bool
 	username                string
@@ -89,6 +90,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		connectionEstChan:       make(chan MenderShellDaemonEvent),
 		reconnectChan:           make(chan MenderShellDaemonEvent),
 		stop:                    false,
+		stopChan:                make(chan bool),
 		authorized:              false,
 		username:                config.User,
 		shell:                   config.ShellCommand,
@@ -114,6 +116,10 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 
 func (d *MenderShellDaemon) StopDaemon() {
 	d.stop = true
+	select {
+	case d.stopChan <- true:
+	default:
+	}
 }
 
 func (d *MenderShellDaemon) PrintStatus() {
@@ -144,7 +150,7 @@ func (d *MenderShellDaemon) timeToSweepSessions() bool {
 }
 
 func (d *MenderShellDaemon) wsReconnect(token string) (err error) {
-	err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, token, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts)
+	err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, token, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts, d.stopChan)
 	if err != nil {
 		return errors.New("failed to reconnect after " + strconv.Itoa(int(configuration.MaxReconnectAttempts)) + " tries: " + err.Error())
 	} else {
@@ -317,7 +323,7 @@ func (d *MenderShellDaemon) eventLoop() {
 		log.Debugf("eventLoop: got event: %s", event.event)
 		switch event.event {
 		case EventReconnect:
-			err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, event.data, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts)
+			err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, event.data, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts, d.stopChan)
 			if err != nil {
 				log.Errorf("eventLoop: event: error reconnecting: %s", err.Error())
 			} else {
@@ -401,7 +407,9 @@ func (d *MenderShellDaemon) Run() error {
 		jwtToken,
 		d.skipVerify,
 		d.serverCertificate,
-		0)
+		0,
+		d.stopChan,
+	)
 	if err != nil {
 		log.Errorf("error on connecting, probably interrupted: %s", err.Error())
 		return err

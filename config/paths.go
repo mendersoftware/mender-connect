@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ var (
 	DefaultDebug = false
 
 	MaxReconnectAttempts             = uint(0) // 0 means to reconnect forever
-	DefaultReconnectIntervalsSeconds = 300
+	DefaultReconnectIntervalsSeconds = 5
 	MessageWriteTimeout              = 2 * time.Second
 	MaxShellsSpawned                 = uint(16)
 )

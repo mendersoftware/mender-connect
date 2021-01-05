@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ type ProtocolHandler struct {
 
 var handlersByTypeMutex = &sync.Mutex{}
 var handlersByType = map[ws.ProtoType]*ProtocolHandler{}
-var reconnectIntervalSeconds = 300
+var reconnectIntervalSeconds = 5
 var defaultPingWait = time.Minute
 
 func GetWriteTimeout() time.Duration {
@@ -67,7 +67,7 @@ func SetDefaultPingWait(wait time.Duration) {
 	defaultPingWait = wait
 }
 
-func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint) error {
+func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, stop <-chan bool) error {
 	parsedUrl, err := url.Parse(serverUrl)
 	if err != nil {
 		return err
@@ -77,25 +77,27 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 	u := url.URL{Scheme: scheme, Host: parsedUrl.Host, Path: connectUrl}
 
 	var c *connection.Connection
-	var i uint = 1
+	var i uint = 0
 	for {
+		i++
 		c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, defaultPingWait, skipVerify, serverCertificate)
 		if err != nil || c == nil {
-			if retries > 0 {
-				if i >= retries {
-					return ErrConnectionRetriesExhausted
-				}
-				i++
-				time.Sleep(time.Second)
-			}
-			if i < retries || retries == 0 {
+			if retries == 0 || i < retries {
 				if err == nil {
 					err = errors.New("unknown error: connection was nil but no error provided by connection.NewConnection")
 				}
-				log.Errorf("try:%d/%d connection manager failed to connect to %s%s, error: %s;"+
-					"reconnecting in 1s; len(token)=%d", i, retries, serverUrl, connectUrl, err.Error(), len(token))
-				time.Sleep(time.Second * time.Duration(reconnectIntervalSeconds))
+				log.Errorf("connection manager failed to connect to %s%s: %s; "+
+					"reconnecting in %ds (try %d/%d); len(token)=%d", serverUrl, connectUrl,
+					err.Error(), reconnectIntervalSeconds, i, retries, len(token))
+				select {
+				case <-stop:
+					return nil
+				case <-time.After(time.Second * time.Duration(reconnectIntervalSeconds)):
+					break
+				}
 				continue
+			} else if i >= retries {
+				return ErrConnectionRetriesExhausted
 			}
 			return err
 		} else {
@@ -111,7 +113,7 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 	return nil
 }
 
-func Connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint) error {
+func Connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, stop <-chan bool) error {
 	handlersByTypeMutex.Lock()
 	defer handlersByTypeMutex.Unlock()
 
@@ -119,10 +121,10 @@ func Connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 		return ErrHandlerAlreadyRegistered
 	}
 
-	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries)
+	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries, stop)
 }
 
-func Reconnect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint) error {
+func Reconnect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, stop <-chan bool) error {
 	handlersByTypeMutex.Lock()
 	defer handlersByTypeMutex.Unlock()
 
@@ -133,7 +135,7 @@ func Reconnect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVeri
 	}
 
 	delete(handlersByType, proto)
-	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries)
+	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries, stop)
 }
 
 func Read(proto ws.ProtoType) (*ws.ProtoMsg, error) {
