@@ -450,7 +450,7 @@ func (d *MenderShellDaemon) Run() error {
 func (d *MenderShellDaemon) responseMessage(m *shell.MenderShellMessage) (err error) {
 	msg := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
-			Proto:     ws.ProtoTypeShell,
+			Proto:     m.Proto,
 			MsgType:   m.Type,
 			SessionID: m.SessionId,
 			Properties: map[string]interface{}{
@@ -464,17 +464,31 @@ func (d *MenderShellDaemon) responseMessage(m *shell.MenderShellMessage) (err er
 }
 
 func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) error {
-	switch message.Type {
-	case wsshell.MessageTypeSpawnShell:
-		return d.routeMessageSpawnShell(message)
-	case wsshell.MessageTypeStopShell:
-		return d.routeMessageStopShell(message)
-	case wsshell.MessageTypeShellCommand:
-		return d.routeMessageShellCommand(message)
-	case wsshell.MessageTypeResizeShell:
-		return d.routeMessageShellResize(message)
+	switch message.Proto {
+	case ws.ProtoTypeShell:
+		switch message.Type {
+		case wsshell.MessageTypeSpawnShell:
+			return d.routeMessageSpawnShell(message)
+		case wsshell.MessageTypeStopShell:
+			return d.routeMessageStopShell(message)
+		case wsshell.MessageTypeShellCommand:
+			return d.routeMessageShellCommand(message)
+		case wsshell.MessageTypeResizeShell:
+			return d.routeMessageShellResize(message)
+		}
 	}
-	return errors.New(fmt.Sprintf("unknown message type: %s", message.Type))
+	err := errors.New(fmt.Sprintf("unknown message protocol and type: %d/%s", message.Proto, message.Type))
+	response := &shell.MenderShellMessage{
+		Proto:     message.Proto,
+		Type:      message.Type,
+		Status:    wsshell.ErrorMessage,
+		SessionId: message.SessionId,
+		Data:      []byte(err.Error()),
+	}
+	if err := d.responseMessage(response); err != nil {
+		log.Errorf(errors.Wrap(err, "unable to send the response message").Error())
+	}
+	return err
 }
 
 func (d *MenderShellDaemon) routeMessageResponse(response *shell.MenderShellMessage, err error) {
@@ -493,6 +507,7 @@ func (d *MenderShellDaemon) routeMessageResponse(response *shell.MenderShellMess
 func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMessage) error {
 	var err error
 	response := &shell.MenderShellMessage{
+		Proto:     message.Proto,
 		Type:      message.Type,
 		Status:    wsshell.NormalMessage,
 		SessionId: message.SessionId,
@@ -550,6 +565,7 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMes
 func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMessage) error {
 	var err error
 	response := &shell.MenderShellMessage{
+		Proto:     message.Proto,
 		Type:      message.Type,
 		Status:    wsshell.NormalMessage,
 		SessionId: message.SessionId,
@@ -621,6 +637,7 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMess
 func (d *MenderShellDaemon) routeMessageShellCommand(message *shell.MenderShellMessage) error {
 	var err error
 	response := &shell.MenderShellMessage{
+		Proto:     message.Proto,
 		Type:      message.Type,
 		Status:    wsshell.NormalMessage,
 		SessionId: message.SessionId,
@@ -698,6 +715,7 @@ func (d *MenderShellDaemon) readMessage() (*shell.MenderShellMessage, error) {
 	userID, _ := msg.Header.Properties[propertyUserID].(string)
 
 	return &shell.MenderShellMessage{
+		Proto:      msg.Header.Proto,
 		Type:       msg.Header.MsgType,
 		SessionId:  msg.Header.SessionID,
 		Properties: msg.Header.Properties,

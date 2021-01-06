@@ -32,6 +32,8 @@ var (
 
 // MenderShellMessage represents a message between the device and the backend
 type MenderShellMessage struct {
+	//protocol of the message
+	Proto ws.ProtoType
 	//type of message, used to determine the meaning of data
 	Type string `json:"type" msgpack:"type"`
 	//session id, as returned to the caller in a response to the MessageTypeSpawnShell
