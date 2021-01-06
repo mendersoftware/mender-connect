@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import (
 
 func ExecuteShell(uid uint32,
 	gid uint32,
+	homeDir string,
 	shell string,
 	termString string,
 	height uint16,
@@ -47,7 +48,12 @@ func ExecuteShell(uid uint32,
 		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
 	}
 
+	if _, err := os.Stat(homeDir); !os.IsNotExist(err) {
+		cmd.Dir = homeDir
+	}
+	cmd.Env = append(cmd.Env, fmt.Sprintf("HOME=%s", homeDir))
 	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", termString))
+
 	pseudoTTY, err = pty.Start(cmd)
 	if err != nil {
 		return -1, nil, nil, err
