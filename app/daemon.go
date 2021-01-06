@@ -79,6 +79,7 @@ type MenderShellDaemon struct {
 	terminalHeight          uint16
 	uid                     uint64
 	gid                     uint64
+	homeDir                 string
 	shellsSpawned           uint
 	debug                   bool
 }
@@ -359,6 +360,8 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
+	d.homeDir = u.HomeDir
+
 	d.uid, err = strconv.ParseUint(u.Uid, 10, 32)
 	if err != nil {
 		return err
@@ -372,6 +375,10 @@ func (d *MenderShellDaemon) Run() error {
 	log.Debug("mender-connect connecting to dbus")
 	//dbus main loop, required.
 	dbusAPI, err := dbus.GetDBusAPI()
+	if err != nil {
+		return err
+	}
+
 	loop := dbusAPI.MainLoopNew()
 	go dbusAPI.MainLoopRun(loop)
 	defer dbusAPI.MainLoopQuit(loop)
@@ -545,6 +552,7 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMes
 		Uid:            uint32(d.uid),
 		Gid:            uint32(d.gid),
 		Shell:          d.shell,
+		HomeDir:        d.homeDir,
 		TerminalString: d.terminalString,
 		Height:         terminalHeight,
 		Width:          terminalWidth,

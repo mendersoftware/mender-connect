@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -70,6 +70,7 @@ type MenderShellTerminalSettings struct {
 	Uid            uint32
 	Gid            uint32
 	Shell          string
+	HomeDir        string
 	TerminalString string
 	Height         uint16
 	Width          uint16
@@ -289,8 +290,10 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 		return ErrSessionShellAlreadyRunning
 	}
 
-	pid, pseudoTTY, cmd, err := shell.ExecuteShell(terminal.Uid,
+	pid, pseudoTTY, cmd, err := shell.ExecuteShell(
+		terminal.Uid,
 		terminal.Gid,
+		terminal.HomeDir,
 		terminal.Shell,
 		terminal.TerminalString,
 		terminal.Height,

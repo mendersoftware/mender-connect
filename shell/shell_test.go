@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -45,13 +45,13 @@ func TestMenderShellExecShell(t *testing.T) {
 	}
 
 	//command does not exist
-	pid, pseudoTTY, cmd, err := ExecuteShell(uint32(uid), uint32(gid), "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80)
+	pid, pseudoTTY, cmd, err := ExecuteShell(uint32(uid), uint32(gid), "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80)
 	assert.Error(t, err)
 	assert.Equal(t, pid, -1)
 	assert.Nil(t, pseudoTTY)
 	assert.Nil(t, cmd)
 
-	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/bin/sh", "xterm-256color", 24, 80)
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/", "/bin/sh", "xterm-256color", 24, 80)
 	assert.Nil(t, err)
 	assert.NotZero(t, pid)
 	assert.NotNil(t, pseudoTTY)
