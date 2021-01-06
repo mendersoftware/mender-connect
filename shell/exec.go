@@ -60,10 +60,6 @@ type MenderShell struct {
 	running   bool
 }
 
-type MenderShellCommand struct {
-	path string
-}
-
 //Create a new shell, note that we assume that r Reader and w Writer
 //are already connected to the i/o of the shell process and ws websocket
 //is connected and ws.SetReadDeadline(time.Now().Add(defaultPingWait))
