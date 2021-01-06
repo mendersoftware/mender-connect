@@ -91,6 +91,30 @@ func (s *MenderShell) IsRunning() bool {
 	return s.running
 }
 
+func (s *MenderShell) sendStopMessage(err error) {
+	body := []byte{}
+	status := wsshell.ErrorMessage
+	if err != nil {
+		body = []byte(err.Error())
+		status = wsshell.ErrorMessage
+	}
+	msg := &ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     ws.ProtoTypeShell,
+			MsgType:   wsshell.MessageTypeStopShell,
+			SessionID: s.sessionId,
+			Properties: map[string]interface{}{
+				"status": status,
+			},
+		},
+		Body: body,
+	}
+	err = connectionmanager.Write(ws.ProtoTypeShell, msg)
+	if err != nil {
+		log.Debugf("error on write: %s", err.Error())
+	}
+}
+
 func (s *MenderShell) pipeStdout() {
 	sr := bufio.NewReader(s.r)
 	for {
@@ -100,8 +124,9 @@ func (s *MenderShell) pipeStdout() {
 		raw := make([]byte, 255)
 		n, err := sr.Read(raw)
 		if err != nil {
-			log.Errorf("error reading stdout: '%s'; restart is needed.", err)
-			break
+			log.Errorf("error reading stdout: %s", err)
+			s.sendStopMessage(err)
+			return
 		} else if !s.IsRunning() {
 			return
 		}
