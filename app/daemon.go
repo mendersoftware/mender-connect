@@ -372,6 +372,10 @@ func (d *MenderShellDaemon) Run() error {
 	log.Debug("mender-connect connecting to dbus")
 	//dbus main loop, required.
 	dbusAPI, err := dbus.GetDBusAPI()
+	if err != nil {
+		return err
+	}
+
 	loop := dbusAPI.MainLoopNew()
 	go dbusAPI.MainLoopRun(loop)
 	defer dbusAPI.MainLoopQuit(loop)
