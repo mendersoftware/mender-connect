@@ -30,6 +30,8 @@ var (
 	ErrExecWriteBytesShort = errors.New("failed to write the whole message")
 )
 
+const pipStdoutBufferSize = 255
+
 // MenderShellMessage represents a message between the device and the backend
 type MenderShellMessage struct {
 	//protocol of the message
@@ -116,12 +118,12 @@ func (s *MenderShell) sendStopMessage(err error) {
 }
 
 func (s *MenderShell) pipeStdout() {
+	raw := make([]byte, pipStdoutBufferSize)
 	sr := bufio.NewReader(s.r)
 	for {
 		if !s.IsRunning() {
 			return
 		}
-		raw := make([]byte, 255)
 		n, err := sr.Read(raw)
 		if err != nil {
 			log.Errorf("error reading stdout: %s", err)
