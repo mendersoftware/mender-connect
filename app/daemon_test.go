@@ -319,6 +319,62 @@ func TestMenderShellStopByUserId(t *testing.T) {
 	assert.Equal(t, sessionsCount-1, d.shellsSpawned)
 }
 
+func newShellUnknownMessage(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(os.Stderr, "newShellUnknownMessage starting\n")
+	var upgrader = websocket.Upgrader{}
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	err = sendMessage(c, "does-not-exist", "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-a00908-f6723467-561234ff", "")
+	fmt.Fprintf(os.Stderr, "(0) newShellStopByUserId sendMessage: %v\n", err)
+	_, _ = readMessage(c)
+	for {
+		time.Sleep(4 * time.Second)
+	}
+}
+
+func TestMenderShellUnknownMessage(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Errorf("cant get current user: %s", err.Error())
+		return
+	}
+
+	t.Log("starting mock httpd with websockets")
+	s := httptest.NewServer(http.HandlerFunc(newShellUnknownMessage))
+	defer s.Close()
+
+	u := "ws" + strings.TrimPrefix(s.URL, "http")
+	urlString, err := url.Parse(u)
+	assert.NoError(t, err)
+	assert.NotNil(t, urlString)
+
+	connectionmanager.Close(ws.ProtoTypeShell)
+	connectionmanager.SetReconnectIntervalSeconds(1)
+	_ = connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+
+	d := NewDaemon(&config.MenderShellConfig{
+		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+			ShellCommand: "/bin/sh",
+			User:         currentUser.Name,
+			Terminal: config.TerminalConfig{
+				Width:  24,
+				Height: 80,
+			},
+		},
+	})
+	time.Sleep(time.Second * 2)
+	message, err := d.readMessage()
+	assert.NotNil(t, message)
+	t.Logf("read message: proto, type, session_id, data %d, %s, %s, %s", message.Proto, message.Type, message.SessionId, message.Data)
+
+	err = d.routeMessage(message)
+	assert.Error(t, err)
+	assert.EqualError(t, err, "unknown message protocol and type: 1/does-not-exist")
+}
+
 func newShellMulti(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("newShellMulti: starting\n\n")
 	var upgrader = websocket.Upgrader{}
