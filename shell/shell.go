@@ -26,6 +26,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const defaultCmdDir = "/"
+
 func ExecuteShell(uid uint32,
 	gid uint32,
 	homeDir string,
@@ -50,7 +52,10 @@ func ExecuteShell(uid uint32,
 
 	if _, err := os.Stat(homeDir); !os.IsNotExist(err) {
 		cmd.Dir = homeDir
+	} else {
+		cmd.Dir = defaultCmdDir
 	}
+
 	cmd.Env = append(cmd.Env, fmt.Sprintf("HOME=%s", homeDir))
 	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", termString))
 
