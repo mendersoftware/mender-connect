@@ -33,7 +33,6 @@ import (
 	"github.com/vmihailenco/msgpack"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
-	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 	"github.com/mendersoftware/mender-connect/connection"
 	"github.com/mendersoftware/mender-connect/connectionmanager"
 )
@@ -45,7 +44,7 @@ func TestNewMenderShell(t *testing.T) {
 	assert.NotNil(t, s)
 }
 
-func readMessage(webSock *websocket.Conn) (*MenderShellMessage, error) {
+func readMessage(webSock *websocket.Conn) (*ws.ProtoMsg, error) {
 	_, data, err := webSock.ReadMessage()
 	if err != nil {
 		return nil, err
@@ -57,14 +56,7 @@ func readMessage(webSock *websocket.Conn) (*MenderShellMessage, error) {
 		return nil, err
 	}
 
-	m := &MenderShellMessage{
-		Type:      msg.Header.MsgType,
-		SessionId: msg.Header.SessionID,
-		Status:    wsshell.NormalMessage,
-		Data:      msg.Body,
-	}
-
-	return m, nil
+	return msg, nil
 }
 
 func echoMainServerLoop(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +70,7 @@ func echoMainServerLoop(w http.ResponseWriter, r *http.Request) {
 	for {
 		m, err := readMessage(c)
 		if err == nil {
-			lines := strings.Split(string(m.Data), "\r\n")
+			lines := strings.Split(string(m.Body), "\r\n")
 			for _, l := range lines {
 				messages = append(messages, l)
 			}
@@ -86,7 +78,7 @@ func echoMainServerLoop(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(1 * time.Second)
 		m, err = readMessage(c)
 		if err == nil {
-			lines := strings.Split(string(m.Data), "\r\n")
+			lines := strings.Split(string(m.Body), "\r\n")
 			for _, l := range lines {
 				messages = append(messages, l)
 			}

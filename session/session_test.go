@@ -35,7 +35,6 @@ import (
 	"github.com/mendersoftware/mender-connect/connection"
 	"github.com/mendersoftware/mender-connect/connectionmanager"
 	"github.com/mendersoftware/mender-connect/procps"
-	"github.com/mendersoftware/mender-connect/shell"
 )
 
 func newShellTransaction(w http.ResponseWriter, r *http.Request) {
@@ -161,9 +160,9 @@ func TestMenderShellCommand(t *testing.T) {
 
 	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true, "")
+	conn, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second, true, "")
 	assert.NoError(t, err)
-	assert.NotNil(t, ws)
+	assert.NotNil(t, conn)
 
 	currentUser, err := user.Current()
 	if err != nil {
@@ -196,21 +195,31 @@ func TestMenderShellCommand(t *testing.T) {
 	}
 	assert.NoError(t, err)
 	assert.True(t, procps.ProcessExists(s.shellPid))
-	err = s.ShellCommand(&shell.MenderShellMessage{
-		Type:      wsshell.MessageTypeShellCommand,
-		SessionId: s.GetId(),
-		Status:    0,
-		Data:      []byte("echo ok;\n"),
+	err = s.ShellCommand(&ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     ws.ProtoTypeShell,
+			MsgType:   wsshell.MessageTypeShellCommand,
+			SessionID: s.GetId(),
+			Properties: map[string]interface{}{
+				"status": wsshell.NormalMessage,
+			},
+		},
+		Body: []byte("echo ok;\n"),
 	})
 	assert.NoError(t, err)
 
 	//close terminal controlling handle, for error from inside ShellCommand
 	s.pseudoTTY.Close()
-	err = s.ShellCommand(&shell.MenderShellMessage{
-		Type:      wsshell.MessageTypeShellCommand,
-		SessionId: s.GetId(),
-		Status:    0,
-		Data:      []byte("echo ok;\n"),
+	err = s.ShellCommand(&ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     ws.ProtoTypeShell,
+			MsgType:   wsshell.MessageTypeShellCommand,
+			SessionID: s.GetId(),
+			Properties: map[string]interface{}{
+				"status": wsshell.NormalMessage,
+			},
+		},
+		Body: []byte("echo ok;\n"),
 	})
 	assert.Error(t, err)
 }
