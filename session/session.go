@@ -23,6 +23,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/mendersoftware/go-lib-micro/ws"
 	"github.com/mendersoftware/mender-connect/procps"
 	"github.com/mendersoftware/mender-connect/shell"
 )
@@ -340,9 +341,9 @@ func (s *MenderShellSession) IsExpired(setStatus bool) bool {
 	return e
 }
 
-func (s *MenderShellSession) ShellCommand(m *shell.MenderShellMessage) error {
+func (s *MenderShellSession) ShellCommand(m *ws.ProtoMsg) error {
 	s.activeAt = timeNow()
-	data := m.Data
+	data := m.Body
 	commandLine := string(data)
 	n, err := s.writer.Write(data)
 	if err != nil && n != len(data) {

@@ -51,10 +51,19 @@ func TestMenderShellExecShell(t *testing.T) {
 	assert.Nil(t, pseudoTTY)
 	assert.Nil(t, cmd)
 
-	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/", "/bin/sh", "xterm-256color", 24, 80)
+	//home directory doesn't exist
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/does-not-exist", "true", "xterm-256color", 24, 80)
 	assert.Nil(t, err)
 	assert.NotZero(t, pid)
 	assert.NotNil(t, pseudoTTY)
+	assert.Equal(t, "/", cmd.Dir)
+
+	//shell
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/tmp", "/bin/sh", "xterm-256color", 24, 80)
+	assert.Nil(t, err)
+	assert.NotZero(t, pid)
+	assert.NotNil(t, pseudoTTY)
+	assert.Equal(t, "/tmp", cmd.Dir)
 
 	t.Logf("started shell, pid: %d", pid)
 

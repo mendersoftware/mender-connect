@@ -30,38 +30,13 @@ var (
 	ErrExecWriteBytesShort = errors.New("failed to write the whole message")
 )
 
-// MenderShellMessage represents a message between the device and the backend
-type MenderShellMessage struct {
-	//protocol of the message
-	Proto ws.ProtoType
-	//type of message, used to determine the meaning of data
-	Type string `json:"type" msgpack:"type"`
-	//session id, as returned to the caller in a response to the MessageTypeSpawnShell
-	//message.
-	SessionId string `json:"session_id" msgpack:"session_id"`
-	//user id contains the ID of the user
-	UserId string `json:"user_id" msgpack:"user_id"`
-	//message status, currently normal and error message types are supported
-	Status wsshell.MenderShellMessageStatus `json:"status_code" msgpack:"status_code"`
-	//message properties (headers)
-	Properties map[string]interface{}
-	//the message payload, if
-	// * .Type===MessageTypeShellCommand interpreted as keystrokes and passed
-	//   to the stdin of the terminal running the shell.
-	// * .Type===MessageTypeSpawnShell interpreted as user_id and passed
-	//   to the session.NewMenderShellSession.
-	Data []byte `json:"data" msgpack:"data"`
-}
+const pipStdoutBufferSize = 255
 
 type MenderShell struct {
 	sessionId string
 	r         io.Reader
 	w         io.Writer
 	running   bool
-}
-
-type MenderShellCommand struct {
-	path string
 }
 
 //Create a new shell, note that we assume that r Reader and w Writer
@@ -95,17 +70,42 @@ func (s *MenderShell) IsRunning() bool {
 	return s.running
 }
 
+func (s *MenderShell) sendStopMessage(err error) {
+	body := []byte{}
+	status := wsshell.ErrorMessage
+	if err != nil {
+		body = []byte(err.Error())
+		status = wsshell.ErrorMessage
+	}
+	msg := &ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     ws.ProtoTypeShell,
+			MsgType:   wsshell.MessageTypeStopShell,
+			SessionID: s.sessionId,
+			Properties: map[string]interface{}{
+				"status": status,
+			},
+		},
+		Body: body,
+	}
+	err = connectionmanager.Write(ws.ProtoTypeShell, msg)
+	if err != nil {
+		log.Debugf("error on write: %s", err.Error())
+	}
+}
+
 func (s *MenderShell) pipeStdout() {
+	raw := make([]byte, pipStdoutBufferSize)
 	sr := bufio.NewReader(s.r)
 	for {
 		if !s.IsRunning() {
 			return
 		}
-		raw := make([]byte, 255)
 		n, err := sr.Read(raw)
 		if err != nil {
-			log.Errorf("error reading stdout: '%s'; restart is needed.", err)
-			break
+			log.Errorf("error reading stdout: %s", err)
+			s.sendStopMessage(err)
+			return
 		} else if !s.IsRunning() {
 			return
 		}

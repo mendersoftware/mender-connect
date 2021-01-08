@@ -32,7 +32,6 @@ import (
 	"github.com/mendersoftware/mender-connect/connectionmanager"
 	"github.com/mendersoftware/mender-connect/procps"
 	"github.com/mendersoftware/mender-connect/session"
-	"github.com/mendersoftware/mender-connect/shell"
 	"github.com/mendersoftware/mender-connect/utils"
 )
 
@@ -181,9 +180,8 @@ func (d *MenderShellDaemon) messageLoop() (err error) {
 			break
 		}
 
-		var message *shell.MenderShellMessage
 		log.Debug("messageLoop: calling readMessage")
-		message, err = d.readMessage()
+		message, err := d.readMessage()
 		log.Debugf("messageLoop: called readMessage: %v,%v", message, err)
 		if err != nil {
 			log.Errorf("messageLoop: error on readMessage: %v; disconnecting, waiting for reconnect.", err)
@@ -198,7 +196,7 @@ func (d *MenderShellDaemon) messageLoop() (err error) {
 			continue
 		}
 
-		log.Debugf("got message: type:%s data length:%d", message.Type, len(message.Data))
+		log.Debugf("got message: type:%s data length:%d", message.Header.MsgType, len(message.Body))
 		err = d.routeMessage(message)
 		if err != nil {
 			log.Debugf("error routing message: %s", err.Error())
@@ -454,43 +452,36 @@ func (d *MenderShellDaemon) Run() error {
 	return nil
 }
 
-func (d *MenderShellDaemon) responseMessage(m *shell.MenderShellMessage) (err error) {
-	msg := &ws.ProtoMsg{
-		Header: ws.ProtoHdr{
-			Proto:     m.Proto,
-			MsgType:   m.Type,
-			SessionID: m.SessionId,
-			Properties: map[string]interface{}{
-				"status": m.Status,
-			},
-		},
-		Body: m.Data,
-	}
+func (d *MenderShellDaemon) responseMessage(msg *ws.ProtoMsg) (err error) {
 	log.Debugf("responseMessage: webSock.WriteMessage(%+v)", msg)
 	return connectionmanager.Write(ws.ProtoTypeShell, msg)
 }
 
-func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) error {
-	switch message.Proto {
+func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
+	switch msg.Header.Proto {
 	case ws.ProtoTypeShell:
-		switch message.Type {
+		switch msg.Header.MsgType {
 		case wsshell.MessageTypeSpawnShell:
-			return d.routeMessageSpawnShell(message)
+			return d.routeMessageSpawnShell(msg)
 		case wsshell.MessageTypeStopShell:
-			return d.routeMessageStopShell(message)
+			return d.routeMessageStopShell(msg)
 		case wsshell.MessageTypeShellCommand:
-			return d.routeMessageShellCommand(message)
+			return d.routeMessageShellCommand(msg)
 		case wsshell.MessageTypeResizeShell:
-			return d.routeMessageShellResize(message)
+			return d.routeMessageShellResize(msg)
 		}
 	}
-	err := errors.New(fmt.Sprintf("unknown message protocol and type: %d/%s", message.Proto, message.Type))
-	response := &shell.MenderShellMessage{
-		Proto:     message.Proto,
-		Type:      message.Type,
-		Status:    wsshell.ErrorMessage,
-		SessionId: message.SessionId,
-		Data:      []byte(err.Error()),
+	err := errors.New(fmt.Sprintf("unknown message protocol and type: %d/%s", msg.Header.Proto, msg.Header.MsgType))
+	response := &ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     msg.Header.Proto,
+			MsgType:   msg.Header.MsgType,
+			SessionID: msg.Header.SessionID,
+			Properties: map[string]interface{}{
+				"status": wsshell.ErrorMessage,
+			},
+		},
+		Body: []byte(err.Error()),
 	}
 	if err := d.responseMessage(response); err != nil {
 		log.Errorf(errors.Wrap(err, "unable to send the response message").Error())
@@ -498,11 +489,11 @@ func (d *MenderShellDaemon) routeMessage(message *shell.MenderShellMessage) erro
 	return err
 }
 
-func (d *MenderShellDaemon) routeMessageResponse(response *shell.MenderShellMessage, err error) {
+func (d *MenderShellDaemon) routeMessageResponse(response *ws.ProtoMsg, err error) {
 	if err != nil {
 		log.Errorf(err.Error())
-		response.Status = wsshell.ErrorMessage
-		response.Data = []byte(err.Error())
+		response.Header.Properties["status"] = wsshell.ErrorMessage
+		response.Body = []byte(err.Error())
 	} else if response == nil {
 		return
 	}
@@ -511,37 +502,45 @@ func (d *MenderShellDaemon) routeMessageResponse(response *shell.MenderShellMess
 	}
 }
 
-func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMessage) error {
-	var err error
-	response := &shell.MenderShellMessage{
-		Proto:     message.Proto,
-		Type:      message.Type,
-		Status:    wsshell.NormalMessage,
-		SessionId: message.SessionId,
-		Data:      []byte{},
-	}
+func getUserIdFromMessage(message *ws.ProtoMsg) string {
+	userID, _ := message.Header.Properties["user_id"].(string)
+	return userID
+}
 
+func (d *MenderShellDaemon) routeMessageSpawnShell(message *ws.ProtoMsg) error {
+	var err error
+	response := &ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     message.Header.Proto,
+			MsgType:   message.Header.MsgType,
+			SessionID: message.Header.SessionID,
+			Properties: map[string]interface{}{
+				"status": wsshell.NormalMessage,
+			},
+		},
+		Body: []byte{},
+	}
 	if d.shellsSpawned >= configuration.MaxShellsSpawned {
 		err = session.ErrSessionTooManyShellsAlreadyRunning
 		d.routeMessageResponse(response, err)
 		return err
 	}
-	s := session.MenderShellSessionGetById(message.SessionId)
+	s := session.MenderShellSessionGetById(message.Header.SessionID)
 	if s == nil {
-		userId := message.UserId
-		if s, err = session.NewMenderShellSession(message.SessionId, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle); err != nil {
+		userId := getUserIdFromMessage(message)
+		if s, err = session.NewMenderShellSession(message.Header.SessionID, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle); err != nil {
 			d.routeMessageResponse(response, err)
 			return err
 		}
 		log.Debugf("created a new session: %s", s.GetId())
 	}
 
-	response.SessionId = s.GetId()
+	response.Header.SessionID = s.GetId()
 
 	terminalHeight := d.terminalHeight
 	terminalWidth := d.terminalWidth
 
-	requestedHeight, requestedWidth := mapPropertiesToTerminalHeightAndWidth(message.Properties)
+	requestedHeight, requestedWidth := mapPropertiesToTerminalHeightAndWidth(message.Header.Properties)
 	if requestedHeight > 0 && requestedWidth > 0 {
 		terminalHeight = requestedHeight
 		terminalWidth = requestedWidth
@@ -565,23 +564,27 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *shell.MenderShellMes
 	log.Debug("Shell started")
 	d.shellsSpawned++
 
-	response.Data = []byte("Shell started")
+	response.Body = []byte("Shell started")
 	d.routeMessageResponse(response, err)
 	return nil
 }
 
-func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMessage) error {
+func (d *MenderShellDaemon) routeMessageStopShell(message *ws.ProtoMsg) error {
 	var err error
-	response := &shell.MenderShellMessage{
-		Proto:     message.Proto,
-		Type:      message.Type,
-		Status:    wsshell.NormalMessage,
-		SessionId: message.SessionId,
-		Data:      []byte{},
+	response := &ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     message.Header.Proto,
+			MsgType:   message.Header.MsgType,
+			SessionID: message.Header.SessionID,
+			Properties: map[string]interface{}{
+				"status": wsshell.NormalMessage,
+			},
+		},
+		Body: []byte{},
 	}
 
-	if len(message.SessionId) < 1 {
-		userId := message.UserId
+	if len(message.Header.SessionID) < 1 {
+		userId := getUserIdFromMessage(message)
 		if len(userId) < 1 {
 			err = errors.New("StopShellMessage: sessionId not given and userId empty")
 			d.routeMessageResponse(response, err)
@@ -605,9 +608,9 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMess
 		return err
 	}
 
-	s := session.MenderShellSessionGetById(message.SessionId)
+	s := session.MenderShellSessionGetById(message.Header.SessionID)
 	if s == nil {
-		err = errors.New(fmt.Sprintf("routeMessage: StopShellMessage: session not found for id %s", message.SessionId))
+		err = errors.New(fmt.Sprintf("routeMessage: StopShellMessage: session not found for id %s", message.Header.SessionID))
 		d.routeMessageResponse(response, err)
 		return err
 	}
@@ -642,17 +645,21 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *shell.MenderShellMess
 	return err
 }
 
-func (d *MenderShellDaemon) routeMessageShellCommand(message *shell.MenderShellMessage) error {
+func (d *MenderShellDaemon) routeMessageShellCommand(message *ws.ProtoMsg) error {
 	var err error
-	response := &shell.MenderShellMessage{
-		Proto:     message.Proto,
-		Type:      message.Type,
-		Status:    wsshell.NormalMessage,
-		SessionId: message.SessionId,
-		Data:      []byte{},
+	response := &ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     message.Header.Proto,
+			MsgType:   message.Header.MsgType,
+			SessionID: message.Header.SessionID,
+			Properties: map[string]interface{}{
+				"status": wsshell.NormalMessage,
+			},
+		},
+		Body: []byte{},
 	}
 
-	s := session.MenderShellSessionGetById(message.SessionId)
+	s := session.MenderShellSessionGetById(message.Header.SessionID)
 	if s == nil {
 		err = session.ErrSessionNotFound
 		d.routeMessageResponse(response, err)
@@ -660,7 +667,7 @@ func (d *MenderShellDaemon) routeMessageShellCommand(message *shell.MenderShellM
 	}
 	err = s.ShellCommand(message)
 	if err != nil {
-		err = errors.Wrapf(err, "routeMessage: shell command execution error, session_id=%s", message.SessionId)
+		err = errors.Wrapf(err, "routeMessage: shell command execution error, session_id=%s", message.Header.SessionID)
 		d.routeMessageResponse(response, err)
 		return err
 	}
@@ -685,50 +692,29 @@ func mapPropertiesToTerminalHeightAndWidth(properties map[string]interface{}) (u
 	return terminalHeight, terminalWidth
 }
 
-func (d *MenderShellDaemon) routeMessageShellResize(message *shell.MenderShellMessage) error {
+func (d *MenderShellDaemon) routeMessageShellResize(message *ws.ProtoMsg) error {
 	var err error
 
-	s := session.MenderShellSessionGetById(message.SessionId)
+	s := session.MenderShellSessionGetById(message.Header.SessionID)
 	if s == nil {
 		err = session.ErrSessionNotFound
 		d.routeMessageResponse(nil, err)
 		return err
 	}
 
-	terminalHeight, terminalWidth := mapPropertiesToTerminalHeightAndWidth(message.Properties)
+	terminalHeight, terminalWidth := mapPropertiesToTerminalHeightAndWidth(message.Header.Properties)
 	if terminalHeight > 0 && terminalWidth > 0 {
 		s.ResizeShell(terminalHeight, terminalWidth)
 	}
 	return nil
 }
 
-func (d *MenderShellDaemon) readMessage() (*shell.MenderShellMessage, error) {
+func (d *MenderShellDaemon) readMessage() (*ws.ProtoMsg, error) {
 	msg, err := connectionmanager.Read(ws.ProtoTypeShell)
 	log.Debugf("webSock.ReadMessage()=%+v,%v", msg, err)
 	if err != nil {
 		return nil, err
 	}
 
-	status := wsshell.NormalMessage
-	if v, ok := msg.Header.Properties["status"]; ok {
-		if vint64, ok := v.(int64); ok {
-			status = wsshell.MenderShellMessageStatus(vint64)
-		} else {
-			log.Debugf("Unexpected type in status field of message: %v", v)
-		}
-	} else {
-		log.Debug("Received message without status field in it.")
-	}
-
-	userID, _ := msg.Header.Properties[propertyUserID].(string)
-
-	return &shell.MenderShellMessage{
-		Proto:      msg.Header.Proto,
-		Type:       msg.Header.MsgType,
-		SessionId:  msg.Header.SessionID,
-		Properties: msg.Header.Properties,
-		UserId:     userID,
-		Status:     status,
-		Data:       msg.Body,
-	}, nil
+	return msg, nil
 }

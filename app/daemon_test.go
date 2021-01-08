@@ -44,7 +44,6 @@ import (
 	"github.com/mendersoftware/mender-connect/connection"
 	"github.com/mendersoftware/mender-connect/connectionmanager"
 	"github.com/mendersoftware/mender-connect/session"
-	"github.com/mendersoftware/mender-connect/shell"
 )
 
 var (
@@ -81,7 +80,7 @@ func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID str
 	return err
 }
 
-func readMessage(webSock *websocket.Conn) (*shell.MenderShellMessage, error) {
+func readMessage(webSock *websocket.Conn) (*ws.ProtoMsg, error) {
 	_, data, err := webSock.ReadMessage()
 	if err != nil {
 		return nil, err
@@ -93,14 +92,7 @@ func readMessage(webSock *websocket.Conn) (*shell.MenderShellMessage, error) {
 		return nil, err
 	}
 
-	m := &shell.MenderShellMessage{
-		Type:      msg.Header.MsgType,
-		SessionId: msg.Header.SessionID,
-		Status:    wsshell.NormalMessage,
-		Data:      msg.Body,
-	}
-
-	return m, nil
+	return msg, nil
 }
 
 func newShellTransaction(w http.ResponseWriter, r *http.Request) {
@@ -112,20 +104,18 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-f6723467-561234ff", "")
 	fmt.Printf("newShellTransaction sendMessage(SpwanShell)=%v\n", err)
-	//time.Sleep(4 * time.Second)
-	//m := &shell.MenderShellMessage{}
 	m, err := readMessage(c)
 	fmt.Printf("newShellTransaction (0) sendMessage=%+v,%v\n", m, err)
-	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "", "echo "+testData+" > "+testFileNameTemporary+"\n")
+	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.Header.SessionID, "", "echo "+testData+" > "+testFileNameTemporary+"\n")
 	fmt.Printf("newShellTransaction (1) sendMessage=%v\n", err)
 	err = sendMessage(c, wsshell.MessageTypeShellCommand, "undefined-session-id", "", "rm -f "+testFileNameTemporary+"\n")
 	fmt.Printf("newShellTransaction (2) sendMessage=%v\n", err)
-	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "", "thiscommand probably does not exist\n")
+	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.Header.SessionID, "", "thiscommand probably does not exist\n")
 	fmt.Printf("newShellTransaction (3) sendMessage=%v\n", err)
 	err = sendMessage(c, wsshell.MessageTypeStopShell, "undefined-session-id", "", "")
 	fmt.Printf("newShellTransaction (4) sendMessage=%v\n", err)
 	time.Sleep(4 * time.Second)
-	_ = sendMessage(c, wsshell.MessageTypeStopShell, m.SessionId, "", "")
+	_ = sendMessage(c, wsshell.MessageTypeStopShell, m.Header.SessionID, "", "")
 	for {
 		time.Sleep(4 * time.Second)
 	}
@@ -172,7 +162,7 @@ func TestMenderShellSessionStart(t *testing.T) {
 		},
 	})
 	message, err := d.readMessage()
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
@@ -181,35 +171,35 @@ func TestMenderShellSessionStart(t *testing.T) {
 	message, err = d.readMessage()
 	assert.NoError(t, err)
 	assert.NotNil(t, message)
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
 	message, err = d.readMessage()
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
 	message, err = d.readMessage()
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
 	message, err = d.readMessage()
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
 	message, err = d.readMessage()
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
@@ -241,11 +231,8 @@ func newShellStopByUserId(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-a00908-f6723467-561234ff", "")
 	fmt.Fprintf(os.Stderr, "(0) newShellStopByUserId sendMessage: %v\n", err)
-	//time.Sleep(1 * time.Second)
-	//m := &shell.MenderShellMessage{}
 	_, err = readMessage(c)
 	fmt.Fprintf(os.Stderr, "(1) newShellStopByUserId sendMessage: %v\n", err)
-	//time.Sleep(1 * time.Second)
 	err = sendMessage(c, wsshell.MessageTypeStopShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "", "")
 	fmt.Fprintf(os.Stderr, "(2) newShellStopByUserId sendMessage: %v\n", err)
 	err = sendMessage(c, wsshell.MessageTypeStopShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-a00908-f6723467-561234ff", "")
@@ -288,7 +275,7 @@ func TestMenderShellStopByUserId(t *testing.T) {
 	time.Sleep(time.Second * 2)
 	message, err := d.readMessage()
 	assert.NotNil(t, message)
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
@@ -302,14 +289,14 @@ func TestMenderShellStopByUserId(t *testing.T) {
 	message, err = d.readMessage()
 	assert.NoError(t, err)
 	assert.NotNil(t, message)
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
 	}
 
 	message, err = d.readMessage()
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
@@ -368,7 +355,7 @@ func TestMenderShellUnknownMessage(t *testing.T) {
 	time.Sleep(time.Second * 2)
 	message, err := d.readMessage()
 	assert.NotNil(t, message)
-	t.Logf("read message: proto, type, session_id, data %d, %s, %s, %s", message.Proto, message.Type, message.SessionId, message.Data)
+	t.Logf("read message: proto, type, session_id, data %d, %s, %s, %s", message.Header.Proto, message.Header.MsgType, message.Header.SessionID, message.Body)
 
 	err = d.routeMessage(message)
 	assert.Error(t, err)
@@ -436,7 +423,7 @@ func TestMenderShellSessionLimitPerUser(t *testing.T) {
 		message, err := d.readMessage()
 		assert.NoError(t, err)
 		assert.NotNil(t, message)
-		t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+		t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 		err = d.routeMessage(message)
 		if err != nil {
 			t.Logf("route message error: %s", err.Error())
@@ -445,7 +432,7 @@ func TestMenderShellSessionLimitPerUser(t *testing.T) {
 	}
 
 	message, err := d.readMessage()
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
@@ -542,7 +529,7 @@ func TestMenderShellReadMessage(t *testing.T) {
 	m, err := d.readMessage()
 	assert.NoError(t, err)
 	assert.NotNil(t, m)
-	assert.Equal(t, m.Data, []byte("hello ws"))
+	assert.Equal(t, m.Body, []byte("hello ws"))
 	time.Sleep(2 * time.Second)
 
 	m, err = d.readMessage()
@@ -669,7 +656,7 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 		message, err := d.readMessage()
 		assert.NoError(t, err)
 		assert.NotNil(t, message)
-		t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+		t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 		err = d.routeMessage(message)
 		if err != nil {
 			t.Logf("route message error: %s", err.Error())
@@ -678,7 +665,7 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 	}
 
 	message, err := d.readMessage()
-	t.Logf("read message: type, session_id, data %s, %s, %s", message.Type, message.SessionId, message.Data)
+	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
 		t.Logf("route message error: %s", err.Error())
