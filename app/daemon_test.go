@@ -112,8 +112,6 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-f6723467-561234ff", "")
 	fmt.Printf("newShellTransaction sendMessage(SpwanShell)=%v\n", err)
-	//time.Sleep(4 * time.Second)
-	//m := &shell.MenderShellMessage{}
 	m, err := readMessage(c)
 	fmt.Printf("newShellTransaction (0) sendMessage=%+v,%v\n", m, err)
 	err = sendMessage(c, wsshell.MessageTypeShellCommand, m.SessionId, "", "echo "+testData+" > "+testFileNameTemporary+"\n")
@@ -241,11 +239,8 @@ func newShellStopByUserId(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-a00908-f6723467-561234ff", "")
 	fmt.Fprintf(os.Stderr, "(0) newShellStopByUserId sendMessage: %v\n", err)
-	//time.Sleep(1 * time.Second)
-	//m := &shell.MenderShellMessage{}
 	_, err = readMessage(c)
 	fmt.Fprintf(os.Stderr, "(1) newShellStopByUserId sendMessage: %v\n", err)
-	//time.Sleep(1 * time.Second)
 	err = sendMessage(c, wsshell.MessageTypeStopShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "", "")
 	fmt.Fprintf(os.Stderr, "(2) newShellStopByUserId sendMessage: %v\n", err)
 	err = sendMessage(c, wsshell.MessageTypeStopShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-a00908-f6723467-561234ff", "")
