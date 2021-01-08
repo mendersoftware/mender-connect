@@ -469,6 +469,8 @@ func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
 			return d.routeMessageShellCommand(msg)
 		case wsshell.MessageTypeResizeShell:
 			return d.routeMessageShellResize(msg)
+		case wsshell.MessageTypePongShell:
+			return d.routeMessagePongShell(msg)
 		}
 	}
 	err := errors.New(fmt.Sprintf("unknown message protocol and type: %d/%s", msg.Header.Proto, msg.Header.MsgType))
@@ -706,6 +708,20 @@ func (d *MenderShellDaemon) routeMessageShellResize(message *ws.ProtoMsg) error 
 	if terminalHeight > 0 && terminalWidth > 0 {
 		s.ResizeShell(terminalHeight, terminalWidth)
 	}
+	return nil
+}
+
+func (d *MenderShellDaemon) routeMessagePongShell(message *ws.ProtoMsg) error {
+	var err error
+
+	s := session.MenderShellSessionGetById(message.Header.SessionID)
+	if s == nil {
+		err = session.ErrSessionNotFound
+		d.routeMessageResponse(nil, err)
+		return err
+	}
+
+	s.HealthcheckPong()
 	return nil
 }
 
