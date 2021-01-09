@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -15,14 +15,55 @@
 package connectionmanager
 
 import (
+	"context"
+	"log"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
+	"github.com/mendersoftware/go-lib-micro/ws"
 	"github.com/stretchr/testify/assert"
+	"github.com/vmihailenco/msgpack"
 )
 
 func init() {
 	SetDefaultPingWait(10 * time.Second)
+}
+
+func newWebsocketServer() *http.Server {
+	var upgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+	m := http.NewServeMux()
+	s := http.Server{Addr: "localhost:8999", Handler: m}
+	m.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			panic(err)
+		}
+		defer conn.Close()
+
+		msg := ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto: ws.ProtoTypeShell,
+			},
+			Body: []byte("dummy"),
+		}
+		data, _ := msgpack.Marshal(msg)
+		_ = conn.WriteMessage(websocket.BinaryMessage, data)
+
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				panic(err)
+			}
+			log.Println(data)
+		}
+	})
+	return &s
 }
 
 func TestSetReconnectIntervalSeconds(t *testing.T) {
@@ -40,4 +81,86 @@ func TestGetWsScheme(t *testing.T) {
 	assert.Equal(t, "ws", getWebSocketScheme("http"))
 	assert.Equal(t, "wss", getWebSocketScheme("wss"))
 	assert.Equal(t, "ws", getWebSocketScheme("ws"))
+}
+
+func TestConnect(t *testing.T) {
+	srv := newWebsocketServer()
+	go func() {
+		_ = srv.ListenAndServe()
+	}()
+	defer func() {
+		_ = srv.Shutdown(context.Background())
+	}()
+
+	_ = Close(ws.ProtoTypeShell)
+
+	stop := make(<-chan bool)
+	err := Connect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", true, "", 1, stop)
+	assert.Nil(t, err)
+
+	msg, err := Read(ws.ProtoTypeShell)
+	assert.Nil(t, err)
+	assert.Equal(t, []byte("dummy"), msg.Body)
+
+	err = Write(ws.ProtoTypeShell, &ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto: ws.ProtoTypeShell,
+		},
+		Body: []byte("dummy"),
+	})
+	assert.Nil(t, err)
+
+	err = Close(ws.ProtoTypeShell)
+	assert.Nil(t, err)
+}
+
+func TestReconnect(t *testing.T) {
+	srv := newWebsocketServer()
+	go func() {
+		_ = srv.ListenAndServe()
+	}()
+	defer func() {
+		_ = srv.Shutdown(context.Background())
+	}()
+
+	_ = Close(ws.ProtoTypeShell)
+
+	stop := make(<-chan bool)
+	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", true, "", 1, stop)
+	assert.Nil(t, err)
+
+	err = Close(ws.ProtoTypeShell)
+	assert.Nil(t, err)
+}
+
+func TestConnectFailed(t *testing.T) {
+	_ = Close(ws.ProtoTypeShell)
+
+	stop := make(<-chan bool)
+	err := Connect(ws.ProtoTypeShell, "wrong-url", "/ws", "", true, "token", 1, stop)
+	assert.NotNil(t, err)
+}
+
+func TestConnectRetries(t *testing.T) {
+	oldReconnectIntervalSeconds := reconnectIntervalSeconds
+	reconnectIntervalSeconds = 1
+	defer func() {
+		reconnectIntervalSeconds = oldReconnectIntervalSeconds
+	}()
+
+	_ = Close(ws.ProtoTypeShell)
+
+	stop := make(<-chan bool)
+	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "", true, "token", 3, stop)
+	assert.Equal(t, ErrConnectionRetriesExhausted, err)
+}
+
+func TestCloseFailed(t *testing.T) {
+	err := Close(12345)
+	assert.Error(t, err)
+
+}
+func TestWriteFailed(t *testing.T) {
+	err := Write(12345, nil)
+	assert.Error(t, err)
 }
