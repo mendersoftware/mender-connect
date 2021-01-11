@@ -633,7 +633,7 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *ws.ProtoMsg) error {
 			}
 		}
 		d.routeMessageResponse(response, err)
-		return err
+		return session.MenderShellDeleteById(s.GetId())
 	}
 	if d.shellsSpawned == 0 {
 		log.Warn("can't decrement shellsSpawned count: it is 0.")
