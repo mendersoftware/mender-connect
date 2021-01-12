@@ -110,8 +110,10 @@ type MenderShellSession struct {
 	writer    io.Writer
 	pseudoTTY *os.File
 	command   *exec.Cmd
-	//stop channel
+	// stop channel
 	stop chan struct{}
+	// pong channel
+	pong chan struct{}
 	// healthcheck
 	healthcheckTimeout time.Time
 }
@@ -150,6 +152,7 @@ func NewMenderShellSession(sessionId string, userId string, expireAfter time.Dur
 		sessionType: ShellInteractiveSession,
 		status:      NewSession,
 		stop:        make(chan struct{}),
+		pong:        make(chan struct{}),
 	}
 	sessionsMap[sessionId] = s
 	sessionsByUserIdMap[userId] = append(sessionsByUserIdMap[userId], s)
@@ -362,6 +365,8 @@ func (s *MenderShellSession) healthcheck() {
 		select {
 		case <-s.stop:
 			return
+		case <-s.pong:
+			s.healthcheckTimeout = time.Now().Add(healthcheckInterval + healthcheckTimeout)
 		case <-time.After(time.Until(s.healthcheckTimeout)):
 			if s.healthcheckTimeout.Before(time.Now()) {
 				log.Errorf("session %s, health check failed, connection with the client lost", s.id)
@@ -396,7 +401,7 @@ func (s *MenderShellSession) healthcheckPing() {
 }
 
 func (s *MenderShellSession) HealthcheckPong() {
-	s.healthcheckTimeout = time.Now().Add(healthcheckInterval + healthcheckTimeout)
+	s.pong <- struct{}{}
 }
 
 func (s *MenderShellSession) ShellCommand(m *ws.ProtoMsg) error {
