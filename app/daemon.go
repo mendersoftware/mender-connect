@@ -625,17 +625,11 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *ws.ProtoMsg) error {
 				s.GetShellPid(),
 				s.GetId())
 			err = errors.New("could not terminate shell: " + err.Error() + ".")
+			d.routeMessageResponse(response, err)
 			return err
 		} else {
-			log.Infof("shell exit rc: %s", err.Error())
-			if d.shellsSpawned == 0 {
-				log.Warn("can't decrement shellsSpawned count: it is 0.")
-			} else {
-				d.shellsSpawned--
-			}
+			log.Errorf("process error on exit: %s", err.Error())
 		}
-		d.routeMessageResponse(response, err)
-		return err
 	}
 	if d.shellsSpawned == 0 {
 		log.Warn("can't decrement shellsSpawned count: it is 0.")
