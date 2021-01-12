@@ -33,10 +33,8 @@ import (
 )
 
 const (
-	errMissingServerCertF = "The client server-certificate cannot be loaded: %s. " +
-		"The client will continue running, but may not be able to communicate with the " +
-		"server. If this is not your intention, please add a valid server certificate"
-	errMissingCerts = "No trusted certificates. The client will continue running but will " +
+	errMissingServerCertF = "The server certificate cannot be loaded: %s"
+	errMissingCerts       = "No trusted certificates. The client will continue running but will " +
 		"not be able to communicate with the server. Either specify ServerCertificate in " +
 		"mender-connect.conf, or make sure that CA certificates are installed on the system"
 )
