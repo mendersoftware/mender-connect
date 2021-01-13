@@ -24,6 +24,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
+	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
+	"github.com/mendersoftware/mender-connect/connectionmanager"
 	"github.com/mendersoftware/mender-connect/procps"
 	"github.com/mendersoftware/mender-connect/shell"
 )
@@ -65,6 +67,8 @@ var (
 	defaultSessionIdleExpiredTimeout = NoExpirationTimeout
 	defaultTimeFormat                = "Mon Jan 2 15:04:05 -0700 MST 2006"
 	MaxUserSessions                  = 1
+	healthcheckInterval              = time.Second * 60
+	healthcheckTimeout               = time.Second * 5
 )
 
 type MenderShellTerminalSettings struct {
@@ -106,6 +110,12 @@ type MenderShellSession struct {
 	writer    io.Writer
 	pseudoTTY *os.File
 	command   *exec.Cmd
+	// stop channel
+	stop chan struct{}
+	// pong channel
+	pong chan struct{}
+	// healthcheck
+	healthcheckTimeout time.Time
 }
 
 var sessionsMap = map[string]*MenderShellSession{}
@@ -141,6 +151,8 @@ func NewMenderShellSession(sessionId string, userId string, expireAfter time.Dur
 		expiresAt:   createdAt.Add(expireAfter),
 		sessionType: ShellInteractiveSession,
 		status:      NewSession,
+		stop:        make(chan struct{}),
+		pong:        make(chan struct{}),
 	}
 	sessionsMap[sessionId] = s
 	sessionsByUserIdMap[userId] = append(sessionsByUserIdMap[userId], s)
@@ -318,6 +330,10 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 	s.pseudoTTY = pseudoTTY
 	s.command = cmd
 	s.activeAt = timeNow()
+
+	// start the healthcheck go-routine
+	go s.healthcheck()
+
 	return nil
 }
 
@@ -339,6 +355,53 @@ func (s *MenderShellSession) IsExpired(setStatus bool) bool {
 		s.status = ExpiredSession
 	}
 	return e
+}
+
+func (s *MenderShellSession) healthcheck() {
+	nextHealthcheckPing := time.Now().Add(healthcheckInterval)
+	s.healthcheckTimeout = time.Now().Add(healthcheckInterval + healthcheckTimeout)
+
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-s.pong:
+			s.healthcheckTimeout = time.Now().Add(healthcheckInterval + healthcheckTimeout)
+		case <-time.After(time.Until(s.healthcheckTimeout)):
+			if s.healthcheckTimeout.Before(time.Now()) {
+				log.Errorf("session %s, health check failed, connection with the client lost", s.id)
+				s.expiresAt = time.Now()
+				return
+			}
+		case <-time.After(time.Until(nextHealthcheckPing)):
+			s.healthcheckPing()
+			nextHealthcheckPing = time.Now().Add(healthcheckInterval)
+		}
+	}
+}
+
+func (s *MenderShellSession) healthcheckPing() {
+	msg := &ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     ws.ProtoTypeShell,
+			MsgType:   wsshell.MessageTypePingShell,
+			SessionID: s.id,
+			Properties: map[string]interface{}{
+				"timeout": int(healthcheckInterval.Seconds() + healthcheckTimeout.Seconds()),
+				"status":  wsshell.ControlMessage,
+			},
+		},
+		Body: nil,
+	}
+	log.Debugf("session %s healthcheck ping", s.id)
+	err := connectionmanager.Write(ws.ProtoTypeShell, msg)
+	if err != nil {
+		log.Debugf("error on write: %s", err.Error())
+	}
+}
+
+func (s *MenderShellSession) HealthcheckPong() {
+	s.pong <- struct{}{}
 }
 
 func (s *MenderShellSession) ShellCommand(m *ws.ProtoMsg) error {
@@ -367,6 +430,7 @@ func (s *MenderShellSession) StopShell() (err error) {
 		return ErrSessionShellNotRunning
 	}
 
+	close(s.stop)
 	s.shell.Stop()
 	s.terminal = MenderShellTerminalSettings{}
 	s.status = EmptySession

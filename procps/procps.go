@@ -24,15 +24,17 @@ import (
 
 func ProcessExists(pid int) bool {
 	p, err := os.FindProcess(pid)
-	err = p.Signal(syscall.Signal(0))
+	if err == nil {
+		err = p.Signal(syscall.Signal(0))
+	}
 	return err == nil
 }
 
 func TerminateAndWait(pid int, command *exec.Cmd, waitTimeout time.Duration) (err error) {
 	p, _ := os.FindProcess(pid)
-	p.Signal(syscall.SIGTERM)
+	_ = p.Signal(syscall.SIGTERM)
 	time.Sleep(2 * time.Second)
-	p.Signal(syscall.SIGKILL)
+	_ = p.Signal(syscall.SIGKILL)
 	time.Sleep(2 * time.Second)
 	done := make(chan error, 1)
 	go func() {
@@ -40,12 +42,11 @@ func TerminateAndWait(pid int, command *exec.Cmd, waitTimeout time.Duration) (er
 	}()
 	select {
 	case err := <-done:
-		if err != nil && err.Error() != "signal: killed" && err.Error() != "signal: hangup" && err.Error() != "exit status 130" {
+		if err != nil && err.Error() != "signal: killed" && err.Error() != "signal: terminated" && err.Error() != "signal: hangup" && err.Error() != "exit status 130" {
 			return errors.New("error waiting for the process: " + err.Error())
 		}
 	case <-time.After(waitTimeout):
 		return errors.New("waiting for pid " + strconv.Itoa(pid) + " timeout. the process will remain as zombie.")
 	}
-
 	return nil
 }
