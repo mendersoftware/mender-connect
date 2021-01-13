@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -17,7 +17,8 @@
 package mocks
 
 import (
-	"github.com/mendersoftware/mender-connect/client/dbus"
+	dbus "github.com/mendersoftware/mender-connect/client/dbus"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -82,6 +83,22 @@ func (_m *AuthClient) GetJWTToken() (string, error) {
 	return r0, r1
 }
 
+// GetJwtTokenStateChangeChannel provides a mock function with given fields:
+func (_m *AuthClient) GetJwtTokenStateChangeChannel() chan []dbus.SignalParams {
+	ret := _m.Called()
+
+	var r0 chan []dbus.SignalParams
+	if rf, ok := ret.Get(0).(func() chan []dbus.SignalParams); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(chan []dbus.SignalParams)
+		}
+	}
+
+	return r0
+}
+
 // WaitForJwtTokenStateChange provides a mock function with given fields:
 func (_m *AuthClient) WaitForJwtTokenStateChange() ([]dbus.SignalParams, error) {
 	ret := _m.Called()
@@ -90,7 +107,9 @@ func (_m *AuthClient) WaitForJwtTokenStateChange() ([]dbus.SignalParams, error) 
 	if rf, ok := ret.Get(0).(func() []dbus.SignalParams); ok {
 		r0 = rf()
 	} else {
-		r0 = ret.Get(0).([]dbus.SignalParams)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]dbus.SignalParams)
+		}
 	}
 
 	var r1 error
