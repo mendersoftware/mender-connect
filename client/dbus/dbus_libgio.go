@@ -130,7 +130,7 @@ func (d *dbusAPILibGio) MainLoopQuit(loop MainLoop) {
 func (d *dbusAPILibGio) GetChannelForSignal(signalName string) chan []SignalParams {
 	channel, ok := d.signals[signalName]
 	if !ok {
-		channel := make(chan []SignalParams, 1)
+		channel = make(chan []SignalParams, 1)
 		d.signals[signalName] = channel
 	}
 	return channel
