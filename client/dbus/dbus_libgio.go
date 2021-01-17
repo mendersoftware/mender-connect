@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -126,10 +126,11 @@ func (d *dbusAPILibGio) MainLoopQuit(loop MainLoop) {
 	C.g_main_loop_quit(gloop)
 }
 
-func (d *dbusAPILibGio) getChannelForSignal(signalName string) chan []SignalParams {
+// GetChannelForSignal returns a channel that can be used to wait for signals
+func (d *dbusAPILibGio) GetChannelForSignal(signalName string) chan []SignalParams {
 	channel, ok := d.signals[signalName]
 	if !ok {
-		channel := make(chan []SignalParams, 1)
+		channel = make(chan []SignalParams, 1)
 		d.signals[signalName] = channel
 	}
 	return channel
@@ -137,16 +138,16 @@ func (d *dbusAPILibGio) getChannelForSignal(signalName string) chan []SignalPara
 
 // DrainSignal drains the channel used to wait for signals
 func (d *dbusAPILibGio) DrainSignal(signalName string) {
-	channel := d.getChannelForSignal(signalName)
+	channel := d.GetChannelForSignal(signalName)
 	select {
-	case _ = <-channel:
+	case <-channel:
 	default:
 	}
 }
 
 // HandleSignal handles a DBus signal
 func (d *dbusAPILibGio) HandleSignal(signalName string, params []SignalParams) {
-	channel := d.getChannelForSignal(signalName)
+	channel := d.GetChannelForSignal(signalName)
 	select {
 	case channel <- params:
 	default:
@@ -155,7 +156,7 @@ func (d *dbusAPILibGio) HandleSignal(signalName string, params []SignalParams) {
 
 // WaitForSignal waits for a DBus signal
 func (d *dbusAPILibGio) WaitForSignal(signalName string, timeout time.Duration) ([]SignalParams, error) {
-	channel := d.getChannelForSignal(signalName)
+	channel := d.GetChannelForSignal(signalName)
 	select {
 	case p := <-channel:
 		return p, nil

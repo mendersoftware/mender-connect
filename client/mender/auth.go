@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -41,6 +41,8 @@ type AuthClient interface {
 	GetJWTToken() (string, error)
 	// FetchJWTToken schedules the fetching of a new device JWT token
 	FetchJWTToken() (bool, error)
+	// GetJwtTokenStateChangeChannel returns a channel that can be used to wait for the JwtTokenStateChange signal
+	GetJwtTokenStateChangeChannel() chan []dbus.SignalParams
 	// WaitForJwtTokenStateChange synchronously waits for the JwtTokenStateChange signal
 	WaitForJwtTokenStateChange() ([]dbus.SignalParams, error)
 }
@@ -98,6 +100,11 @@ func (a *AuthClientDBUS) FetchJWTToken() (bool, error) {
 		return false, err
 	}
 	return response.GetBoolean(), nil
+}
+
+// GetJwtTokenStateChangeChannel returns a channel that can be used to wait for the JwtTokenStateChange signal
+func (a *AuthClientDBUS) GetJwtTokenStateChangeChannel() chan []dbus.SignalParams {
+	return a.dbusAPI.GetChannelForSignal(DBusSignalNameJwtTokenStateChange)
 }
 
 // WaitForJwtTokenStateChange synchronously waits for the JwtTokenStateChange signal

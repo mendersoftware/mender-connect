@@ -15,6 +15,7 @@
 package connectionmanager
 
 import (
+	"context"
 	"errors"
 	"net/url"
 	"sync"
@@ -67,7 +68,7 @@ func SetDefaultPingWait(wait time.Duration) {
 	defaultPingWait = wait
 }
 
-func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, stop <-chan bool) error {
+func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, ctx context.Context) error {
 	parsedUrl, err := url.Parse(serverUrl)
 	if err != nil {
 		return err
@@ -90,7 +91,7 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 					"reconnecting in %ds (try %d/%d); len(token)=%d", serverUrl, connectUrl,
 					err.Error(), reconnectIntervalSeconds, i, retries, len(token))
 				select {
-				case <-stop:
+				case <-ctx.Done():
 					return nil
 				case <-time.After(time.Second * time.Duration(reconnectIntervalSeconds)):
 					break
@@ -113,7 +114,7 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 	return nil
 }
 
-func Connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, stop <-chan bool) error {
+func Connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, ctx context.Context) error {
 	handlersByTypeMutex.Lock()
 	defer handlersByTypeMutex.Unlock()
 
@@ -121,10 +122,10 @@ func Connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 		return ErrHandlerAlreadyRegistered
 	}
 
-	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries, stop)
+	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries, ctx)
 }
 
-func Reconnect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, stop <-chan bool) error {
+func Reconnect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, ctx context.Context) error {
 	handlersByTypeMutex.Lock()
 	defer handlersByTypeMutex.Unlock()
 
@@ -135,7 +136,7 @@ func Reconnect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVeri
 	}
 
 	delete(handlersByType, proto)
-	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries, stop)
+	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries, ctx)
 }
 
 func Read(proto ws.ProtoType) (*ws.ProtoMsg, error) {

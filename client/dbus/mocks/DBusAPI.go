@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -93,9 +93,25 @@ func (_m *DBusAPI) BusProxyNew(_a0 dbus.Handle, _a1 string, _a2 string, _a3 stri
 	return r0, r1
 }
 
-// HandleSignal provides a mock function with given fields: signalName
+// GetChannelForSignal provides a mock function with given fields: signalName
+func (_m *DBusAPI) GetChannelForSignal(signalName string) chan []dbus.SignalParams {
+	ret := _m.Called(signalName)
+
+	var r0 chan []dbus.SignalParams
+	if rf, ok := ret.Get(0).(func(string) chan []dbus.SignalParams); ok {
+		r0 = rf(signalName)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(chan []dbus.SignalParams)
+		}
+	}
+
+	return r0
+}
+
+// HandleSignal provides a mock function with given fields: signalName, params
 func (_m *DBusAPI) HandleSignal(signalName string, params []dbus.SignalParams) {
-	_m.Called(signalName)
+	_m.Called(signalName, params)
 }
 
 // MainLoopNew provides a mock function with given fields:
@@ -130,7 +146,9 @@ func (_m *DBusAPI) WaitForSignal(signalName string, timeout time.Duration) ([]db
 	if rf, ok := ret.Get(0).(func(string, time.Duration) []dbus.SignalParams); ok {
 		r0 = rf(signalName, timeout)
 	} else {
-		r0 = ret.Get(0).([]dbus.SignalParams)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]dbus.SignalParams)
+		}
 	}
 
 	var r1 error

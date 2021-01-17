@@ -942,17 +942,26 @@ func TestWaitForJWTToken(t *testing.T) {
 			done := make(chan bool)
 			go func() {
 				t.Run(tc.name, func(t *testing.T) {
+					d := NewDaemon(&config.MenderShellConfig{
+						MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+							ShellCommand: "/bin/sh",
+							User:         "mender",
+							Terminal: config.TerminalConfig{
+								Width:  24,
+								Height: 80,
+							},
+						},
+					})
+
 					dbusAPI := &dbusmocks.DBusAPI{}
 					defer dbusAPI.AssertExpectations(t)
 					client := &authmocks.AuthClient{}
-					client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
-						{
-							ParamType: "s",
-							ParamData: tc.token,
-						},
-					}, tc.err)
+
+					jwtTokenStateChangeChan := make(chan []dbus.SignalParams, 1)
+					client.On("GetJwtTokenStateChangeChannel").Return(jwtTokenStateChangeChan, tc.err)
+
 					client.On("GetJWTToken").Return(tc.token, tc.err)
-					token, err := waitForJWTToken(client)
+					token, err := d.waitForJWTToken(client)
 					if tc.err != nil {
 						assert.Error(t, err)
 					} else {
@@ -971,17 +980,31 @@ func TestWaitForJWTToken(t *testing.T) {
 			}
 		} else {
 			t.Run(tc.name, func(t *testing.T) {
+				d := NewDaemon(&config.MenderShellConfig{
+					MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+						ShellCommand: "/bin/sh",
+						User:         "mender",
+						Terminal: config.TerminalConfig{
+							Width:  24,
+							Height: 80,
+						},
+					},
+				})
+
 				dbusAPI := &dbusmocks.DBusAPI{}
 				defer dbusAPI.AssertExpectations(t)
 				client := &authmocks.AuthClient{}
-				client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
+
+				jwtTokenStateChangeChan := make(chan []dbus.SignalParams, 1)
+				jwtTokenStateChangeChan <- []dbus.SignalParams{
 					{
 						ParamType: "s",
 						ParamData: tc.token,
 					},
-				}, tc.err)
+				}
+				client.On("GetJwtTokenStateChangeChannel").Return(jwtTokenStateChangeChan, tc.err)
 				client.On("GetJWTToken").Return(tc.token, tc.err)
-				token, err := waitForJWTToken(client)
+				token, err := d.waitForJWTToken(client)
 				if tc.err != nil {
 					assert.Error(t, err)
 				} else {

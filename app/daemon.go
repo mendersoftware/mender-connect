@@ -14,6 +14,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os/user"
 	"strconv"
@@ -57,12 +58,13 @@ type MenderShellDaemonEvent struct {
 }
 
 type MenderShellDaemon struct {
+	ctx                     context.Context
+	ctxCancel               context.CancelFunc
 	writeMutex              *sync.Mutex
 	eventChan               chan MenderShellDaemonEvent
 	connectionEstChan       chan MenderShellDaemonEvent
 	reconnectChan           chan MenderShellDaemonEvent
 	stop                    bool
-	stopChan                chan bool
 	authorized              bool
 	printStatus             bool
 	username                string
@@ -84,13 +86,16 @@ type MenderShellDaemon struct {
 }
 
 func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
+	ctx, ctxCancel := context.WithCancel(context.Background())
+
 	daemon := MenderShellDaemon{
+		ctx:                     ctx,
+		ctxCancel:               ctxCancel,
 		writeMutex:              &sync.Mutex{},
 		eventChan:               make(chan MenderShellDaemonEvent),
 		connectionEstChan:       make(chan MenderShellDaemonEvent),
 		reconnectChan:           make(chan MenderShellDaemonEvent),
 		stop:                    false,
-		stopChan:                make(chan bool),
 		authorized:              false,
 		username:                config.User,
 		shell:                   config.ShellCommand,
@@ -116,10 +121,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 
 func (d *MenderShellDaemon) StopDaemon() {
 	d.stop = true
-	select {
-	case d.stopChan <- true:
-	default:
-	}
+	d.ctxCancel()
 }
 
 func (d *MenderShellDaemon) PrintStatus() {
@@ -150,7 +152,7 @@ func (d *MenderShellDaemon) timeToSweepSessions() bool {
 }
 
 func (d *MenderShellDaemon) wsReconnect(token string) (err error) {
-	err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, token, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts, d.stopChan)
+	err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, token, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts, d.ctx)
 	if err != nil {
 		return errors.New("failed to reconnect after " + strconv.Itoa(int(configuration.MaxReconnectAttempts)) + " tries: " + err.Error())
 	} else {
@@ -207,11 +209,16 @@ func (d *MenderShellDaemon) messageLoop() (err error) {
 	return err
 }
 
-func waitForJWTToken(client mender.AuthClient) (jwtToken string, err error) {
+func (d *MenderShellDaemon) waitForJWTToken(client mender.AuthClient) (string, error) {
+	tokenStateChange := client.GetJwtTokenStateChangeChannel()
 	for {
-		p, _ := client.WaitForJwtTokenStateChange()
-		if len(p) > 0 && p[0].ParamType == dbus.GDBusTypeString && len(p[0].ParamData.(string)) > 0 {
-			return p[0].ParamData.(string), nil
+		select {
+		case p := <-tokenStateChange:
+			if len(p) > 0 && p[0].ParamType == dbus.GDBusTypeString && len(p[0].ParamData.(string)) > 0 {
+				return p[0].ParamData.(string), nil
+			}
+		case <-d.ctx.Done():
+			return "", errors.New("unable to get the JWT token")
 		}
 	}
 }
@@ -322,7 +329,7 @@ func (d *MenderShellDaemon) eventLoop() {
 		log.Debugf("eventLoop: got event: %s", event.event)
 		switch event.event {
 		case EventReconnect:
-			err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, event.data, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts, d.stopChan)
+			err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, event.data, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts, d.ctx)
 			if err != nil {
 				log.Errorf("eventLoop: event: error reconnecting: %s", err.Error())
 			} else {
@@ -371,12 +378,13 @@ func (d *MenderShellDaemon) Run() error {
 	}
 
 	log.Debug("mender-connect connecting to dbus")
-	//dbus main loop, required.
+
 	dbusAPI, err := dbus.GetDBusAPI()
 	if err != nil {
 		return err
 	}
 
+	//dbus main loop, required.
 	loop := dbusAPI.MainLoopNew()
 	go dbusAPI.MainLoopRun(loop)
 	defer dbusAPI.MainLoopQuit(loop)
@@ -396,10 +404,17 @@ func (d *MenderShellDaemon) Run() error {
 	}
 
 	jwtToken, err := client.GetJWTToken()
-	log.Debugf("GetJWTToken().len=%d,%v", len(jwtToken), err)
+	if err != nil {
+		log.Warnf("call to GetJWTToken on the Mender D-Bus API failed: %v", err)
+	}
+
+	log.Debugf("GetJWTToken().len=%d", len(jwtToken))
 	if len(jwtToken) < 1 {
 		log.Info("waiting for JWT token (waitForJWTToken)")
-		jwtToken, _ = waitForJWTToken(client)
+		jwtToken, err = d.waitForJWTToken(client)
+		if err != nil {
+			return err
+		}
 		d.authorized = true
 	} else {
 		d.authorized = true
@@ -413,7 +428,7 @@ func (d *MenderShellDaemon) Run() error {
 		d.skipVerify,
 		d.serverCertificate,
 		0,
-		d.stopChan,
+		d.ctx,
 	)
 	if err != nil {
 		log.Errorf("error on connecting, probably interrupted: %s", err.Error())

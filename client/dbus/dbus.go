@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -55,6 +55,8 @@ type DBusAPI interface {
 	MainLoopQuit(MainLoop)
 	// HandleSignal handles a DBus signal
 	HandleSignal(signalName string, params []SignalParams)
+	// GetChannelForSignal returns a channel that can be used to wait for signals
+	GetChannelForSignal(signalName string) chan []SignalParams
 	// WaitForSignal waits for a DBus signal
 	WaitForSignal(signalName string, timeout time.Duration) ([]SignalParams, error)
 }
