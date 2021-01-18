@@ -960,7 +960,7 @@ func TestWaitForJWTToken(t *testing.T) {
 					jwtTokenStateChangeChan := make(chan []dbus.SignalParams, 1)
 					client.On("GetJwtTokenStateChangeChannel").Return(jwtTokenStateChangeChan, tc.err)
 
-					client.On("GetJWTToken").Return(tc.token, tc.err)
+					client.On("GetJWTToken").Return(tc.token, "", tc.err)
 					token, err := d.waitForJWTToken(client)
 					if tc.err != nil {
 						assert.Error(t, err)
@@ -1003,7 +1003,7 @@ func TestWaitForJWTToken(t *testing.T) {
 					},
 				}
 				client.On("GetJwtTokenStateChangeChannel").Return(jwtTokenStateChangeChan, tc.err)
-				client.On("GetJWTToken").Return(tc.token, tc.err)
+				client.On("GetJWTToken").Return(tc.token, "", tc.err)
 				token, err := d.waitForJWTToken(client)
 				if tc.err != nil {
 					assert.Error(t, err)
@@ -1067,7 +1067,7 @@ func TestDBusEventLoop(t *testing.T) {
 							ParamData: tc.token,
 						},
 					}, tc.err)
-					client.On("GetJWTToken").Return(tc.token, tc.err)
+					client.On("GetJWTToken").Return(tc.token, "", tc.err)
 					d.dbusEventLoop(client)
 				})
 				done <- true
@@ -1100,7 +1100,7 @@ func TestDBusEventLoop(t *testing.T) {
 						ParamData: tc.token,
 					},
 				}, tc.err)
-				client.On("GetJWTToken").Return(tc.token, tc.err)
+				client.On("GetJWTToken").Return(tc.token, "", tc.err)
 				go func() {
 					time.Sleep(time.Second)
 					d.stop = true

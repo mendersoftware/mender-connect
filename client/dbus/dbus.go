@@ -30,6 +30,8 @@ var dbusAPI DBusAPI = nil
 type DBusCallResponse interface {
 	// GetString returns a string stored in the response object
 	GetString() string
+	// GetString returns two strings stored in the response object
+	GetTwoStrings() (string, string)
 	// GetBoolean returns a boolean stored in the response object
 	GetBoolean() bool
 }

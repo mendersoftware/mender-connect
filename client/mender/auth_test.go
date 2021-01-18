@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -117,7 +117,7 @@ func TestAuthClientGetJWTToken(t *testing.T) {
 			defer response.AssertExpectations(t)
 
 			if tc.busProxyCallError == nil {
-				response.On("GetString").Return(JWTTokenValue)
+				response.On("GetTwoStrings").Return(JWTTokenValue, "")
 			}
 
 			dbusAPI := &dbus_mocks.DBusAPI{}
@@ -134,7 +134,7 @@ func TestAuthClientGetJWTToken(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotNil(t, client)
 
-			value, err := client.GetJWTToken()
+			value, _, err := client.GetJWTToken()
 			if tc.busProxyCallError != nil {
 				assert.Error(t, err, tc.busProxyCallError)
 			} else {

@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -36,6 +36,14 @@ func NewDBusCallResponse(ptr unsafe.Pointer) DBusCallResponse {
 func (r *dbusCallResponseLibgio) GetString() string {
 	str := C.string_from_g_variant(C.to_gvariant(r.ptr))
 	return goString(str)
+}
+
+// GetTwoStrings returns two string stored in the response object
+func (r *dbusCallResponseLibgio) GetTwoStrings() (string, string) {
+	gvariant := C.to_gvariant(r.ptr)
+	str1 := C.first_string_from_g_variant(gvariant)
+	str2 := C.second_string_from_g_variant(gvariant)
+	return goString(str1), goString(str2)
 }
 
 // GetBoolean returns a boolean stored in the response object

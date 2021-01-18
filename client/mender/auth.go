@@ -38,7 +38,7 @@ type AuthClient interface {
 	// Connect to the Mender client interface
 	Connect(objectName, objectPath, interfaceName string) error
 	// GetJWTToken returns a device JWT token
-	GetJWTToken() (string, error)
+	GetJWTToken() (string, string, error)
 	// FetchJWTToken schedules the fetching of a new device JWT token
 	FetchJWTToken() (bool, error)
 	// GetJwtTokenStateChangeChannel returns a channel that can be used to wait for the JwtTokenStateChange signal
@@ -85,12 +85,13 @@ func (a *AuthClientDBUS) Connect(objectName, objectPath, interfaceName string) e
 }
 
 // GetJWTToken returns a device JWT token
-func (a *AuthClientDBUS) GetJWTToken() (string, error) {
+func (a *AuthClientDBUS) GetJWTToken() (string, string, error) {
 	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameGetJwtToken, nil, DBusMethodTimeoutInMilliSeconds)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return response.GetString(), nil
+	token, serverURL := response.GetTwoStrings()
+	return token, serverURL, nil
 }
 
 // FetchJWTToken schedules the fetching of a new device JWT token
