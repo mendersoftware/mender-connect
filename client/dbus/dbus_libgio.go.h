@@ -30,6 +30,24 @@ static gchar *string_from_g_variant(GVariant *value)
     return str;
 }
 
+// creates a new string from a GVariant containing two strings
+static gchar *first_string_from_g_variant(GVariant *value)
+{
+    gchar *str1;
+    gchar *str2;
+    g_variant_get(value, "(ss)", &str1, &str2);
+    return str1;
+}
+
+// creates a new string from a GVariant containing two strings
+static gchar *second_string_from_g_variant(GVariant *value)
+{
+    gchar *str1;
+    gchar *str2;
+    g_variant_get(value, "(ss)", &str1, &str2);
+    return str2;
+}
+
 // creates a new boolean from a GVariant
 static gboolean boolean_from_g_variant(GVariant *value)
 {

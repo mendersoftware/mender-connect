@@ -214,6 +214,9 @@ func (d *MenderShellDaemon) waitForJWTToken(client mender.AuthClient) (string, e
 	for {
 		select {
 		case p := <-tokenStateChange:
+			if len(p) > 1 && p[1].ParamType == dbus.GDBusTypeString && len(p[1].ParamData.(string)) > 0 {
+				d.serverUrl = p[1].ParamData.(string)
+			}
 			if len(p) > 0 && p[0].ParamType == dbus.GDBusTypeString && len(p[0].ParamData.(string)) > 0 {
 				return p[0].ParamData.(string), nil
 			}
@@ -295,13 +298,14 @@ func (d *MenderShellDaemon) dbusEventLoop(client mender.AuthClient) {
 			}
 		}
 		if needsReconnect && d.authorized {
-			jwtToken, _ := client.GetJWTToken()
+			jwtToken, serverURL, _ := client.GetJWTToken()
 			e := MenderShellDaemonEvent{
 				event: EventReconnect,
 				data:  jwtToken,
 				id:    "(dbusEventLoop)",
 			}
 			log.Debugf("(dbusEventLoop) posting Event: %s", e.event)
+			d.serverUrl = serverURL
 			d.postEvent(e)
 			needsReconnect = false
 		}
@@ -403,10 +407,11 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	jwtToken, err := client.GetJWTToken()
+	jwtToken, serverURL, err := client.GetJWTToken()
 	if err != nil {
 		log.Warnf("call to GetJWTToken on the Mender D-Bus API failed: %v", err)
 	}
+	d.serverUrl = serverURL
 
 	log.Debugf("GetJWTToken().len=%d", len(jwtToken))
 	if len(jwtToken) < 1 {
