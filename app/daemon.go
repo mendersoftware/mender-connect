@@ -24,6 +24,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
+	wsmenderclient "github.com/mendersoftware/go-lib-micro/ws/menderclient"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 	"github.com/pkg/errors"
 
@@ -491,6 +492,13 @@ func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
 			return d.routeMessageShellResize(msg)
 		case wsshell.MessageTypePongShell:
 			return d.routeMessagePongShell(msg)
+		}
+	case ws.ProtoTypeMenderClient:
+		switch msg.Header.MsgType {
+		case wsmenderclient.MessageTypeMenderClientCheckUpdate:
+			return processMessageMenderClient(msg)
+		case wsmenderclient.MessageTypeMenderClientSendInventory:
+			return processMessageMenderClient(msg)
 		}
 	}
 	err := errors.New(fmt.Sprintf("unknown message protocol and type: %d/%s", msg.Header.Proto, msg.Header.MsgType))
