@@ -19,7 +19,17 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	"github.com/mendersoftware/go-lib-micro/ws/menderclient"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/mendersoftware/mender-connect/connectionmanager"
 )
+
+const (
+	NormalMessage int = iota + 1
+	ErrorMessage
+)
+
+const propertyStatus = "status"
 
 var runCommand = func(command []string) error {
 	if len(command) > 0 {
@@ -37,8 +47,28 @@ func processMessageMenderClient(message *ws.ProtoMsg) error {
 	case menderclient.MessageTypeMenderClientSendInventory:
 		command = "send-inventory"
 	}
+	var err error
 	if command != "" {
-		return runCommand([]string{"mender", command})
+		err = runCommand([]string{"mender", command})
+	} else {
+		err = errors.New("unknown message type")
 	}
-	return nil
+	response := &ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     message.Header.Proto,
+			MsgType:   message.Header.MsgType,
+			SessionID: message.Header.SessionID,
+			Properties: map[string]interface{}{
+				propertyStatus: int(NormalMessage),
+			},
+		},
+	}
+	if err != nil {
+		response.Header.Properties[propertyStatus] = ErrorMessage
+		response.Body = []byte(err.Error())
+	}
+	if err := connectionmanager.Write(ws.ProtoTypeShell, response); err != nil {
+		log.Errorf("processMessageMenderClient: webSock.WriteMessage(%+v)", err)
+	}
+	return err
 }
