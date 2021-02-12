@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -24,6 +24,12 @@ const (
 	ProtoInvalid ProtoType = iota
 	// ProtoTypeShell is used for communicating remote terminal session data.
 	ProtoTypeShell
+	// ProtoTypeFileTransfer is used for file transfer from/to the device.
+	ProtoTypeFileTransfer
+	// ProtoTypePortForward is used for port-forwarding connections to the device.
+	ProtoTypePortForward
+	// ProtoTypeMenderClient is used for communication with the Mender client.
+	ProtoTypeMenderClient
 )
 
 // ProtoHdr provides the info about what the ProtoMsg contains and
