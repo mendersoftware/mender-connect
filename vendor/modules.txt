@@ -12,6 +12,7 @@ github.com/gorilla/websocket
 # github.com/mendersoftware/go-lib-micro v0.0.0-20210219095151-13466b5958fb
 ## explicit
 github.com/mendersoftware/go-lib-micro/ws
+github.com/mendersoftware/go-lib-micro/ws/filetransfer
 github.com/mendersoftware/go-lib-micro/ws/menderclient
 github.com/mendersoftware/go-lib-micro/ws/shell
 # github.com/pkg/errors v0.9.1
