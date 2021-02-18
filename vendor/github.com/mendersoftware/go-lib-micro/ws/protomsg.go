@@ -30,6 +30,27 @@ const (
 	ProtoTypePortForward
 	// ProtoTypeMenderClient is used for communication with the Mender client.
 	ProtoTypeMenderClient
+
+	// ProtoTypeControl is a reserved proto type for session control messages.
+	ProtoTypeControl ProtoType = 0xFFFF
+)
+
+const (
+	// MessageTypes for session control messages (ProtoTypeControl),
+	// only the error message contains a body.
+
+	// MessageTypePing sends a ping. After receiving a ping, the receiver
+	// MUST respond with a pong message or the session will time out.
+	MessageTypePing = "ping"
+	// MessageTypePong is sent in response to a MessageTypePing.
+	MessageTypePong = "pong"
+	// MessageTypeClose is sent when the session MUST close. All
+	// communication on the session stop after receiving this message.
+	MessageTypeClose = "close"
+	// MessageTypeError is sent on a general protocol violation/error.
+	// An error message MUST contain an Error object. If the object's
+	// "close" field is set this message also closes the session.
+	MessageTypeError = "error"
 )
 
 // ProtoHdr provides the info about what the ProtoMsg contains and
@@ -66,4 +87,19 @@ func (m *ProtoMsg) Bind(b encoding.BinaryMarshaler) error {
 	data, err := b.MarshalBinary()
 	m.Body = data
 	return err
+}
+
+// The Error struct is passed in the Body of MessageTypeError.
+type Error struct {
+	// The error description, as in "Permission denied while opening a file"
+	Error string `msgpack:"err" json:"error"`
+	// Close determines whether the session closed as a result of this error.
+	Close bool `msgpack:"close" json:"close"`
+	// MessageProto is the protocol of the message that caused the error.
+	MessageProto ProtoType `msgpack:"msgproto,omitempty" json:"message_protocol,omitempty"`
+	// Type of message that raised the error
+	MessageType string `msgpack:"msgtype,omitempty" json:"message_type,omitempty"`
+	// Message id is passed in the MsgProto Properties, and in case it is available and
+	// error occurs it is passed for reference in the Body of the error message
+	MessageID string `msgpack:"msgid,omitempty" json:"message_id,omitempty"`
 }

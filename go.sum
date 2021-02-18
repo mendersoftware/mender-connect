@@ -199,6 +199,8 @@ github.com/mendersoftware/cli/v2 v2.1.1-minimal h1:NWX83kF8Eobfb3oBWeUmw9Ef2H9Zq
 github.com/mendersoftware/cli/v2 v2.1.1-minimal/go.mod h1:SE9GqnLQmjVa0iPEY0f1w3ygNIYcIJ0OKPMoW2caLfQ=
 github.com/mendersoftware/go-lib-micro v0.0.0-20210207170943-53fa5e327916 h1:pItIupbuwZ22gEICzRfYV//AsBQKUTdE/joAXzHFm2k=
 github.com/mendersoftware/go-lib-micro v0.0.0-20210207170943-53fa5e327916/go.mod h1:XMJe+rDbJh8dIh3IHGGz4soEId6rRFSs6wW8P7GO8CA=
+github.com/mendersoftware/go-lib-micro v0.0.0-20210219095151-13466b5958fb h1:TxxeigPztPVCMiKstl20acFSxcL06C11ktNEW6xJFbU=
+github.com/mendersoftware/go-lib-micro v0.0.0-20210219095151-13466b5958fb/go.mod h1:XeXkX/pfX7FOwG/y+NIWBcbtmhnN/sAzuuq0RZ6GcPQ=
 github.com/miekg/dns v1.0.14/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
 github.com/mitchellh/cli v1.0.0/go.mod h1:hNIlj7HEI86fIcpObd7a0FcrxTWetlwJDGcceTlRvqc=
 github.com/mitchellh/go-homedir v1.0.0/go.mod h1:SfyaCUpYCn1Vlf4IUYiD9fPX4A5wJrkLzIz1N1q0pr0=
@@ -299,6 +301,7 @@ github.com/xdg/stringprep v0.0.0-20180714160509-73f8eece6fdc/go.mod h1:Jhud4/sHM
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.mongodb.org/mongo-driver v1.4.5/go.mod h1:WcMNYLx/IlOxLe6JRJiv2uXuCz6zBLndR4SoGjYphSc=
+go.mongodb.org/mongo-driver v1.4.6/go.mod h1:WcMNYLx/IlOxLe6JRJiv2uXuCz6zBLndR4SoGjYphSc=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.uber.org/atomic v1.4.0/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=

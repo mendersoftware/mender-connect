@@ -8,7 +8,7 @@ require (
 	github.com/creack/pty v1.1.11
 	github.com/golang/protobuf v1.4.3 // indirect
 	github.com/gorilla/websocket v1.4.2
-	github.com/mendersoftware/go-lib-micro v0.0.0-20210207170943-53fa5e327916
+	github.com/mendersoftware/go-lib-micro v0.0.0-20210219095151-13466b5958fb
 	github.com/pkg/errors v0.9.1
 	github.com/satori/go.uuid v1.2.0
 	github.com/sirupsen/logrus v1.7.0

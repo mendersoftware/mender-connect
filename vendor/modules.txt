@@ -9,7 +9,7 @@ github.com/golang/protobuf/proto
 # github.com/gorilla/websocket v1.4.2
 ## explicit
 github.com/gorilla/websocket
-# github.com/mendersoftware/go-lib-micro v0.0.0-20210207170943-53fa5e327916
+# github.com/mendersoftware/go-lib-micro v0.0.0-20210219095151-13466b5958fb
 ## explicit
 github.com/mendersoftware/go-lib-micro/ws
 github.com/mendersoftware/go-lib-micro/ws/menderclient

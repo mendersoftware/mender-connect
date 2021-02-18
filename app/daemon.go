@@ -84,10 +84,18 @@ type MenderShellDaemon struct {
 	homeDir                 string
 	shellsSpawned           uint
 	debug                   bool
+	router                  session.Router
 }
 
 func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 	ctx, ctxCancel := context.WithCancel(context.Background())
+
+	routes := make(session.ProtoRoutes)
+	router := session.NewRouter(
+		routes, session.Config{
+			IdleTimeout: time.Duration(config.Sessions.ExpireAfterIdle),
+		},
+	)
 
 	daemon := MenderShellDaemon{
 		ctx:                     ctx,
@@ -111,6 +119,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		terminalHeight:          config.Terminal.Height,
 		shellsSpawned:           0,
 		debug:                   config.Debug,
+		router:                  router,
 	}
 
 	connectionmanager.SetReconnectIntervalSeconds(config.ReconnectIntervalSeconds)
@@ -479,6 +488,9 @@ func (d *MenderShellDaemon) responseMessage(msg *ws.ProtoMsg) (err error) {
 }
 
 func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
+	// NOTE: the switch is required for backward compatibility, otherwise
+	//       routing is performed and managed by the session manager.
+	//       Use the new API in sessions package (see filetransfer.go for an example)
 	switch msg.Header.Proto {
 	case ws.ProtoTypeShell:
 		switch msg.Header.MsgType {
@@ -500,6 +512,10 @@ func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
 		case wsmenderclient.MessageTypeMenderClientSendInventory:
 			return processMessageMenderClient(msg)
 		}
+	default:
+		return d.router.RouteMessage(
+			msg, session.ResponseWriterFunc(d.responseMessage),
+		)
 	}
 	err := errors.New(fmt.Sprintf("unknown message protocol and type: %d/%s", msg.Header.Proto, msg.Header.MsgType))
 	response := &ws.ProtoMsg{
