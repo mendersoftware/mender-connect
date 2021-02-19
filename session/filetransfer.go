@@ -3,7 +3,9 @@ package session
 import (
 	"io"
 	"os"
+	"syscall"
 
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack"
@@ -11,6 +13,30 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsft "github.com/mendersoftware/go-lib-micro/ws/filetransfer"
 )
+
+type FileInfo wsft.FileInfo
+
+func (f FileInfo) Validate() error {
+	return validation.ValidateStruct(&f,
+		validation.Field(&f.Path, validation.Required),
+	)
+}
+
+type StatFile wsft.StatFile
+
+func (s StatFile) Validate() error {
+	return validation.ValidateStruct(&s,
+		validation.Field(&s.Path, validation.Required),
+	)
+}
+
+type GetFile wsft.GetFile
+
+func (f GetFile) Validate() error {
+	return validation.ValidateStruct(&f,
+		validation.Field(&f.Path, validation.Required),
+	)
+}
 
 type FileTransferHandler struct {
 	file    *os.File
@@ -64,7 +90,7 @@ func (h *FileTransferHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) 
 			defaultUID  uint32 = uint32(os.Getuid())
 			defaultGID  uint32 = uint32(os.Getgid())
 		)
-		params := wsft.FileInfo{
+		params := FileInfo{
 			UID:  &defaultUID,
 			GID:  &defaultGID,
 			Mode: &defaultMode,
@@ -73,9 +99,9 @@ func (h *FileTransferHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) 
 		if err != nil {
 			h.Error(msg, w, errors.Wrap(err, "session: malformed request body"))
 			return
-		} else if params.Path == nil {
-			h.Error(msg, w, errors.New(
-				"session: invalid request parameters: path cannot be empty",
+		} else if err := params.Validate(); err != nil {
+			h.Error(msg, w, errors.Wrap(err,
+				"session: invalid request parameters",
 			))
 			return
 		}
@@ -119,16 +145,126 @@ func (h *FileTransferHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) 
 		}
 
 	case wsft.MessageTypeStat:
-		// TODO
+		var params StatFile
+		if err := msgpack.Unmarshal(msg.Body, &params); err != nil {
+			h.Error(msg, w, errors.Wrap(err, "malformed request parameters"))
+			return
+		} else if err = params.Validate(); err != nil {
+			h.Error(msg, w, errors.Wrap(err, "invalid request parameters"))
+			return
+		}
+		h.StatFile(msg, w)
 
 	case wsft.MessageTypeGet:
-		// TODO
+		go h.GetFile(msg, w)
 
 	default:
 		h.Error(msg, w, errors.Errorf(
 			"session: protocol violation: unexpected filetransfer message type: %s",
 			msg.Header.MsgType,
 		))
+	}
+}
+
+func (h *FileTransferHandler) GetFile(msg *ws.ProtoMsg, w ResponseWriter) {
+	const BufSize = 4096
+	var params GetFile
+	if err := msgpack.Unmarshal(msg.Body, &params); err != nil {
+		h.Error(msg, w, errors.Wrap(err, "malformed request parameters"))
+		return
+	} else if err = params.Validate(); err != nil {
+		h.Error(msg, w, errors.Wrap(err, "invalid request parameters"))
+		return
+	}
+
+	fd, err := os.Open(*params.Path)
+	if err != nil {
+		h.Error(msg, w, errors.Wrap(err, "failed to open file for reading"))
+		return
+	}
+	var offset int64
+	buf := make([]byte, BufSize)
+	for {
+		n, err := fd.Read(buf)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			h.Error(msg, w, errors.Wrap(err, "failed to read file chunk"))
+			err = fd.Close() //nolint:errcheck
+			if err != nil {
+				log.Warnf("failed to close open file descriptor: %s", err.Error())
+			}
+			return
+		}
+		err = w.WriteProtoMsg(&ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypeChunk,
+				SessionID: msg.Header.SessionID,
+				Properties: map[string]interface{}{
+					"offset": offset,
+				},
+			},
+			Body: buf,
+		})
+		if err != nil {
+			h.Error(msg, w, errors.Wrap(err,
+				"failed to write file chunk to stream: abort",
+			))
+			err = fd.Close() //nolint:errcheck
+			if err != nil {
+				log.Warnf("failed to close open file descriptor: %s", err.Error())
+			}
+			return
+		}
+
+		offset += int64(n)
+	}
+
+}
+
+func (h *FileTransferHandler) StatFile(msg *ws.ProtoMsg, w ResponseWriter) {
+	var params wsft.StatFile
+	err := msgpack.Unmarshal(msg.Body, &params)
+	if err != nil {
+		h.Error(msg, w, errors.Wrap(err, "malformed request parameters"))
+		return
+	}
+	if params.Path == nil {
+		h.Error(msg, w, errors.Wrap(err, "invalid request parameters"))
+	}
+	stat, err := os.Stat(*params.Path)
+	if err != nil {
+		h.Error(msg, w, errors.Wrapf(err,
+			"failed to get file info from path '%s'", *params.Path))
+		return
+	}
+	mode := uint32(stat.Mode())
+	size := stat.Size()
+	modTime := stat.ModTime()
+	fileInfo := wsft.FileInfo{
+		Path:    params.Path,
+		Size:    &size,
+		Mode:    &mode,
+		ModTime: &modTime,
+	}
+	if statT, ok := stat.Sys().(*syscall.Stat_t); ok {
+		// Only return UID/GID if the filesystem/OS supports it
+		fileInfo.UID = &statT.Uid
+		fileInfo.GID = &statT.Gid
+	}
+	b, _ := msgpack.Marshal(fileInfo)
+
+	err = w.WriteProtoMsg(&ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     ws.ProtoTypeFileTransfer,
+			MsgType:   wsft.MessageTypeFileInfo,
+			SessionID: msg.Header.SessionID,
+		},
+		Body: b,
+	})
+	if err != nil {
+		log.Errorf("error sending FileInfo to client: %s", err.Error())
 	}
 }
 
@@ -164,7 +300,7 @@ func (h *FileTransferHandler) WriteOffset(b []byte, offset int64) (err error) {
 	return nil
 }
 
-func (h *FileTransferHandler) InitFileUpload(params wsft.FileInfo) error {
+func (h *FileTransferHandler) InitFileUpload(params FileInfo) error {
 	fd, err := os.OpenFile(
 		*params.Path,
 		os.O_CREATE|os.O_WRONLY,
