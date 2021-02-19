@@ -492,7 +492,7 @@ func (d *MenderShellDaemon) responseMessage(msg *ws.ProtoMsg) (err error) {
 
 func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
 	// NOTE: the switch is required for backward compatibility, otherwise
-	//       routing is performed and managed by the session manager.
+	//       routing is performed and managed by the session.Router.
 	//       Use the new API in sessions package (see filetransfer.go for an example)
 	switch msg.Header.Proto {
 	case ws.ProtoTypeShell:

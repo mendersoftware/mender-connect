@@ -31,6 +31,7 @@ import (
 	"github.com/gorilla/websocket"
 	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/vmihailenco/msgpack"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
@@ -38,6 +39,7 @@ import (
 
 	dbusmocks "github.com/mendersoftware/mender-connect/client/dbus/mocks"
 	authmocks "github.com/mendersoftware/mender-connect/client/mender/mocks"
+	sessmocks "github.com/mendersoftware/mender-connect/session/mocks"
 
 	"github.com/mendersoftware/mender-connect/client/dbus"
 	"github.com/mendersoftware/mender-connect/config"
@@ -1295,5 +1297,81 @@ func TestRun(t *testing.T) {
 	case <-timeout:
 		t.Fatal("expected to exit with error")
 	case <-done:
+	}
+}
+
+func TestRouteMessage(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		Name string
+
+		Router  *sessmocks.Router
+		Message ws.ProtoMsg
+
+		Error error
+	}{{
+		Name: "ok, session router",
+
+		Router: func() *sessmocks.Router {
+			router := new(sessmocks.Router)
+			router.On("RouteMessage", &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:   ws.ProtoType(123),
+					MsgType: "foobar",
+				},
+			}, mock.AnythingOfType("session.ResponseWriterFunc")).
+				Return(nil)
+			return router
+		}(),
+		Message: ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:   ws.ProtoType(123),
+				MsgType: "foobar",
+			},
+		},
+	}, {
+		Name: "error, session router",
+
+		Router: func() *sessmocks.Router {
+			router := new(sessmocks.Router)
+			router.On("RouteMessage", &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:   ws.ProtoType(123),
+					MsgType: "foobar",
+				},
+			}, mock.AnythingOfType("session.ResponseWriterFunc")).
+				Return(errors.New("bad!"))
+			return router
+		}(),
+		Message: ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:   ws.ProtoType(123),
+				MsgType: "foobar",
+			},
+		},
+		Error: errors.New("bad!"),
+	}}
+	for i := range testCases {
+		tc := testCases[i]
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+			defer tc.Router.AssertExpectations(t)
+
+			daemon := NewDaemon(&config.MenderShellConfig{
+				MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+					FileTransfer: config.FileTransferConfig{
+						Enable: true,
+					},
+				},
+			})
+			daemon.router = tc.Router
+			err := daemon.routeMessage(&tc.Message)
+
+			if tc.Error != nil {
+				assert.EqualError(t, err, tc.Error.Error())
+			} else {
+				assert.NoError(t, err)
+			}
+		})
 	}
 }
