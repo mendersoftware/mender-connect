@@ -35,6 +35,13 @@ const httpsSchema = "https"
 type TerminalConfig struct {
 	Width  uint16
 	Height uint16
+	// FIXME (unused)
+	Disable bool
+}
+
+type FileTransferConfig struct {
+	// Enable file transfer features
+	Enable bool
 }
 
 type SessionsConfig struct {
@@ -72,6 +79,8 @@ type MenderShellConfigFromFile struct {
 	Sessions SessionsConfig `json:"Sessions"`
 	// Reconnect interval
 	ReconnectIntervalSeconds int
+
+	FileTransfer FileTransferConfig
 }
 
 // MenderShellConfig holds the configuration settings for the Mender shell client

@@ -91,7 +91,9 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
 	routes := make(session.ProtoRoutes)
-	routes.AddRoute(ws.ProtoTypeFileTransfer, session.FileTransfer())
+	if config.FileTransfer.Enable {
+		routes.AddRoute(ws.ProtoTypeFileTransfer, session.FileTransfer())
+	}
 	router := session.NewRouter(
 		routes, session.Config{
 			IdleTimeout: time.Duration(config.Sessions.ExpireAfterIdle),
