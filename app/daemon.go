@@ -92,7 +92,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 
 	routes := make(session.ProtoRoutes)
 	if config.FileTransfer.Enable {
-		routes.AddRoute(ws.ProtoTypeFileTransfer, session.FileTransfer())
+		routes[ws.ProtoTypeFileTransfer] = session.FileTransfer()
 	}
 	router := session.NewRouter(
 		routes, session.Config{

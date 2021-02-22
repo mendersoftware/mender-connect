@@ -16,6 +16,8 @@ package session
 
 import (
 	"fmt"
+	"runtime"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -153,7 +155,41 @@ func (sess *Session) Ping() error {
 	return sess.w.WriteProtoMsg(ping)
 }
 
+func funcname(fn string) string {
+	// strip package path
+	i := strings.LastIndex(fn, "/")
+	fn = fn[i+1:]
+	// strip package name.
+	i = strings.Index(fn, ".")
+	fn = fn[i+1:]
+	return fn
+}
+
+func (sess *Session) handlePanic() {
+	if r := recover(); r != nil {
+		var stacktrace strings.Builder
+		var trace [MaxTraceback]uintptr
+		num := runtime.Callers(3, trace[:])
+		for i := 0; i < num; i++ {
+			fn := runtime.FuncForPC(trace[i])
+			if fn == nil {
+				fmt.Fprintf(&stacktrace, "\n???")
+				continue
+			}
+			file, line := fn.FileLine(trace[i])
+			fmt.Fprintf(&stacktrace, "\n%s:%d.%s",
+				file, line, funcname(fn.Name()),
+			)
+		}
+		log.WithField("trace", stacktrace.String()).
+			Errorf("[panic] %s", r)
+		sess.Error(&ws.ProtoMsg{}, true, "internal error")
+	}
+	close(sess.done)
+}
+
 func (sess *Session) ListenAndServe() {
+	defer sess.handlePanic()
 	var (
 		msg      *ws.ProtoMsg
 		open     bool
@@ -164,7 +200,6 @@ func (sess *Session) ListenAndServe() {
 		panic("session already finished")
 	default:
 	}
-	defer close(sess.done)
 	for {
 		select {
 		case <-time.After(time.Until(deadline)):

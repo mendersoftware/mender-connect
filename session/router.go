@@ -26,16 +26,9 @@ var (
 	ErrNoSessionID = errors.New("session: message does not have a session ID")
 )
 
-type ProtoRoutes map[ws.ProtoType]Constructor
+const MaxTraceback = 32
 
-func (r *ProtoRoutes) AddRoute(proto ws.ProtoType, init Constructor) *ProtoRoutes {
-	if r == nil || *r == nil {
-		routes := make(ProtoRoutes)
-		r = &routes
-	}
-	(*r)[proto] = init
-	return r
-}
+type ProtoRoutes map[ws.ProtoType]Constructor
 
 //go:generate ../utils/mockgen.sh
 type Router interface {
@@ -62,13 +55,16 @@ func (mgr *router) startSession(sess *Session) {
 	sess.ListenAndServe()
 }
 
-func (mgr *router) RouteMessage(msg *ws.ProtoMsg, w ResponseWriter) error {
+func (mgr *router) RouteMessage(msg *ws.ProtoMsg, w ResponseWriter) (err error) {
 	var sess *Session
-	sessFace, ok := mgr.sessions.Load(msg.Header.SessionID)
-	if !ok {
+	sessFace, loaded := mgr.sessions.Load(msg.Header.SessionID)
+	if !loaded {
 		msgChan := make(chan *ws.ProtoMsg)
 		sess = New(msg.Header.SessionID, msgChan, w, mgr.routes, mgr.Config)
-		mgr.sessions.Store(msg.Header.SessionID, sess)
+		sessFace, loaded = mgr.sessions.LoadOrStore(msg.Header.SessionID, sess)
+		if loaded {
+			sess = sessFace.(*Session)
+		}
 		go mgr.startSession(sess)
 	} else {
 		sess = sessFace.(*Session)
