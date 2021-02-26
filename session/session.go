@@ -120,9 +120,9 @@ func (sess *Session) HandleControl(msg *ws.ProtoMsg) (close bool) {
 				SessionID: msg.Header.SessionID,
 			},
 		}
-		sess.w.WriteProtoMsg(pong)
+		close = sess.w.WriteProtoMsg(pong) != nil
 
-	case ws.MessageTypePong:
+	case ws.MessageTypePong, "open":
 		// No-op
 
 	case ws.MessageTypeClose:

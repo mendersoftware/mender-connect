@@ -28,7 +28,7 @@ import (
 )
 
 func init() {
-	SetDefaultPingWait(10 * time.Second)
+	DefaultPingWait = 10 * time.Second
 }
 
 func newWebsocketServer() *http.Server {

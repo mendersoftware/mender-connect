@@ -343,7 +343,7 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func init() {
-	connectionmanager.SetDefaultPingWait(10 * time.Second)
+	connectionmanager.DefaultPingWait = 10 * time.Second
 }
 
 func TestMenderShellStartStopShell(t *testing.T) {

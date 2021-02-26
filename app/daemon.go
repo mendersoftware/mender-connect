@@ -96,7 +96,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 	}
 	router := session.NewRouter(
 		routes, session.Config{
-			IdleTimeout: time.Duration(config.Sessions.ExpireAfterIdle),
+			IdleTimeout: connectionmanager.DefaultPingWait,
 		},
 	)
 
@@ -714,9 +714,6 @@ func (d *MenderShellDaemon) routeMessageShellCommand(message *ws.ProtoMsg) error
 		d.routeMessageResponse(response, err)
 		return err
 	}
-	// suppress the response message setting the variable to nil
-	response = nil
-	_ = response
 	return nil
 }
 

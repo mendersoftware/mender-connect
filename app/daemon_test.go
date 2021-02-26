@@ -54,7 +54,7 @@ var (
 )
 
 func init() {
-	connectionmanager.SetDefaultPingWait(10 * time.Second)
+	connectionmanager.DefaultPingWait = 10 * time.Second
 }
 
 func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID string, data string) error {
