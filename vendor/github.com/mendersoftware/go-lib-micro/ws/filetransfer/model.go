@@ -22,9 +22,9 @@ const (
 	// MessageTypePut requests a file upload to the device. The body MUST
 	// contain a FileInfo object.
 	MessageTypePut = "put_file"
-	// MessageTypeContinue is returned on upload requests when the client
-	// may start uploading file_chunks.
-	MessageTypeContinue = "put_file/continue"
+	// MessageTypeACK messages MUST be sent in response to a
+	// file_chunk or put_file message.
+	MessageTypeACK = "ack"
 	// MessageTypeStat requests file information from the device. The body
 	// MUST contain a StatFile object.
 	MessageTypeStat = "stat"

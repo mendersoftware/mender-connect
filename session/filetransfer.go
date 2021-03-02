@@ -15,8 +15,11 @@
 package session
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"runtime"
+	"sync/atomic"
 	"syscall"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -27,6 +30,14 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsft "github.com/mendersoftware/go-lib-micro/ws/filetransfer"
 )
+
+const (
+	ACKSlidingWindowSend = 10
+	ACKSlidingWindowRecv = 20
+	FileTransferBufSize  = 4096
+)
+
+var errFileTransferAbort = errors.New("handler aborted")
 
 type FileInfo wsft.FileInfo
 
@@ -53,19 +64,20 @@ func (f GetFile) Validate() error {
 }
 
 type FileTransferHandler struct {
-	file    *os.File
-	filePos int64
-
-	// use channels with cap 1 as mutexes since you can't try a sync.Mutex
-	putMutex chan struct{}
-	getMutex chan struct{}
+	// mutex is used for protecting the async handler. A channel with cap(1)
+	// is used instead of sync.Mutex to be able to test acquiring the
+	// mutex without blocking.
+	mutex chan struct{}
+	// msgChan is used to pass messages down to the async file transfer handler routine.
+	msgChan chan *ws.ProtoMsg
 }
 
+// FileTransfer creates a new filetransfer constructor
 func FileTransfer() Constructor {
 	return func() SessionHandler {
 		return &FileTransferHandler{
-			putMutex: make(chan struct{}, 1),
-			getMutex: make(chan struct{}, 1),
+			mutex:   make(chan struct{}, 1),
+			msgChan: make(chan *ws.ProtoMsg),
 		}
 	}
 }
@@ -83,21 +95,7 @@ func (h *FileTransferHandler) Error(msg *ws.ProtoMsg, w ResponseWriter, err erro
 }
 
 func (h *FileTransferHandler) Close() error {
-	if h.file != nil {
-		err := errors.New("session: filetransfer closed unexpectedly")
-		filename := h.file.Name()
-		h.file.Close() //nolint:errcheck
-		errRm := os.Remove(filename)
-		if errRm != nil {
-			err = errors.Wrapf(err,
-				"failed to remove incomplete file '%s': %s",
-				filename, errRm.Error(),
-			)
-		}
-		h.file = nil
-		h.filePos = 0
-		return err
-	}
+	close(h.msgChan)
 	return nil
 }
 
@@ -106,42 +104,38 @@ func (h *FileTransferHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) 
 	case wsft.MessageTypePut:
 		h.InitFileUpload(msg, w)
 
-	case wsft.MessageTypeChunk:
-		if h.file == nil {
-			h.Error(msg, w, errors.New("session: no file transfer in progress"))
-			return
-		}
-		offset, ok := msg.Header.Properties["offset"].(int64)
-		if !ok {
-			// Append to file
-			offset = int64(-1)
-		}
-		if len(msg.Body) > 0 {
-			err := h.WriteOffset(msg.Body, offset)
-			if err != nil {
-				h.Error(msg, w, err)
-				return
-			}
-		} else {
-			// EOF
-			err := h.file.Close()
-			if err != nil {
-				h.Error(msg, w, errors.Wrap(err, "error completing file transfer"))
-			}
-			h.file = nil
-			h.filePos = 0
-			select {
-			case <-h.putMutex:
-			default:
-				// Avoid deadlock if EOF is sent twice
-			}
-		}
-
 	case wsft.MessageTypeStat:
 		h.StatFile(msg, w)
 
 	case wsft.MessageTypeGet:
-		go h.GetFile(msg, w)
+		h.InitFileDownload(msg, w)
+
+	case wsft.MessageTypeACK, wsft.MessageTypeChunk:
+		// Messages are digested by async go-routine.
+		select {
+		// If we can grab the mutex, there are no async handlers running.
+		case h.mutex <- struct{}{}:
+			<-h.mutex
+			h.Error(msg, w, errors.New("no file transfer in progress"))
+
+		case h.msgChan <- msg:
+		}
+
+	case wsft.MessageTypeError:
+		select {
+		// If there's an active async handler, pass the error down,
+		// otherwise, log the error.
+		case h.mutex <- struct{}{}:
+			<-h.mutex
+			var erro wsft.Error
+			err := msgpack.Unmarshal(msg.Body, &erro)
+			if err != nil {
+				log.Errorf("Error decoding error message from client: %s", err.Error())
+			} else {
+				log.Errorf("Received error from client: %s", *erro.Error)
+			}
+		case h.msgChan <- msg:
+		}
 
 	default:
 		h.Error(msg, w, errors.Errorf(
@@ -149,82 +143,6 @@ func (h *FileTransferHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) 
 			msg.Header.MsgType,
 		))
 	}
-}
-
-func (h *FileTransferHandler) GetFile(msg *ws.ProtoMsg, w ResponseWriter) {
-	const BufSize = 4096
-	var params GetFile
-	if err := msgpack.Unmarshal(msg.Body, &params); err != nil {
-		h.Error(msg, w, errors.Wrap(err, "malformed request parameters"))
-		return
-	} else if err = params.Validate(); err != nil {
-		h.Error(msg, w, errors.Wrap(err, "invalid request parameters"))
-		return
-	}
-	select {
-	case h.getMutex <- struct{}{}:
-		defer func() { <-h.getMutex }()
-	default:
-		h.Error(msg, w, errors.New("another file transfer is still in progress"))
-		return
-	}
-
-	fd, err := os.Open(*params.Path)
-	if err != nil {
-		h.Error(msg, w, errors.Wrap(err, "failed to open file for reading"))
-		return
-	}
-	defer fd.Close() //nolint:errcheck
-
-	var offset int64
-	buf := make([]byte, BufSize)
-	for {
-		n, err := fd.Read(buf)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			h.Error(msg, w, errors.Wrap(err, "failed to read file chunk"))
-			err = fd.Close() //nolint:errcheck
-			if err != nil {
-				log.Warnf("failed to close open file descriptor: %s", err.Error())
-			}
-			return
-		}
-
-		err = h.sendChunk(msg, buf[:n], offset, w)
-		if err != nil {
-			return
-		}
-
-		offset += int64(n)
-	}
-
-	h.sendChunk(msg, nil, offset, w) //nolint:errcheck
-}
-
-func (h *FileTransferHandler) sendChunk(
-	req *ws.ProtoMsg,
-	b []byte,
-	offset int64,
-	w ResponseWriter,
-) error {
-	err := w.WriteProtoMsg(&ws.ProtoMsg{
-		Header: ws.ProtoHdr{
-			Proto:     ws.ProtoTypeFileTransfer,
-			MsgType:   wsft.MessageTypeChunk,
-			SessionID: req.Header.SessionID,
-			Properties: map[string]interface{}{
-				"offset": offset,
-			},
-		},
-		Body: b,
-	})
-	if err != nil {
-		h.Error(req, w, errors.Wrap(err,
-			"failed to write file chunk to stream: abort",
-		))
-	}
-	return err
 }
 
 func (h *FileTransferHandler) StatFile(msg *ws.ProtoMsg, w ResponseWriter) {
@@ -272,50 +190,169 @@ func (h *FileTransferHandler) StatFile(msg *ws.ProtoMsg, w ResponseWriter) {
 	}
 }
 
-func (h *FileTransferHandler) WriteOffset(b []byte, offset int64) (err error) {
+// chunkWriter is used for packaging writes into ProtoMsg chunks before
+// sending it on the connection.
+type chunkWriter struct {
+	SessionID string
+	Offset    int64
+	W         ResponseWriter
+}
+
+func (c *chunkWriter) Write(b []byte) (int, error) {
+	msg := ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     ws.ProtoTypeFileTransfer,
+			MsgType:   wsft.MessageTypeChunk,
+			SessionID: c.SessionID,
+			Properties: map[string]interface{}{
+				"offset": c.Offset,
+			},
+		},
+		Body: b,
+	}
+	err := c.W.WriteProtoMsg(&msg)
+	if err != nil {
+		return 0, err
+	}
+	c.Offset += int64(len(b))
+	return len(b), err
+}
+
+func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWriter) (err error) {
+	params := new(GetFile)
 	defer func() {
 		if err != nil {
-			filename := h.file.Name()
-			h.file.Close() //nolint:errcheck
-			h.file = nil
-			h.filePos = 0
-			errRm := os.Remove(filename)
-			if errRm != nil {
-				log.Warn("failed to remove file after failed write: " +
-					err.Error())
-			}
-			select {
-			case <-h.putMutex:
-			default:
-			}
+			log.Error(err.Error())
+			h.Error(msg, w, err)
 		}
 	}()
-	if offset >= 0 {
-		if h.filePos != offset {
-			h.filePos, err = h.file.Seek(offset, io.SeekStart)
+	if err := msgpack.Unmarshal(msg.Body, params); err != nil {
+		err = errors.Wrap(err, "malformed request parameters")
+		return err
+	} else if err = params.Validate(); err != nil {
+		err = errors.Wrap(err, "invalid request parameters")
+		return err
+	}
+	fd, err := os.Open(*params.Path)
+	if err != nil {
+		err = errors.Wrap(err, "failed to open file for reading")
+		return err
+	}
+	select {
+	case h.mutex <- struct{}{}:
+		go h.DownloadHandler(fd, msg, w)
+	default:
+		errClose := fd.Close()
+		if errClose != nil {
+			log.Warnf("error closing file: %s", err.Error())
+		}
+		return errors.New("another file transfer is in progress")
+	}
+	return nil
+}
+
+func (h *FileTransferHandler) DownloadHandler(fd *os.File, msg *ws.ProtoMsg, w ResponseWriter) (err error) {
+	var ackOffset int64
+	defer func() {
+		errClose := fd.Close()
+		if errClose != nil {
+			log.Warnf("error closing file descriptor: %s", errClose.Error())
+		}
+		if err != nil && err != errFileTransferAbort {
+			h.Error(msg, w, err)
+			log.Error(err.Error())
+		}
+		<-h.mutex
+	}()
+
+	chunker := &chunkWriter{
+		SessionID: msg.Header.SessionID,
+		W:         w,
+	}
+
+	waitAck := func() (*ws.ProtoMsg, error) {
+		msg, open := <-h.msgChan
+		if !open {
+			return nil, errFileTransferAbort
+		}
+		switch msg.Header.MsgType {
+		case wsft.MessageTypeACK:
+
+		case wsft.MessageTypeError:
+			var erro wsft.Error
+			msgpack.Unmarshal(msg.Body, &erro) //nolint:errcheck
+			if erro.Error != nil {
+				log.Errorf("received error message from client: %s", *erro.Error)
+			} else {
+				log.Error("received malformed error message from client: aborting")
+			}
+			return msg, errFileTransferAbort
+
+		default:
+			return msg, errors.Errorf(
+				"received unexpected message type '%s'; expected 'ack'",
+				msg.Header.MsgType,
+			)
+		}
+		if off, ok := msg.Header.Properties["offset"]; ok {
+			t, ok := off.(int64)
+			if !ok {
+				return msg, errors.New("invalid offset data type: require int64")
+			}
+			ackOffset = t
+		} else {
+			return msg, errors.New("ack message: offset property cannot be blank")
+		}
+		return msg, nil
+	}
+
+	buf := make([]byte, FileTransferBufSize)
+	for {
+		windowBytes := ackOffset - chunker.Offset +
+			ACKSlidingWindowRecv*FileTransferBufSize
+		if windowBytes > 0 {
+			N, err := io.CopyBuffer(chunker, io.LimitReader(fd, windowBytes), buf)
 			if err != nil {
-				return errors.Wrap(err, "session: failed to seek to file offset")
-			} else if h.filePos != offset {
-				return errors.New("session: failed to seek to file offset")
+				err = errors.Wrap(err, "failed to copy file chunk to session")
+				return err
+			}
+			if N < windowBytes {
+				break
 			}
 		}
+
+		msg, err = waitAck()
+		if err != nil {
+			return err
+		}
 	}
-	n, err := h.file.Write(b)
-	h.filePos += int64(n)
+
+	// Send EOF chunk
+	err = w.WriteProtoMsg(&ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     ws.ProtoTypeFileTransfer,
+			MsgType:   wsft.MessageTypeChunk,
+			SessionID: msg.Header.SessionID,
+			Properties: map[string]interface{}{
+				"offset": chunker.Offset,
+			},
+		},
+	})
 	if err != nil {
-		return errors.Wrap(err, "session: failed to write file chunk")
+		log.Errorf("failed to send EOF message to client: %s", err.Error())
+		return err
+	}
+
+	for ackOffset < chunker.Offset {
+		msg, err = waitAck()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 func (h *FileTransferHandler) InitFileUpload(msg *ws.ProtoMsg, w ResponseWriter) (err error) {
-	select {
-	case h.putMutex <- struct{}{}:
-	default:
-		err = errors.New("session: file upload already in progress")
-		h.Error(msg, w, err)
-		return err
-	}
 	var (
 		defaultMode uint32 = 0644
 		defaultUID  uint32 = uint32(os.Getuid())
@@ -329,39 +366,215 @@ func (h *FileTransferHandler) InitFileUpload(msg *ws.ProtoMsg, w ResponseWriter)
 	defer func() {
 		if err != nil {
 			h.Error(msg, w, err)
-			if h.file != nil {
-				fileName := h.file.Name()
-				h.file.Close()
-				os.Remove(fileName)
-				h.file = nil
-			}
-			<-h.putMutex
 		}
 	}()
 	err = msgpack.Unmarshal(msg.Body, &params)
 	if err != nil {
-		return errors.Wrap(err, "session: malformed request body")
+		return errors.Wrap(err, "malformed request parameters")
 	} else if err = params.Validate(); err != nil {
-		return errors.Wrap(err, "session: invalid request parameters")
+		return errors.Wrap(err, "invalid request parameters")
 	}
-	h.file, err = os.OpenFile(
-		*params.Path,
-		os.O_CREATE|os.O_WRONLY,
-		os.FileMode(*params.Mode),
-	)
-	if err != nil {
-		return errors.Wrap(err, "session: failed to create file")
-	}
-	err = h.file.Chown(int(*params.UID), int(*params.GID))
-	if err != nil {
-		return errors.Wrap(err, "session: failed to set file permissions")
-	}
-	rsp := *msg
-	rsp.Header.MsgType = wsft.MessageTypeContinue
-	rsp.Body = nil
-	err = w.WriteProtoMsg(&rsp)
-	if err != nil {
-		log.Error("session: failed to respond to client")
+
+	select {
+	case h.mutex <- struct{}{}:
+		go h.FileUploadHandler(msg, params, w) //nolint:errcheck
+	default:
+		err = errors.New("another file transfer is in progress")
+		return err
 	}
 	return nil
+}
+
+var atomicSuffix uint32
+
+func createWrOnlyTempFile(params FileInfo) (fd *os.File, err error) {
+	for i := 0; i < 100; i++ {
+		suffix := atomic.AddUint32(&atomicSuffix, 1)
+		filename := *params.Path + fmt.Sprintf(".%08x%02x", suffix, i)
+		fd, err = os.OpenFile(filename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0200)
+		if os.IsExist(err) {
+			continue
+		} else if err != nil {
+			break
+		}
+		break
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create file")
+	}
+	return fd, nil
+}
+
+func (h *FileTransferHandler) FileUploadHandler(
+	msg *ws.ProtoMsg,
+	params FileInfo,
+
+	w ResponseWriter,
+) (err error) {
+	var (
+		fd      *os.File
+		closeFd bool
+	)
+	defer func() {
+		if fd != nil {
+			if closeFd {
+				errClose := fd.Close()
+				if errClose != nil {
+					log.Warnf("error closing file: %s", errClose.Error())
+				}
+			}
+			errRm := os.Remove(fd.Name())
+			if errRm != nil {
+				log.Errorf(
+					"error removing file after aborting upload: %s",
+					errRm.Error(),
+				)
+			}
+		}
+		if err != nil {
+			log.Error(err.Error())
+			if errors.Cause(err) != errFileTransferAbort {
+				h.Error(msg, w, err)
+			}
+		}
+		<-h.mutex
+	}()
+
+	fd, err = createWrOnlyTempFile(params)
+	if err != nil {
+		h.Error(msg, w, errors.Wrap(err, "failed to create target file"))
+		return err
+	}
+	closeFd = true
+
+	err = w.WriteProtoMsg(&ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:      ws.ProtoTypeFileTransfer,
+			MsgType:    wsft.MessageTypeACK,
+			SessionID:  msg.Header.SessionID,
+			Properties: map[string]interface{}{"offset": int64(0)},
+		},
+	})
+	if err != nil {
+		log.Errorf("failed to respond to client: %s", err.Error())
+		return errFileTransferAbort
+	}
+
+	_, err = h.writeFile(w, fd)
+	if err != nil {
+		return err
+	}
+	// Set the final permissions and owner.
+	err = fd.Chmod(os.FileMode(*params.Mode) & os.ModePerm)
+	if err != nil {
+		return errors.Wrap(err, "failed to set file permissions")
+	}
+	err = fd.Chown(int(*params.UID), int(*params.GID))
+	if err != nil {
+		return errors.Wrap(err, "failed to set file owner")
+	}
+
+	closeFd = false
+	filename := fd.Name()
+	errClose := fd.Close()
+	if errClose != nil {
+		log.Warnf("error closing file: %s", errClose.Error())
+	}
+	err = os.Rename(filename, *params.Path)
+	if err != nil {
+		return errors.Wrap(err, "failed to commit uploaded file")
+	}
+	fd = nil
+	return err
+}
+
+func (h *FileTransferHandler) writeFile(w ResponseWriter, dst *os.File) (int64, error) {
+	var (
+		done   bool
+		open   bool
+		err    error
+		i      int
+		offset int64
+		msg    *ws.ProtoMsg
+	)
+	writeChunk := func(msg *ws.ProtoMsg) error {
+		switch msg.Header.MsgType {
+		case wsft.MessageTypeChunk:
+
+		case wsft.MessageTypeError:
+			var cerr wsft.Error
+			packErr := msgpack.Unmarshal(msg.Body, &cerr)
+			if packErr == nil && cerr.Error != nil {
+				log.Errorf("Received error during upload: %s", *cerr.Error)
+			} else {
+				log.Error("Received malformed error during upload: aborting")
+			}
+			return errFileTransferAbort
+
+		default:
+			return errors.Errorf(
+				"received unexpected message type '%s' during file upload",
+				msg.Header.MsgType,
+			)
+		}
+		chunkOffset, ok := msg.Header.Properties["offset"].(int64)
+		if !ok {
+			return errors.New("invalid file chunk message: missing offset property")
+		} else {
+			if chunkOffset != offset {
+				return errors.New("received unexpected chunk offset")
+			}
+		}
+		if len(msg.Body) > 0 {
+			n, err := dst.Write(msg.Body)
+			offset += int64(n)
+			if err != nil {
+				return errors.Wrap(err, "failed to write file chunk")
+			}
+		} else {
+			// EOF
+			return io.EOF
+		}
+		return nil
+	}
+	for !done {
+	InnerLoop:
+		for i = 0; i < ACKSlidingWindowSend; i++ {
+			select {
+			case msg, open = <-h.msgChan:
+				if !open {
+					return offset, errFileTransferAbort
+				}
+				err = writeChunk(msg)
+				if err != nil {
+					i++
+					break InnerLoop
+				}
+				// Give the session routine a chance to pass down
+				// another message.
+				runtime.Gosched()
+			default:
+				break InnerLoop
+			}
+		}
+		if i == 0 {
+			// Slow producer
+			msg, open = <-h.msgChan
+			if !open {
+				return offset, errFileTransferAbort
+			}
+			err = writeChunk(msg)
+		}
+		if err == io.EOF {
+			done = true
+		} else if err != nil {
+			return offset, err
+		}
+
+		// Copy message headers to response and change message type to ACK.
+		rsp := &ws.ProtoMsg{Header: msg.Header}
+		rsp.Header.MsgType = wsft.MessageTypeACK
+		w.WriteProtoMsg(rsp)
+	}
+	return offset, nil
 }

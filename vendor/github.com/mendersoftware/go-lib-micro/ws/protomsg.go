@@ -44,6 +44,8 @@ const (
 	MessageTypePing = "ping"
 	// MessageTypePong is sent in response to a MessageTypePing.
 	MessageTypePong = "pong"
+	// MessageTypeOpen allocates a new peer-to-peer deviceconnect session.
+	MessageTypeOpen = "open"
 	// MessageTypeClose is sent when the session MUST close. All
 	// communication on the session stop after receiving this message.
 	MessageTypeClose = "close"

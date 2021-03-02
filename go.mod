@@ -9,7 +9,7 @@ require (
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/golang/protobuf v1.4.3 // indirect
 	github.com/gorilla/websocket v1.4.2
-	github.com/mendersoftware/go-lib-micro v0.0.0-20210219095151-13466b5958fb
+	github.com/mendersoftware/go-lib-micro v0.0.0-20210301092156-349d3ae1e399
 	github.com/pkg/errors v0.9.1
 	github.com/satori/go.uuid v1.2.0
 	github.com/sirupsen/logrus v1.7.0
