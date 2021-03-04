@@ -15,6 +15,8 @@
 package session
 
 import (
+	"bytes"
+	"io"
 	"io/ioutil"
 	"os"
 	"path"
@@ -28,498 +30,537 @@ import (
 	"github.com/vmihailenco/msgpack"
 )
 
-func TestFileTransferPutFile(t *testing.T) {
+func TestFileTransferUpload(t *testing.T) {
 	t.Parallel()
+	testdir, err := ioutil.TempDir("", "filetransfer-testing")
+	if err != nil {
+		panic(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(testdir) })
 	testCases := []struct {
 		Name string
 
-		Filename   string
-		Messages   func(filename string) []ws.ProtoMsg
-		WriteError error
-		CloseError error
+		Params FileInfo
 
-		ResponseValidator func(*testing.T, []*ws.ProtoMsg)
-		Filecontents      []byte
+		// TransferMessages, if set, are sent before file contents
+		TransferMessages []*ws.ProtoMsg
+		FileContents     []byte
+		ChunkSize        int
+
+		WriteError error
+
+		Error error
 	}{{
 		Name: "ok",
 
-		Messages: func(filename string) []ws.ProtoMsg {
-			b, _ := msgpack.Marshal(wsft.FileInfo{
-				Path: &filename,
+		Params: FileInfo{
+			Path: func() *string {
+				p := path.Join(testdir, "mkay")
+				return &p
+			}(),
+		},
+
+		FileContents: []byte(
+			"this message will be chunked into byte chunks to " +
+				"make things super inefficient",
+		),
+		ChunkSize: 1,
+	}, {
+		Name: "error, fake error from client",
+
+		Params: FileInfo{
+			Path: func() *string {
+				p := path.Join(testdir, "clienterr")
+				return &p
+			}(),
+		},
+		TransferMessages: func() []*ws.ProtoMsg {
+			errMsg := "something unexpected happened"
+			b, _ := msgpack.Marshal(wsft.Error{
+				Error: &errMsg,
 			})
-			return []ws.ProtoMsg{{
+			return []*ws.ProtoMsg{{
 				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypePut,
+					Proto:     ws.ProtoTypeFileTransfer,
+					MsgType:   wsft.MessageTypeError,
+					SessionID: "12344",
 				},
 				Body: b,
-			}, {
+			}}
+		}(),
+		// We don't expect an error in return here, only a single ack
+		// so that it follows the same test path as a successful
+		// file transfer.
+	}, {
+		Name: "error, unexpected ACK message from client",
+
+		Params: FileInfo{
+			Path: func() *string {
+				p := path.Join(testdir, "ackerr")
+				return &p
+			}(),
+		},
+		TransferMessages: []*ws.ProtoMsg{{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypeACK,
+				SessionID: "12344",
+			},
+		}},
+		Error: errors.New("received unexpected message type 'ack' " +
+			"during file upload"),
+	}, {
+		Name: "error, chunk missing offset",
+
+		Params: FileInfo{
+			Path: func() *string {
+				p := path.Join(testdir, "offseterr")
+				return &p
+			}(),
+		},
+		TransferMessages: func() []*ws.ProtoMsg {
+			return []*ws.ProtoMsg{{
 				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypeChunk,
+					Proto:     ws.ProtoTypeFileTransfer,
+					MsgType:   wsft.MessageTypeChunk,
+					SessionID: "12344",
 				},
-				Body: []byte("chunk1"),
-			}, {
+				Body: []byte("data"),
+			}}
+		}(),
+		Error: errors.New("invalid file chunk message: missing offset property"),
+	}, {
+		Name: "error, offset jumps beyond EOF",
+
+		Params: FileInfo{
+			Path: func() *string {
+				p := path.Join(testdir, "badOffset")
+				return &p
+			}(),
+		},
+		TransferMessages: func() []*ws.ProtoMsg {
+			return []*ws.ProtoMsg{{
 				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypeChunk,
+					Proto:     ws.ProtoTypeFileTransfer,
+					MsgType:   wsft.MessageTypeChunk,
+					SessionID: "12344",
 					Properties: map[string]interface{}{
-						"offset": int64(len("chunk1") - 1),
+						"offset": int64(1234),
 					},
 				},
-				Body: []byte("chunk2"),
-			}, {
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypeChunk,
-				},
+				Body: []byte("data"),
 			}}
-		},
-		ResponseValidator: func(t *testing.T, rsp []*ws.ProtoMsg) {
-			assert.Equal(t, rsp, []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypeContinue,
-				},
-			}})
-		},
-		Filecontents: []byte("chunkchunk2"),
+		}(),
+		Error: errors.New("received unexpected chunk offset"),
 	}, {
-		Name: "error, upload didn't complete",
+		Name: "error, broken response writer",
 
-		Messages: func(filename string) []ws.ProtoMsg {
-			b, _ := msgpack.Marshal(wsft.FileInfo{
-				Path: &filename,
-			})
-			return []ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypePut,
-				},
-				Body: b,
-			}, {
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypeChunk,
-				},
-				Body: []byte("chunk1"),
-			}}
+		Params: FileInfo{
+			Path: func() *string {
+				p := path.Join(testdir, "errfile")
+				return &p
+			}(),
 		},
-		ResponseValidator: func(t *testing.T, rsp []*ws.ProtoMsg) {
-			assert.Equal(t, rsp, []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypeContinue,
-				},
-			}})
-		},
-		CloseError:   errors.New("session: filetransfer closed unexpectedly"),
-		Filecontents: []byte("chunk1"),
-	}, {
-		Name: "error, malformed schema",
 
-		Messages: func(filename string) []ws.ProtoMsg {
-			return []ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypePut,
-				},
-				Body: []byte("foobar"),
-			}}
-		},
-		ResponseValidator: func(t *testing.T, rsp []*ws.ProtoMsg) {
-			msg := "session: malformed request body: msgpack: " +
-				"invalid code=66 decoding map length"
-			msgtyp := wsft.MessageTypePut
-			b, _ := msgpack.Marshal(wsft.Error{
-				Error:       &msg,
-				MessageType: &msgtyp,
-			})
-			assert.Equal(t, []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypeError,
-				},
-				Body: b,
-			}}, rsp)
-		},
-	}, {
-		Name: "error, invalid parameters",
-
-		Messages: func(filename string) []ws.ProtoMsg {
-			uid := uint32(0)
-			b, _ := msgpack.Marshal(wsft.FileInfo{UID: &uid})
-			return []ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypePut,
-				},
-				Body: b,
-			}}
-		},
-		ResponseValidator: func(t *testing.T, rsp []*ws.ProtoMsg) {
-			msg := "session: invalid request parameters: path: " +
-				"cannot be blank."
-			msgtyp := wsft.MessageTypePut
-			b, _ := msgpack.Marshal(wsft.Error{
-				Error:       &msg,
-				MessageType: &msgtyp,
-			})
-			assert.Equal(t, []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypeError,
-				},
-				Body: b,
-			}}, rsp)
-		},
-	}, {
-		Name: "error, from writer",
-
-		Messages: func(filename string) []ws.ProtoMsg {
-			b, _ := msgpack.Marshal(wsft.FileInfo{Path: &filename})
-			return []ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypePut,
-				},
-				Body: b,
-			}}
-		},
-		WriteError: errors.New("bad writer"),
-		ResponseValidator: func(t *testing.T, rsp []*ws.ProtoMsg) {
-			assert.Len(t, rsp, 1)
-		},
-		CloseError: errors.New("session: filetransfer closed unexpectedly"),
-	}, {
-		Name: "error, transfer already in progress",
-
-		Messages: func(filename string) []ws.ProtoMsg {
-			b, _ := msgpack.Marshal(wsft.FileInfo{Path: &filename})
-			return []ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypePut,
-				},
-				Body: b,
-			}, {
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypePut,
-				},
-				Body: b,
-			}}
-		},
-		ResponseValidator: func(t *testing.T, rsp []*ws.ProtoMsg) {
-			if assert.Len(t, rsp, 2) {
-				var erro wsft.Error
-				msgpack.Unmarshal(rsp[1].Body, &erro)
-				msg := "session: file upload already in progress"
-				msgtyp := wsft.MessageTypePut
-				assert.Equal(t, wsft.Error{
-					Error:       &msg,
-					MessageType: &msgtyp,
-				}, erro)
-			}
-		},
-		CloseError: errors.New("session: filetransfer closed unexpectedly"),
+		WriteError: io.ErrClosedPipe,
 	}, {
 		Name: "error, parent directory does not exist",
 
-		Messages: func(filename string) []ws.ProtoMsg {
-			noexist := path.Join(filename, "not", "exist")
-			b, _ := msgpack.Marshal(wsft.FileInfo{Path: &noexist})
-			return []ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypePut,
-				},
-				Body: b,
-			}, {
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypePut,
-				},
-				Body: b,
-			}}
+		Params: FileInfo{
+			Path: func() *string {
+				p := path.Join(
+					testdir, "parent", "dir",
+					"does", "not", "exist",
+					"for", "this", "file",
+				)
+				return &p
+			}(),
 		},
-		ResponseValidator: func(t *testing.T, rsp []*ws.ProtoMsg) {
-			if assert.Len(t, rsp, 2) {
-				var erro wsft.Error
-				msgpack.Unmarshal(rsp[1].Body, &erro)
-				assert.Contains(t, *erro.Error, "session: failed to create file")
-			}
-		},
-	}, {
-		Name: "error, parent directory does not exist",
 
-		Messages: func(filename string) []ws.ProtoMsg {
-			return []ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: "foobar",
-				},
-			}}
-		},
-		ResponseValidator: func(t *testing.T, rsp []*ws.ProtoMsg) {
-			if assert.Len(t, rsp, 1) {
-				var erro wsft.Error
-				err := msgpack.Unmarshal(rsp[0].Body, &erro)
-				if assert.NoError(t, err) {
-					assert.Contains(t,
-						*erro.Error,
-						"session: filetransfer message "+
-							"type 'foobar' not supported",
-					)
-				}
-			}
-		},
+		Error: errors.New("failed to create file"),
 	}}
 	for i := range testCases {
 		tc := testCases[i]
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
-			handler := FileTransfer()()
-			f, err := ioutil.TempFile("", "test_filetransfer")
-			if err != nil {
-				panic(err)
+
+			recorder := NewTestWriter(tc.WriteError)
+			handler := FileTransfer()().(*FileTransferHandler)
+			b, _ := msgpack.Marshal(tc.Params)
+			request := &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeFileTransfer,
+					MsgType:   wsft.MessageTypePut,
+					SessionID: "12344",
+				},
+				Body: b,
 			}
-			filename := f.Name()
-			f.Close()
-			os.Remove(filename)
-			w := &testWriter{err: tc.WriteError}
-			messages := tc.Messages(f.Name())
-			for i := range messages {
-				handler.ServeProtoMsg(&messages[i], w)
+			defer handler.Close()
+
+			handler.ServeProtoMsg(request, recorder)
+			select {
+			case <-recorder.Called:
+			case <-time.After(time.Second * 10):
+				panic("test case timeout")
 			}
-			tc.ResponseValidator(t, w.Messages)
-			if tc.Filecontents != nil {
-				contents, err := ioutil.ReadFile(filename)
-				assert.NoError(t, err)
-				assert.Equal(t, string(tc.Filecontents), string(contents))
+
+			if tc.TransferMessages != nil {
+				for _, msg := range tc.TransferMessages {
+					handler.ServeProtoMsg(msg, recorder)
+				}
 			}
-			err = handler.Close()
-			if tc.CloseError != nil {
-				assert.EqualError(t, err, tc.CloseError.Error())
+
+			if tc.FileContents != nil {
+				c := int64(tc.ChunkSize)
+				l := int64(len(tc.FileContents))
+				for start := int64(0); start < l; start += c {
+					end := start + c
+					if end > l {
+						end = l
+					}
+					handler.ServeProtoMsg(&ws.ProtoMsg{
+						Header: ws.ProtoHdr{
+							Proto:     ws.ProtoTypeFileTransfer,
+							MsgType:   wsft.MessageTypeChunk,
+							SessionID: "12344",
+							Properties: map[string]interface{}{
+								"offset": start,
+							},
+						},
+						Body: tc.FileContents[start:end],
+					}, recorder)
+
+				}
+				handler.ServeProtoMsg(&ws.ProtoMsg{
+					Header: ws.ProtoHdr{
+						Proto:     ws.ProtoTypeFileTransfer,
+						MsgType:   wsft.MessageTypeChunk,
+						SessionID: "12344",
+						Properties: map[string]interface{}{
+							"offset": l,
+						},
+					},
+				}, recorder)
+			}
+			select {
+			case handler.mutex <- struct{}{}:
+
+			case <-handler.mutex:
+				handler.mutex <- struct{}{}
+				// Block until the handler finishes
+				handler.mutex <- struct{}{}
+			}
+
+			if !assert.GreaterOrEqual(t, len(recorder.Messages), 1) {
+				t.FailNow()
+			}
+			if tc.Error == nil {
+				for _, msg := range recorder.Messages {
+					pass := assert.Equal(
+						t, wsft.MessageTypeACK, msg.Header.MsgType,
+						"Bad message: %v", msg,
+					)
+					if assert.Contains(t, msg.Header.Properties, "offset") {
+						pass = pass && assert.LessOrEqual(t,
+							msg.Header.Properties["offset"].(int64),
+							int64(len(tc.FileContents)),
+						)
+					} else {
+						pass = false
+					}
+					if !pass {
+						t.FailNow()
+					}
+				}
+				lastAck := recorder.Messages[len(recorder.Messages)-1]
+				if assert.Contains(t, lastAck.Header.Properties, "offset") {
+					assert.Equal(t,
+						int64(len(tc.FileContents)),
+						lastAck.Header.Properties["offset"].(int64),
+					)
+				}
 			} else {
-				assert.NoError(t, err)
+				if tc.WriteError != nil {
+					assert.Len(t, recorder.Messages, 1)
+					return
+				}
+				errMsgs := []*ws.ProtoMsg{}
+				for _, msg := range recorder.Messages {
+					if msg.Header.MsgType == wsft.MessageTypeError {
+						errMsgs = append(errMsgs, msg)
+					}
+				}
+				if !assert.GreaterOrEqual(t, len(errMsgs), 1, "did not receive any errors") {
+					t.FailNow()
+				}
+				lastErr := errMsgs[len(errMsgs)-1]
+				if !assert.Equal(t,
+					wsft.MessageTypeError,
+					lastErr.Header.MsgType,
+				) {
+					t.FailNow()
+				}
+				var err wsft.Error
+				msgpack.Unmarshal(lastErr.Body, &err)
+				if assert.NotNil(t, err.Error) {
+					assert.Contains(t, *err.Error, tc.Error.Error())
+				}
 			}
 		})
 	}
 }
 
-func TestFileTransferGetFile(t *testing.T) {
+type ChanWriter struct {
+	C chan *ws.ProtoMsg
+}
+
+func NewChanWriter(cap int) *ChanWriter {
+	return &ChanWriter{
+		C: make(chan *ws.ProtoMsg, cap),
+	}
+}
+
+func (w ChanWriter) WriteProtoMsg(msg *ws.ProtoMsg) error {
+	msgCP := &ws.ProtoMsg{
+		Header: msg.Header,
+	}
+	if msg.Body != nil {
+		msgCP.Body = make([]byte, len(msg.Body))
+		copy(msgCP.Body, msg.Body)
+	}
+	w.C <- msgCP
+	return nil
+}
+
+func TestFileTransferDownload(t *testing.T) {
 	t.Parallel()
-	const (
-		Filecontents = "test data"
-	)
-	var filename string
-	fd, err := ioutil.TempFile("", "test_filetransfer")
+	testdir, err := ioutil.TempDir("", "filetransferTesting")
 	if err != nil {
 		panic(err)
 	}
-	filename = fd.Name()
-	t.Cleanup(func() {
-		fd.Close()
-		os.Remove(filename)
-	})
-	_, err = fd.Write([]byte(Filecontents))
-	if err != nil {
-		panic(err)
-	}
+	t.Cleanup(func() { os.RemoveAll(testdir) })
 
 	testCases := []struct {
 		Name string
 
-		Message    *ws.ProtoMsg
-		WriteError error
+		FileContents []byte
+		Acker        func(msg *ws.ProtoMsg) *ws.ProtoMsg
 
-		Responses []*ws.ProtoMsg
+		Error error
 	}{{
 		Name: "ok",
 
-		Message: func() *ws.ProtoMsg {
-			b, _ := msgpack.Marshal(wsft.GetFile{
-				Path: &filename,
-			})
-			return &ws.ProtoMsg{
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeGet,
-					SessionID: "1234",
-				},
-				Body: b,
+		FileContents: []byte("a small chunk of bytes..."),
+		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+			ret := &ws.ProtoMsg{
+				Header: msg.Header,
 			}
-		}(),
-		Responses: []*ws.ProtoMsg{{
-			Header: ws.ProtoHdr{
-				Proto:     ws.ProtoTypeFileTransfer,
-				MsgType:   wsft.MessageTypeChunk,
-				SessionID: "1234",
-				Properties: map[string]interface{}{
-					"offset": int64(0),
-				},
-			},
-			Body: []byte(Filecontents),
-		}, {
-			Header: ws.ProtoHdr{
-				Proto:     ws.ProtoTypeFileTransfer,
-				MsgType:   wsft.MessageTypeChunk,
-				SessionID: "1234",
-				Properties: map[string]interface{}{
-					"offset": int64(len(Filecontents)),
-				},
-			},
-		}},
+			ret.Header.MsgType = wsft.MessageTypeACK
+			return ret
+		},
 	}, {
-		Name: "error, bad writer",
+		Name: "ok, file larger than window",
 
-		Message: func() *ws.ProtoMsg {
-			b, _ := msgpack.Marshal(wsft.GetFile{
-				Path: &filename,
-			})
+		FileContents: func() []byte {
+			b := make([]byte, FileTransferBufSize*(ACKSlidingWindowRecv+1))
+			copy(b, "zeroes...")
+			return b
+		}(),
+		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+			ret := &ws.ProtoMsg{
+				Header: msg.Header,
+			}
+			ret.Header.MsgType = wsft.MessageTypeACK
+			return ret
+		},
+	}, {
+		Name: "error, bad ack data type",
+
+		FileContents: []byte("tiny chunk"),
+
+		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+			if msg.Body != nil {
+				return nil
+			}
 			return &ws.ProtoMsg{
 				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeGet,
-					SessionID: "1234",
-				},
-				Body: b,
-			}
-		}(),
-		WriteError: errors.New("bad writer"),
-		Responses: func() []*ws.ProtoMsg {
-			msg := "failed to write file chunk to stream: abort: bad writer"
-			msgtyp := wsft.MessageTypeGet
-			erro := wsft.Error{
-				Error:       &msg,
-				MessageType: &msgtyp,
-			}
-			b, _ := msgpack.Marshal(erro)
-			return []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeChunk,
-					SessionID: "1234",
+					Proto:   ws.ProtoTypeFileTransfer,
+					MsgType: wsft.MessageTypeACK,
 					Properties: map[string]interface{}{
-						"offset": int64(0),
+						"offset": "12",
 					},
 				},
-				Body: []byte(Filecontents),
-			}, {
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeError,
-					SessionID: "1234",
-				},
-				Body: b,
-			}}
-		}(),
+			}
+		},
+		Error: errors.New("invalid offset data type: require int64"),
 	}, {
-		Name: "error, file does not exist",
+		Name: "error, no offset in ack",
 
-		Message: func() *ws.ProtoMsg {
-			filename := "/does/not/exist/1234"
-			b, _ := msgpack.Marshal(wsft.GetFile{
-				Path: &filename,
+		FileContents: []byte("tiny chunk"),
+
+		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+			if msg.Body != nil {
+				return nil
+			}
+			return &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:   ws.ProtoTypeFileTransfer,
+					MsgType: wsft.MessageTypeACK,
+				},
+			}
+		},
+		Error: errors.New("ack message: offset property cannot be blank"),
+	}, {
+		Name: "error, unexpected ack message",
+
+		FileContents: []byte("tiny chunk"),
+
+		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+			if msg.Body != nil {
+				return nil
+			}
+			return &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:   ws.ProtoTypeFileTransfer,
+					MsgType: wsft.MessageTypeChunk,
+				},
+				Body: []byte("I am violating the protocol haha"),
+			}
+		},
+		Error: errors.New("received unexpected message type 'file_chunk'; expected 'ack'"),
+	}, {
+		Name: "error, client malformed error message",
+
+		FileContents: []byte("tiny chunk"),
+
+		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+			if msg.Body != nil {
+				return nil
+			}
+			return &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:   ws.ProtoTypeFileTransfer,
+					MsgType: wsft.MessageTypeError,
+				},
+				Body: []byte("bad error schema"),
+			}
+		},
+		// The error will abort the handler s.t. no message is returned.
+	}, {
+		Name: "error, client error message",
+
+		FileContents: []byte("tiny chunk"),
+
+		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+			if msg.Body != nil {
+				return nil
+			}
+			errMsg := "ENOSPC"
+			b, _ := msgpack.Marshal(wsft.Error{
+				Error: &errMsg,
 			})
 			return &ws.ProtoMsg{
 				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeGet,
-					SessionID: "1234",
+					Proto:   ws.ProtoTypeFileTransfer,
+					MsgType: wsft.MessageTypeError,
 				},
 				Body: b,
 			}
-		}(),
-		Responses: func() []*ws.ProtoMsg {
-			msg := "failed to open file for reading: " +
-				"open /does/not/exist/1234: no such file or directory"
-			msgtyp := wsft.MessageTypeGet
-			erro := wsft.Error{
-				Error:       &msg,
-				MessageType: &msgtyp,
-			}
-			b, _ := msgpack.Marshal(erro)
-			return []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeError,
-					SessionID: "1234",
-				},
-				Body: b,
-			}}
-		}(),
-	}, {
-		Name: "error, malformed request parameters",
-
-		Message: &ws.ProtoMsg{
-			Header: ws.ProtoHdr{
-				Proto:     ws.ProtoTypeFileTransfer,
-				MsgType:   wsft.MessageTypeGet,
-				SessionID: "1234",
-			},
-			Body: []byte("foobar"),
 		},
-		Responses: func() []*ws.ProtoMsg {
-			msg := "malformed request parameters: msgpack: " +
-				"invalid code=66 decoding map length"
-			msgtyp := wsft.MessageTypeGet
-			erro := wsft.Error{
-				Error:       &msg,
-				MessageType: &msgtyp,
-			}
-			b, _ := msgpack.Marshal(erro)
-			return []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeError,
-					SessionID: "1234",
-				},
-				Body: b,
-			}}
-		}(),
-	}, {
-		Name: "error, invalid request parameters",
-
-		Message: func() *ws.ProtoMsg {
-			b, _ := msgpack.Marshal(GetFile{})
-			return &ws.ProtoMsg{
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeGet,
-					SessionID: "1234",
-				},
-				Body: b,
-			}
-		}(),
-		Responses: func() []*ws.ProtoMsg {
-			msg := "invalid request parameters: path: cannot be blank."
-			msgtyp := wsft.MessageTypeGet
-			erro := wsft.Error{
-				Error:       &msg,
-				MessageType: &msgtyp,
-			}
-			b, _ := msgpack.Marshal(erro)
-			return []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeError,
-					SessionID: "1234",
-				},
-				Body: b,
-			}}
-		}(),
+		// The error will abort the handler s.t. no message is returned.
 	}}
 	for i := range testCases {
 		tc := testCases[i]
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
-			handler := FileTransfer()()
-			w := &testWriter{err: tc.WriteError}
-			handler.ServeProtoMsg(tc.Message, w)
-			time.Sleep(time.Second)
-			assert.Equal(t, tc.Responses, w.Messages)
+			w := NewChanWriter(ACKSlidingWindowRecv)
+			handler := FileTransfer()().(*FileTransferHandler)
+			fd, err := ioutil.TempFile(testdir, "testfile")
+			if err != nil {
+				panic(err)
+			}
+			filename := fd.Name()
+			n, err := fd.Write(tc.FileContents)
+			fd.Close()
+			if err != nil {
+				panic(err)
+			}
+			assert.Equal(t, len(tc.FileContents), n)
+
+			b, _ := msgpack.Marshal(wsft.GetFile{
+				Path: &filename,
+			})
+			request := &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:   ws.ProtoTypeFileTransfer,
+					MsgType: wsft.MessageTypeGet,
+				},
+				Body: b,
+			}
+			defer handler.Close()
+
+			recvBuf := bytes.NewBuffer(nil)
+			handler.ServeProtoMsg(request, w)
+			timeout := time.NewTimer(time.Second * 10)
+			var msg *ws.ProtoMsg
+			select {
+			case msg = <-w.C:
+				timeout.Reset(time.Second * 10)
+			case <-timeout.C:
+				panic("test case timeout")
+			}
+			var offset int64
+		Loop:
+			for {
+				if msg.Header.MsgType == wsft.MessageTypeChunk {
+					off := msg.Header.Properties["offset"].(int64)
+					assert.GreaterOrEqual(t, off, offset)
+					offset = off
+					recvBuf.Write(msg.Body)
+					rsp := tc.Acker(msg)
+					if rsp != nil {
+						handler.ServeProtoMsg(rsp, w)
+					}
+				} else {
+					break Loop
+				}
+				select {
+				case handler.mutex <- struct{}{}:
+					break Loop
+				case msg = <-w.C:
+
+				case <-timeout.C:
+					panic("test case timeout")
+				}
+			}
+
+			if tc.Error != nil {
+				if !assert.Equal(t,
+					wsft.MessageTypeError,
+					msg.Header.MsgType,
+				) {
+					t.FailNow()
+				}
+				var erro wsft.Error
+				msgpack.Unmarshal(msg.Body, &erro)
+				if assert.NotNil(t, erro.Error) {
+					assert.Contains(t,
+						*erro.Error,
+						tc.Error.Error(),
+					)
+				}
+			} else {
+				// Last message must be an EOF and the file contents
+				// must match.
+				if !assert.Equal(t,
+					wsft.MessageTypeChunk,
+					msg.Header.MsgType,
+				) {
+					t.FailNow()
+				}
+				assert.Nil(t, msg.Body, "Last message must be an EOF chunk")
+				assert.Equal(t, tc.FileContents, recvBuf.Bytes())
+			}
 		})
 	}
 }
@@ -676,9 +717,212 @@ func TestFileTransferStat(t *testing.T) {
 			t.Parallel()
 
 			handler := FileTransfer()()
-			w := &testWriter{err: tc.WriteError}
+			w := NewTestWriter(tc.WriteError)
 			handler.ServeProtoMsg(tc.Message, w)
 			tc.ResponseValidator(t, w.Messages)
+		})
+	}
+}
+
+func TestFileTransferServeErrors(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		Name string
+
+		Message   *ws.ProtoMsg
+		LockMutex bool
+
+		Error error
+	}{{
+		Name: "malformed upload request",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypePut,
+				SessionID: "1234",
+			},
+			Body: []byte("/foo/bar"),
+		},
+
+		Error: errors.New("malformed request parameters: "),
+	}, {
+		Name: "invalid upload request parameters",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypePut,
+				SessionID: "1234",
+			},
+			Body: func() []byte {
+				b, _ := msgpack.Marshal(map[string]interface{}{})
+				return b
+			}(),
+		},
+
+		Error: errors.New("invalid request parameters: path: cannot be blank"),
+	}, {
+		Name: "upload already in progress",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypePut,
+				SessionID: "1234",
+			},
+			Body: func() []byte {
+				fd, err := ioutil.TempFile("", "filetransferTesting")
+				if err != nil {
+					panic(err)
+				}
+				filename := fd.Name()
+				fd.Close()
+				t.Cleanup(func() { os.Remove(fd.Name()) })
+				b, _ := msgpack.Marshal(wsft.FileInfo{
+					Path: &filename,
+				})
+				return b
+			}(),
+		},
+		LockMutex: true,
+
+		Error: errors.New("another file transfer is in progress"),
+	}, {
+		Name: "malformed download request",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypeGet,
+				SessionID: "1234",
+			},
+			Body: []byte("/foo/bar"),
+		},
+
+		Error: errors.New("malformed request parameters: "),
+	}, {
+		Name: "invalid download request parameters",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypeGet,
+				SessionID: "1234",
+			},
+			Body: func() []byte {
+				b, _ := msgpack.Marshal(map[string]interface{}{})
+				return b
+			}(),
+		},
+
+		Error: errors.New("invalid request parameters: path: cannot be blank"),
+	}, {
+		Name: "download already in progress",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypeGet,
+				SessionID: "1234",
+			},
+			Body: func() []byte {
+				fd, err := ioutil.TempFile("", "filetransferTesting")
+				if err != nil {
+					panic(err)
+				}
+				filename := fd.Name()
+				fd.Close()
+				t.Cleanup(func() { os.Remove(fd.Name()) })
+				b, _ := msgpack.Marshal(wsft.GetFile{
+					Path: &filename,
+				})
+				return b
+			}(),
+		},
+		LockMutex: true,
+
+		Error: errors.New("another file transfer is in progress"),
+	}, {
+		Name: "got chunk but no file transfer in progress",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypeChunk,
+				SessionID: "1234",
+			},
+		},
+
+		Error: errors.New("no file transfer in progress"),
+	}, {
+		Name: "generic error from client",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypeError,
+				SessionID: "1234",
+			},
+			Body: func() []byte {
+				errMsg := "generic error"
+				b, _ := msgpack.Marshal(wsft.Error{
+					Error: &errMsg,
+				})
+				return b
+			}(),
+		},
+	}, {
+		Name: "malformed error from client",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   wsft.MessageTypeError,
+				SessionID: "1234",
+			},
+			Body: []byte("schemaless error?"),
+		},
+	}, {
+		Name: "message type not implemented",
+
+		Message: &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeFileTransfer,
+				MsgType:   "SpecialSauce/NotImplemented",
+				SessionID: "1234",
+			},
+		},
+
+		Error: errors.New("session: filetransfer message type " +
+			"'SpecialSauce/NotImplemented' not supported"),
+	}}
+	for i := range testCases {
+		tc := testCases[i]
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := FileTransfer()().(*FileTransferHandler)
+			if tc.LockMutex {
+				handler.mutex <- struct{}{}
+			}
+			w := NewTestWriter(nil)
+			handler.ServeProtoMsg(tc.Message, w)
+
+			if tc.Error != nil {
+				if !assert.Len(t, w.Messages, 1) {
+					t.FailNow()
+				}
+				msg := w.Messages[0]
+				assert.Equal(t, wsft.MessageTypeError, msg.Header.MsgType)
+				var erro wsft.Error
+				msgpack.Unmarshal(msg.Body, &erro)
+				if assert.NotNil(t, erro.Error) {
+					assert.Contains(t, *erro.Error, tc.Error.Error())
+				}
+			} else {
+				assert.Len(t, w.Messages, 0)
+			}
 		})
 	}
 }

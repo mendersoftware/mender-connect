@@ -50,11 +50,23 @@ func (h echoHandler) Close() error {
 }
 
 type testWriter struct {
+	Called   chan struct{}
 	Messages []*ws.ProtoMsg
 	err      error
 }
 
+func NewTestWriter(err error) *testWriter {
+	return &testWriter{
+		Called: make(chan struct{}, 1),
+		err:    err,
+	}
+}
+
 func (w *testWriter) WriteProtoMsg(msg *ws.ProtoMsg) error {
+	select {
+	case w.Called <- struct{}{}:
+	default:
+	}
 	w.Messages = append(w.Messages, msg)
 	return w.err
 }
@@ -233,7 +245,7 @@ func TestSessionListen(t *testing.T) {
 
 		Responses: func() []*ws.ProtoMsg {
 			errMsg := ws.Error{
-				Error: "session: timed out",
+				Error: "session timeout",
 				Close: true,
 			}
 			b, _ := msgpack.Marshal(errMsg)
@@ -305,9 +317,7 @@ func TestSessionListen(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
 
-			w := &testWriter{
-				err: tc.WriteError,
-			}
+			w := NewTestWriter(tc.WriteError)
 			msgChan := make(chan *ws.ProtoMsg)
 			sess := New(
 				tc.SessionID, msgChan,
