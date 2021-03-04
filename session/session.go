@@ -189,11 +189,13 @@ func (sess *Session) handlePanic() {
 }
 
 func (sess *Session) ListenAndServe() {
+	const pongWait = time.Second * 5
 	defer sess.handlePanic()
 	var (
-		msg      *ws.ProtoMsg
-		open     bool
-		deadline time.Time = time.Now().Add(sess.Config.IdleTimeout)
+		msg       *ws.ProtoMsg
+		open      bool
+		sessIdle  bool
+		timerPing = time.NewTimer(sess.Config.IdleTimeout - pongWait)
 	)
 	select {
 	case <-sess.done:
@@ -202,15 +204,18 @@ func (sess *Session) ListenAndServe() {
 	}
 	for {
 		select {
-		case <-time.After(time.Until(deadline)):
-			sess.Error(&ws.ProtoMsg{}, true, "session: timed out")
-			return
-
-		case <-time.After((sess.Config.IdleTimeout * 4) / 5):
-			err := sess.Ping()
-			if err != nil {
-				log.Errorf("failed to ping client: %s", err.Error())
+		case <-timerPing.C:
+			if sessIdle {
+				sess.Error(&ws.ProtoMsg{}, true, "session timeout")
 				return
+			} else {
+				err := sess.Ping()
+				if err != nil {
+					log.Errorf("failed to ping client: %s", err.Error())
+					return
+				}
+				sessIdle = true
+				timerPing.Reset(pongWait)
 			}
 			continue
 
@@ -218,7 +223,8 @@ func (sess *Session) ListenAndServe() {
 			if !open {
 				return
 			}
-			deadline = time.Now().Add(sess.Config.IdleTimeout)
+			timerPing.Reset(sess.Config.IdleTimeout)
+			sessIdle = false
 		}
 
 		if msg.Header.Proto == ws.ProtoTypeControl {
