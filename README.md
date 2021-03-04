@@ -13,7 +13,7 @@ This repository contains the remote shell access add-on. It enhances the
 [Mender client](https://github.com/mendersoftware/mender), allowing to log in
 to the devices remotely and start a shell in a remote terminal session.
 
-![Mender logo](https://hosted.mender.io/ui/assets/img/loginlogo.png)
+![Mender logo](https://raw.githubusercontent.com/mendersoftware/mender/master/mender_logo.png)
 
 
 ## Getting started
