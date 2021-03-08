@@ -19,16 +19,20 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 
-	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsft "github.com/mendersoftware/go-lib-micro/ws/filetransfer"
+
+	"github.com/mendersoftware/mender-connect/config"
+	"github.com/mendersoftware/mender-connect/limits/filetransfer"
+	"github.com/mendersoftware/mender-connect/session/model"
 )
 
 const (
@@ -39,30 +43,6 @@ const (
 
 var errFileTransferAbort = errors.New("handler aborted")
 
-type FileInfo wsft.FileInfo
-
-func (f FileInfo) Validate() error {
-	return validation.ValidateStruct(&f,
-		validation.Field(&f.Path, validation.Required),
-	)
-}
-
-type StatFile wsft.StatFile
-
-func (s StatFile) Validate() error {
-	return validation.ValidateStruct(&s,
-		validation.Field(&s.Path, validation.Required),
-	)
-}
-
-type GetFile wsft.GetFile
-
-func (f GetFile) Validate() error {
-	return validation.ValidateStruct(&f,
-		validation.Field(&f.Path, validation.Required),
-	)
-}
-
 type FileTransferHandler struct {
 	// mutex is used for protecting the async handler. A channel with cap(1)
 	// is used instead of sync.Mutex to be able to test acquiring the
@@ -70,14 +50,16 @@ type FileTransferHandler struct {
 	mutex chan struct{}
 	// msgChan is used to pass messages down to the async file transfer handler routine.
 	msgChan chan *ws.ProtoMsg
+	permit  *filetransfer.Permit
 }
 
 // FileTransfer creates a new filetransfer constructor
-func FileTransfer() Constructor {
+func FileTransfer(limits config.Limits) Constructor {
 	return func() SessionHandler {
 		return &FileTransferHandler{
 			mutex:   make(chan struct{}, 1),
 			msgChan: make(chan *ws.ProtoMsg),
+			permit:  filetransfer.NewPermit(limits),
 		}
 	}
 }
@@ -146,7 +128,7 @@ func (h *FileTransferHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) 
 }
 
 func (h *FileTransferHandler) StatFile(msg *ws.ProtoMsg, w ResponseWriter) {
-	var params StatFile
+	var params model.StatFile
 	err := msgpack.Unmarshal(msg.Body, &params)
 	if err != nil {
 		h.Error(msg, w, errors.Wrap(err, "malformed request parameters"))
@@ -219,7 +201,7 @@ func (c *chunkWriter) Write(b []byte) (int, error) {
 }
 
 func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWriter) (err error) {
-	params := new(GetFile)
+	params := new(model.GetFile)
 	defer func() {
 		if err != nil {
 			log.Error(err.Error())
@@ -232,7 +214,24 @@ func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWrite
 	} else if err = params.Validate(); err != nil {
 		err = errors.Wrap(err, "invalid request parameters")
 		return err
+	} else if err = h.permit.DownloadFile(model.FileInfo{
+		Path:    params.Path,
+		Size:    nil,
+		UID:     nil,
+		GID:     nil,
+		Mode:    nil,
+		ModTime: nil,
+	}); err != nil {
+		log.Warnf("file download access denied: %s", err.Error())
+		err = errors.Wrap(err, "access denied")
+		return err
 	}
+	belowLimit := h.permit.BytesSent(uint64(0))
+	if !belowLimit {
+		log.Warnf("file download tx bytes limit reached.")
+		return filetransfer.ErrTxBytesLimitExhausted
+	}
+
 	fd, err := os.Open(*params.Path)
 	if err != nil {
 		err = errors.Wrap(err, "failed to open file for reading")
@@ -319,6 +318,11 @@ func (h *FileTransferHandler) DownloadHandler(fd *os.File, msg *ws.ProtoMsg, w R
 				err = errors.Wrap(err, "failed to copy file chunk to session")
 				return err
 			}
+			belowLimit := h.permit.BytesSent(uint64(N))
+			if !belowLimit {
+				log.Warnf("file download tx bytes limit reached.")
+				return filetransfer.ErrTxBytesLimitExhausted
+			}
 			if N < windowBytes {
 				break
 			}
@@ -361,7 +365,7 @@ func (h *FileTransferHandler) InitFileUpload(msg *ws.ProtoMsg, w ResponseWriter)
 		defaultUID  uint32 = uint32(os.Getuid())
 		defaultGID  uint32 = uint32(os.Getgid())
 	)
-	params := FileInfo{
+	params := model.FileInfo{
 		UID:  &defaultUID,
 		GID:  &defaultGID,
 		Mode: &defaultMode,
@@ -371,11 +375,22 @@ func (h *FileTransferHandler) InitFileUpload(msg *ws.ProtoMsg, w ResponseWriter)
 			h.Error(msg, w, err)
 		}
 	}()
+
 	err = msgpack.Unmarshal(msg.Body, &params)
+	log.Debugf("InitFileUpload getting upload file: %+v", params)
 	if err != nil {
 		return errors.Wrap(err, "malformed request parameters")
 	} else if err = params.Validate(); err != nil {
 		return errors.Wrap(err, "invalid request parameters")
+	} else if err = h.permit.UploadFile(params); err != nil {
+		return errors.Wrap(err, "access denied")
+	}
+
+	belowLimit := h.permit.BytesReceived(uint64(0))
+	if !belowLimit {
+		log.Warnf("file upload rx bytes limit reached.")
+		err = filetransfer.ErrTxBytesLimitExhausted
+		return filetransfer.ErrTxBytesLimitExhausted
 	}
 
 	select {
@@ -390,7 +405,7 @@ func (h *FileTransferHandler) InitFileUpload(msg *ws.ProtoMsg, w ResponseWriter)
 
 var atomicSuffix uint32
 
-func createWrOnlyTempFile(params FileInfo) (fd *os.File, err error) {
+func createWrOnlyTempFile(params model.FileInfo) (fd *os.File, err error) {
 	for i := 0; i < 100; i++ {
 		suffix := atomic.AddUint32(&atomicSuffix, 1)
 		filename := *params.Path + fmt.Sprintf(".%08x%02x", suffix, i)
@@ -410,8 +425,7 @@ func createWrOnlyTempFile(params FileInfo) (fd *os.File, err error) {
 
 func (h *FileTransferHandler) FileUploadHandler(
 	msg *ws.ProtoMsg,
-	params FileInfo,
-
+	params model.FileInfo,
 	w ResponseWriter,
 ) (err error) {
 	var (
@@ -487,8 +501,33 @@ func (h *FileTransferHandler) FileUploadHandler(
 	if err != nil {
 		return errors.Wrap(err, "failed to commit uploaded file")
 	}
+
+	err = h.permit.PreserveOwnerGroup(*params.Path, int(*params.UID), int(*params.GID))
+	if err != nil {
+		return errors.Wrap(err, "failed to preserve file owner/group "+
+			strconv.Itoa(int(*params.UID))+"/"+strconv.Itoa(int(*params.GID)))
+	}
+
+	err = h.permit.PreserveModes(*params.Path, os.FileMode(*params.Mode))
+	if err != nil {
+		return errors.Wrap(err, "failed to preserve file mode "+
+			"("+os.FileMode(*params.Mode).String()+")")
+	}
+
 	fd = nil
 	return err
+}
+
+func (h *FileTransferHandler) dstWrite(dst *os.File, body []byte, offset int64) (int, error) {
+	n, err := dst.Write(body)
+	offset += int64(n)
+	belowLimit := h.permit.BytesReceived(uint64(n))
+	if !belowLimit || !h.permit.BelowMaxAllowedFileSize(offset) {
+		log.Warnf("file upload rx bytes limit reached.")
+		return n, filetransfer.ErrTxBytesLimitExhausted
+	} else {
+		return n, err
+	}
 }
 
 func (h *FileTransferHandler) writeFile(w ResponseWriter, dst *os.File) (int64, error) {
@@ -530,7 +569,7 @@ func (h *FileTransferHandler) writeFile(w ResponseWriter, dst *os.File) (int64, 
 			}
 		}
 		if len(msg.Body) > 0 {
-			n, err := dst.Write(msg.Body)
+			n, err := h.dstWrite(dst, msg.Body, offset)
 			offset += int64(n)
 			if err != nil {
 				return errors.Wrap(err, "failed to write file chunk")

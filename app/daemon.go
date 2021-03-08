@@ -16,6 +16,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/mendersoftware/mender-connect/limits/filetransfer"
 	"os/user"
 	"strconv"
 	"sync"
@@ -92,7 +93,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		routes[ws.ProtoTypeShell] = nil
 	}
 	if !conf.FileTransfer.Disable {
-		routes[ws.ProtoTypeFileTransfer] = session.FileTransfer()
+		routes[ws.ProtoTypeFileTransfer] = session.FileTransfer(conf.Limits)
 	}
 	if !conf.PortForward.Disable {
 		routes[ws.ProtoTypePortForward] = session.PortForward()
@@ -198,6 +199,10 @@ func (d *MenderShellDaemon) outputStatus() {
 		log.Infof("   expires:%s active:%s", s.GetExpiresAtFmt(), s.GetActiveAtFmt())
 		log.Infof("   shell:%s", s.GetShellCommandPath())
 	}
+	log.Info("  file-transfer:")
+	tx, rx, tx1m, rx1m := filetransfer.GetCounters()
+	log.Infof("   total: tx/rx %d/%d", tx, rx)
+	log.Infof("   1m: tx rx %.2f %.2f (w)", tx1m, rx1m)
 	d.printStatus = false
 }
 

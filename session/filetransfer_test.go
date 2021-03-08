@@ -16,6 +16,9 @@ package session
 
 import (
 	"bytes"
+	"github.com/mendersoftware/mender-connect/config"
+	"github.com/mendersoftware/mender-connect/limits/filetransfer"
+	"github.com/mendersoftware/mender-connect/session/model"
 	"io"
 	"io/ioutil"
 	"os"
@@ -32,6 +35,7 @@ import (
 
 func TestFileTransferUpload(t *testing.T) {
 	t.Parallel()
+	fileSize := int64(1024)
 	testdir, err := ioutil.TempDir("", "filetransfer-testing")
 	if err != nil {
 		panic(err)
@@ -40,152 +44,213 @@ func TestFileTransferUpload(t *testing.T) {
 	testCases := []struct {
 		Name string
 
-		Params FileInfo
+		Params model.FileInfo
 
 		// TransferMessages, if set, are sent before file contents
 		TransferMessages []*ws.ProtoMsg
 		FileContents     []byte
 		ChunkSize        int
 
+		LimitsEnabled bool
+		Limits        config.FileTransferLimits
+
 		WriteError error
 
 		Error error
-	}{{
-		Name: "ok",
+	}{
+		{
+			Name: "ok",
 
-		Params: FileInfo{
-			Path: func() *string {
-				p := path.Join(testdir, "mkay")
-				return &p
-			}(),
-		},
-
-		FileContents: []byte(
-			"this message will be chunked into byte chunks to " +
-				"make things super inefficient",
-		),
-		ChunkSize: 1,
-	}, {
-		Name: "error, fake error from client",
-
-		Params: FileInfo{
-			Path: func() *string {
-				p := path.Join(testdir, "clienterr")
-				return &p
-			}(),
-		},
-		TransferMessages: func() []*ws.ProtoMsg {
-			errMsg := "something unexpected happened"
-			b, _ := msgpack.Marshal(wsft.Error{
-				Error: &errMsg,
-			})
-			return []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeError,
-					SessionID: "12344",
-				},
-				Body: b,
-			}}
-		}(),
-		// We don't expect an error in return here, only a single ack
-		// so that it follows the same test path as a successful
-		// file transfer.
-	}, {
-		Name: "error, unexpected ACK message from client",
-
-		Params: FileInfo{
-			Path: func() *string {
-				p := path.Join(testdir, "ackerr")
-				return &p
-			}(),
-		},
-		TransferMessages: []*ws.ProtoMsg{{
-			Header: ws.ProtoHdr{
-				Proto:     ws.ProtoTypeFileTransfer,
-				MsgType:   wsft.MessageTypeACK,
-				SessionID: "12344",
+			Params: model.FileInfo{
+				Path: func() *string {
+					p := path.Join(testdir, "mkay")
+					return &p
+				}(),
 			},
-		}},
-		Error: errors.New("received unexpected message type 'ack' " +
-			"during file upload"),
-	}, {
-		Name: "error, chunk missing offset",
 
-		Params: FileInfo{
-			Path: func() *string {
-				p := path.Join(testdir, "offseterr")
-				return &p
-			}(),
+			FileContents: []byte(
+				"this message will be chunked into byte chunks to " +
+					"make things super inefficient",
+			),
+			ChunkSize: 1,
 		},
-		TransferMessages: func() []*ws.ProtoMsg {
-			return []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeChunk,
-					SessionID: "12344",
+		{
+			Name: "error, file too big upload denied",
+
+			Params: model.FileInfo{
+				Path: func() *string {
+					p := path.Join(testdir, "mkay")
+					return &p
+				}(),
+				Size: &fileSize,
+			},
+
+			FileContents: []byte(
+				"this message will be chunked into byte chunks to " +
+					"make things super inefficient",
+			),
+			ChunkSize: 1,
+
+			LimitsEnabled: true,
+			Limits: config.FileTransferLimits{
+				FollowSymLinks: true,
+				MaxFileSize:    1,
+			},
+
+			Error: errors.New("no file transfer in progress"), //for some reason Upload currently returns this error
+		},
+		{
+			Name: "error, transfer limit reached",
+
+			Params: model.FileInfo{
+				Path: func() *string {
+					p := path.Join(testdir, "mkay")
+					return &p
+				}(),
+				Size: &fileSize,
+			},
+
+			FileContents: []byte(
+				"this message will be chunked into byte chunks to " +
+					"make things super inefficient",
+			),
+			ChunkSize: 1,
+
+			LimitsEnabled: true,
+			Limits: config.FileTransferLimits{
+				FollowSymLinks: true,
+				Counters: config.RateLimits{
+					MaxBytesTxPerMinute: 1,
+					MaxBytesRxPerMinute: 1,
 				},
-				Body: []byte("data"),
-			}}
-		}(),
-		Error: errors.New("invalid file chunk message: missing offset property"),
-	}, {
-		Name: "error, offset jumps beyond EOF",
+			},
 
-		Params: FileInfo{
-			Path: func() *string {
-				p := path.Join(testdir, "badOffset")
-				return &p
-			}(),
+			Error: errors.New("no file transfer in progress"), //for some reason Upload currently returns this error
 		},
-		TransferMessages: func() []*ws.ProtoMsg {
-			return []*ws.ProtoMsg{{
-				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
-					MsgType:   wsft.MessageTypeChunk,
-					SessionID: "12344",
-					Properties: map[string]interface{}{
-						"offset": int64(1234),
+		{
+			Name: "error, fake error from client",
+
+			Params: model.FileInfo{
+				Path: func() *string {
+					p := path.Join(testdir, "clienterr")
+					return &p
+				}(),
+			},
+			TransferMessages: func() []*ws.ProtoMsg {
+				errMsg := "something unexpected happened"
+				b, _ := msgpack.Marshal(wsft.Error{
+					Error: &errMsg,
+				})
+				return []*ws.ProtoMsg{{
+					Header: ws.ProtoHdr{
+						Proto:     ws.ProtoTypeFileTransfer,
+						MsgType:   wsft.MessageTypeError,
+						SessionID: "12344",
 					},
+					Body: b,
+				}}
+			}(),
+			// We don't expect an error in return here, only a single ack
+			// so that it follows the same test path as a successful
+			// file transfer.
+		}, {
+			Name: "error, unexpected ACK message from client",
+
+			Params: model.FileInfo{
+				Path: func() *string {
+					p := path.Join(testdir, "ackerr")
+					return &p
+				}(),
+			},
+			TransferMessages: []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeFileTransfer,
+					MsgType:   wsft.MessageTypeACK,
+					SessionID: "12344",
 				},
-				Body: []byte("data"),
-			}}
-		}(),
-		Error: errors.New("received unexpected chunk offset"),
-	}, {
-		Name: "error, broken response writer",
+			}},
+			Error: errors.New("received unexpected message type 'ack' " +
+				"during file upload"),
+		}, {
+			Name: "error, chunk missing offset",
 
-		Params: FileInfo{
-			Path: func() *string {
-				p := path.Join(testdir, "errfile")
-				return &p
+			Params: model.FileInfo{
+				Path: func() *string {
+					p := path.Join(testdir, "offseterr")
+					return &p
+				}(),
+			},
+			TransferMessages: func() []*ws.ProtoMsg {
+				return []*ws.ProtoMsg{{
+					Header: ws.ProtoHdr{
+						Proto:     ws.ProtoTypeFileTransfer,
+						MsgType:   wsft.MessageTypeChunk,
+						SessionID: "12344",
+					},
+					Body: []byte("data"),
+				}}
 			}(),
-		},
+			Error: errors.New("invalid file chunk message: missing offset property"),
+		}, {
+			Name: "error, offset jumps beyond EOF",
 
-		WriteError: io.ErrClosedPipe,
-	}, {
-		Name: "error, parent directory does not exist",
-
-		Params: FileInfo{
-			Path: func() *string {
-				p := path.Join(
-					testdir, "parent", "dir",
-					"does", "not", "exist",
-					"for", "this", "file",
-				)
-				return &p
+			Params: model.FileInfo{
+				Path: func() *string {
+					p := path.Join(testdir, "badOffset")
+					return &p
+				}(),
+			},
+			TransferMessages: func() []*ws.ProtoMsg {
+				return []*ws.ProtoMsg{{
+					Header: ws.ProtoHdr{
+						Proto:     ws.ProtoTypeFileTransfer,
+						MsgType:   wsft.MessageTypeChunk,
+						SessionID: "12344",
+						Properties: map[string]interface{}{
+							"offset": int64(1234),
+						},
+					},
+					Body: []byte("data"),
+				}}
 			}(),
-		},
+			Error: errors.New("received unexpected chunk offset"),
+		}, {
+			Name: "error, broken response writer",
 
-		Error: errors.New("failed to create file"),
-	}}
+			Params: model.FileInfo{
+				Path: func() *string {
+					p := path.Join(testdir, "errfile")
+					return &p
+				}(),
+			},
+
+			WriteError: io.ErrClosedPipe,
+		}, {
+			Name: "error, parent directory does not exist",
+
+			Params: model.FileInfo{
+				Path: func() *string {
+					p := path.Join(
+						testdir, "parent", "dir",
+						"does", "not", "exist",
+						"for", "this", "file",
+					)
+					return &p
+				}(),
+			},
+
+			Error: errors.New("failed to create file"),
+		}}
 	for i := range testCases {
 		tc := testCases[i]
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
 
 			recorder := NewTestWriter(tc.WriteError)
-			handler := FileTransfer()().(*FileTransferHandler)
+			handler := FileTransfer(config.Limits{
+				Enabled:      tc.LimitsEnabled,
+				FileTransfer: tc.Limits,
+			})().(*FileTransferHandler)
 			b, _ := msgpack.Marshal(tc.Params)
 			request := &ws.ProtoMsg{
 				Header: ws.ProtoHdr{
@@ -346,6 +411,10 @@ func TestFileTransferDownload(t *testing.T) {
 		FileContents []byte
 		Acker        func(msg *ws.ProtoMsg) *ws.ProtoMsg
 
+		LimitsEnabled    bool
+		Limits           config.FileTransferLimits
+		FileDoesNotExist bool
+
 		Error error
 	}{{
 		Name: "ok",
@@ -446,35 +515,74 @@ func TestFileTransferDownload(t *testing.T) {
 			}
 		},
 		// The error will abort the handler s.t. no message is returned.
-	}, {
-		Name: "error, client error message",
+	},
+		{
+			Name: "error, client error message",
 
-		FileContents: []byte("tiny chunk"),
+			FileContents: []byte("tiny chunk"),
 
-		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
-			if msg.Body != nil {
-				return nil
-			}
-			errMsg := "ENOSPC"
-			b, _ := msgpack.Marshal(wsft.Error{
-				Error: &errMsg,
-			})
-			return &ws.ProtoMsg{
-				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
-					MsgType: wsft.MessageTypeError,
-				},
-				Body: b,
-			}
+			Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+				if msg.Body != nil {
+					return nil
+				}
+				errMsg := "ENOSPC"
+				b, _ := msgpack.Marshal(wsft.Error{
+					Error: &errMsg,
+				})
+				return &ws.ProtoMsg{
+					Header: ws.ProtoHdr{
+						Proto:   ws.ProtoTypeFileTransfer,
+						MsgType: wsft.MessageTypeError,
+					},
+					Body: b,
+				}
+			},
+			// The error will abort the handler s.t. no message is returned.
 		},
-		// The error will abort the handler s.t. no message is returned.
-	}}
+		{
+			Name: "error, file does not exist",
+
+			FileContents: []byte("tiny chunk"),
+			Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+				ret := &ws.ProtoMsg{
+					Header: msg.Header,
+				}
+				ret.Header.MsgType = wsft.MessageTypeACK
+				return ret
+			},
+			FileDoesNotExist: true,
+
+			Error: errors.New("failed to open file for reading: open lets say it does not exist: no such file or directory"),
+		},
+		{
+			Name: "error, forbidden to follow links",
+
+			FileContents: []byte("tiny chunk"),
+			Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+				ret := &ws.ProtoMsg{
+					Header: msg.Header,
+				}
+				ret.Header.MsgType = wsft.MessageTypeACK
+				return ret
+			},
+
+			LimitsEnabled: true,
+			Limits: config.FileTransferLimits{
+				FollowSymLinks: false,
+			},
+
+			Error: filetransfer.ErrFollowLinksForbidden,
+		},
+	}
 	for i := range testCases {
 		tc := testCases[i]
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
 			w := NewChanWriter(ACKSlidingWindowRecv)
-			handler := FileTransfer()().(*FileTransferHandler)
+			handler := FileTransfer(config.Limits{
+				Enabled:      tc.LimitsEnabled,
+				FileTransfer: tc.Limits,
+			})().(*FileTransferHandler)
 			fd, err := ioutil.TempFile(testdir, "testfile")
 			if err != nil {
 				panic(err)
@@ -486,6 +594,18 @@ func TestFileTransferDownload(t *testing.T) {
 				panic(err)
 			}
 			assert.Equal(t, len(tc.FileContents), n)
+			if tc.LimitsEnabled {
+				if !tc.Limits.FollowSymLinks {
+					err := os.Symlink(filename, filename+"-link")
+					if err != nil {
+						t.Fatal("cant create a link")
+					}
+					filename = filename + "-link"
+				}
+			}
+			if tc.FileDoesNotExist {
+				filename = "lets say it does not exist"
+			}
 
 			b, _ := msgpack.Marshal(wsft.GetFile{
 				Path: &filename,
@@ -716,7 +836,7 @@ func TestFileTransferStat(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := FileTransfer()()
+			handler := FileTransfer(config.Limits{})()
 			w := NewTestWriter(tc.WriteError)
 			handler.ServeProtoMsg(tc.Message, w)
 			tc.ResponseValidator(t, w.Messages)
@@ -902,7 +1022,7 @@ func TestFileTransferServeErrors(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := FileTransfer()().(*FileTransferHandler)
+			handler := FileTransfer(config.Limits{})().(*FileTransferHandler)
 			if tc.LockMutex {
 				handler.mutex <- struct{}{}
 			}
