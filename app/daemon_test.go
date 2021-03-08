@@ -1360,7 +1360,7 @@ func TestRouteMessage(t *testing.T) {
 			daemon := NewDaemon(&config.MenderShellConfig{
 				MenderShellConfigFromFile: config.MenderShellConfigFromFile{
 					FileTransfer: config.FileTransferConfig{
-						Enable: true,
+						Disable: false,
 					},
 				},
 			})
