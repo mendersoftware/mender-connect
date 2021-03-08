@@ -11,7 +11,8 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-package app
+
+package session
 
 import (
 	"os/exec"
@@ -20,8 +21,6 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws/menderclient"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/mendersoftware/mender-connect/connectionmanager"
 )
 
 const (
@@ -31,6 +30,11 @@ const (
 
 const propertyStatus = "status"
 
+func MenderClient() Constructor {
+	f := HandlerFunc(menderClientHandler)
+	return func() SessionHandler { return f }
+}
+
 var runCommand = func(command []string) error {
 	if len(command) > 0 {
 		cmd := exec.Command(command[0], command[1:]...)
@@ -39,7 +43,7 @@ var runCommand = func(command []string) error {
 	return errors.New("no command provided")
 }
 
-func processMessageMenderClient(message *ws.ProtoMsg) error {
+func menderClientHandler(message *ws.ProtoMsg, w ResponseWriter) {
 	command := ""
 	switch message.Header.MsgType {
 	case menderclient.MessageTypeMenderClientCheckUpdate:
@@ -67,8 +71,7 @@ func processMessageMenderClient(message *ws.ProtoMsg) error {
 		response.Header.Properties[propertyStatus] = ErrorMessage
 		response.Body = []byte(err.Error())
 	}
-	if err := connectionmanager.Write(ws.ProtoTypeShell, response); err != nil {
-		log.Errorf("processMessageMenderClient: webSock.WriteMessage(%+v)", err)
+	if err := w.WriteProtoMsg(response); err != nil {
+		log.Errorf("menderClientHandler: webSock.WriteMessage(%+v)", err)
 	}
-	return err
 }

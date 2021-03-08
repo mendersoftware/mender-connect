@@ -24,7 +24,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
-	wsmenderclient "github.com/mendersoftware/go-lib-micro/ws/menderclient"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 	"github.com/pkg/errors"
 
@@ -95,6 +94,9 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 	routes := make(session.ProtoRoutes)
 	if !conf.FileTransfer.Disable {
 		routes[ws.ProtoTypeFileTransfer] = session.FileTransfer()
+	}
+	if !conf.MenderClient.Disable {
+		routes[ws.ProtoTypeMenderClient] = session.MenderClient()
 	}
 	router := session.NewRouter(
 		routes, session.Config{
@@ -522,16 +524,6 @@ func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
 			return d.routeMessageShellResize(msg)
 		case wsshell.MessageTypePongShell:
 			return d.routeMessagePongShell(msg)
-		}
-	case ws.ProtoTypeMenderClient:
-		if d.MenderClientConfig.Disable {
-			break
-		}
-		switch msg.Header.MsgType {
-		case wsmenderclient.MessageTypeMenderClientCheckUpdate:
-			return processMessageMenderClient(msg)
-		case wsmenderclient.MessageTypeMenderClientSendInventory:
-			return processMessageMenderClient(msg)
 		}
 	default:
 		return d.router.RouteMessage(

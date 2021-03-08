@@ -65,6 +65,12 @@ type SessionHandler interface {
 	Close() error
 }
 
+type HandlerFunc func(msg *ws.ProtoMsg, w ResponseWriter)
+
+func (h HandlerFunc) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) { h(msg, w) }
+
+func (h HandlerFunc) Close() error { return nil }
+
 // Constructor is a function for SessionHandler initializers. To create a
 // Router, all ProtoType Routes must route to a SessionHandler Constructor
 // (factory).
