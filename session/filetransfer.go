@@ -226,7 +226,7 @@ func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWrite
 			h.Error(msg, w, err)
 		}
 	}()
-	if err := msgpack.Unmarshal(msg.Body, params); err != nil {
+	if err = msgpack.Unmarshal(msg.Body, params); err != nil {
 		err = errors.Wrap(err, "malformed request parameters")
 		return err
 	} else if err = params.Validate(); err != nil {
@@ -240,7 +240,7 @@ func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWrite
 	}
 	select {
 	case h.mutex <- struct{}{}:
-		go h.DownloadHandler(fd, msg, w)
+		go h.DownloadHandler(fd, msg, w) //nolint:errcheck
 	default:
 		errClose := fd.Close()
 		if errClose != nil {
@@ -252,7 +252,10 @@ func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWrite
 }
 
 func (h *FileTransferHandler) DownloadHandler(fd *os.File, msg *ws.ProtoMsg, w ResponseWriter) (err error) {
-	var ackOffset int64
+	var (
+		ackOffset int64
+		N         int64
+	)
 	defer func() {
 		errClose := fd.Close()
 		if errClose != nil {
@@ -311,7 +314,7 @@ func (h *FileTransferHandler) DownloadHandler(fd *os.File, msg *ws.ProtoMsg, w R
 		windowBytes := ackOffset - chunker.Offset +
 			ACKSlidingWindowRecv*FileTransferBufSize
 		if windowBytes > 0 {
-			N, err := io.CopyBuffer(chunker, io.LimitReader(fd, windowBytes), buf)
+			N, err = io.CopyBuffer(chunker, io.LimitReader(fd, windowBytes), buf)
 			if err != nil {
 				err = errors.Wrap(err, "failed to copy file chunk to session")
 				return err
