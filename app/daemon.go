@@ -90,6 +90,7 @@ type MenderShellDaemon struct {
 func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
+	// Setup ProtoMsg routes.
 	routes := make(session.ProtoRoutes)
 	if config.FileTransfer.Enable {
 		routes[ws.ProtoTypeFileTransfer] = session.FileTransfer()

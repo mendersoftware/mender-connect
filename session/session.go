@@ -12,7 +12,28 @@
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
 
+// Package session provides ProtoMsg Session abstraction. A session is a
+// persistent communication channel with it's own set of control packets
+// for opening and closing channels and performing end-to-end health checks.
+// This package provides three levels of abstractions. On top, the Router
+// manages creation and deletion as well as routing of messages to Sessions
+// based on the ProtoMsg 'sid' (SessionID) header. The Session abstraction
+// manages persistent session context such as creating and deleting as well as
+// routing messages to SessionHandlers based on the 'proto' (ProtoType) header.
+// The Session also takes care of session control messages. The SessionHandler
+// is the application specific handler interface that takes care of the
+// application specific messages. The ServeProtoMsg function is called for
+// every inbound message with the associated ProtoType for the registered
+// handler. If the SessionHandler requires persisting resources, Close MUST
+// free these resources when the session shuts down.
+// NOTE: ProtoRoutes that are used to map ProtoTypes to SessionHandlers maps
+//       ProtoTypes to Constructors, since the Router must be able to regenerate
+//       new Sessions with independent sets of SessionHandlers.
 package session
+
+//             +--------+ #sid +---------+ #proto +----------------+
+// ProtoMsg -->| Router |----->| Session |------->| SessionHandler |
+//             +--------+      +---------+        +----------------+
 
 import (
 	"fmt"
@@ -34,17 +55,25 @@ type ResponseWriterFunc func(msg *ws.ProtoMsg) error
 
 func (f ResponseWriterFunc) WriteProtoMsg(msg *ws.ProtoMsg) error { return f(msg) }
 
+// SessionHandler defines the interface for application specific ProtoMsg handlers.
 type SessionHandler interface {
-	// ServeProtoMsg handles individual messages.
+	// ServeProtoMsg handles individual messages within the associated
+	// class of ProtoTypes.
 	ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter)
 	// Close frees allocated resources when the session closes. It SHOULD
 	// return an error if the session closes unexpectedly.
 	Close() error
 }
 
+// Constructor is a function for SessionHandler initializers. To create a
+// Router, all ProtoType Routes must route to a SessionHandler Constructor
+// (factory).
 type Constructor func() SessionHandler
 
+// Config is the static configuration for Sessions and Routers.
 type Config struct {
+	// IdleTimeout is the duration a session can remain inactive before
+	// it shuts down.
 	IdleTimeout time.Duration
 }
 
@@ -165,6 +194,9 @@ func funcname(fn string) string {
 	return fn
 }
 
+// handlePanic recover from panics within session handlers by responding with
+// an internal error message and dumping a log entry with the panic message and
+// a stack trace.
 func (sess *Session) handlePanic() {
 	if r := recover(); r != nil {
 		var stacktrace strings.Builder
@@ -189,13 +221,14 @@ func (sess *Session) handlePanic() {
 }
 
 func (sess *Session) ListenAndServe() {
-	const pongWait = time.Second * 5
 	defer sess.handlePanic()
 	var (
 		msg       *ws.ProtoMsg
 		open      bool
 		sessIdle  bool
-		timerPing = time.NewTimer(sess.Config.IdleTimeout - pongWait)
+		pingWait  = (sess.Config.IdleTimeout * 4) / 5
+		pongWait  = sess.Config.IdleTimeout - pingWait
+		timerPing = time.NewTimer(pingWait)
 	)
 	select {
 	case <-sess.done:
@@ -206,9 +239,15 @@ func (sess *Session) ListenAndServe() {
 		select {
 		case <-timerPing.C:
 			if sessIdle {
+				// If the timer triggers twice without receiving
+				// messages, we know the session timed out.
 				sess.Error(&ws.ProtoMsg{}, true, "session timeout")
 				return
 			} else {
+				// Send a ping and set the sessIdle flag, and
+				// expect a new message to arrive before
+				// pongWait (the remaining time before
+				// Config.IdleTimeout)
 				err := sess.Ping()
 				if err != nil {
 					log.Errorf("failed to ping client: %s", err.Error())
@@ -223,19 +262,24 @@ func (sess *Session) ListenAndServe() {
 			if !open {
 				return
 			}
-			timerPing.Reset(sess.Config.IdleTimeout)
+			// Always reset the ping timer and clear sessIdle flag
+			// on incoming messages from the other peer.
+			timerPing.Reset(pingWait)
 			sessIdle = false
 		}
 
 		if msg.Header.Proto == ws.ProtoTypeControl {
+			// Handle session control message.
 			if sess.HandleControl(msg) {
 				return
 			}
 			continue
 		}
 
+		// Lookup existing handlers for this session.
 		handler, ok := sess.handlers[msg.Header.Proto]
 		if !ok {
+			// Try to create a new SessionHandler if the route exist.
 			constructor, ok := sess.Routes[msg.Header.Proto]
 			if !ok {
 				sess.Error(msg, false, fmt.Sprintf(
@@ -248,6 +292,7 @@ func (sess *Session) ListenAndServe() {
 			defer handler.Close()
 			sess.handlers[msg.Header.Proto] = handler
 		}
+		// Apply the SessionHandler.
 		handler.ServeProtoMsg(msg, sess.w)
 	}
 }

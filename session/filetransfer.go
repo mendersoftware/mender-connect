@@ -497,6 +497,7 @@ func (h *FileTransferHandler) writeFile(w ResponseWriter, dst *os.File) (int64, 
 		offset int64
 		msg    *ws.ProtoMsg
 	)
+	// Convenience clojure for decoding file chunk and writing to destination file.
 	writeChunk := func(msg *ws.ProtoMsg) error {
 		switch msg.Header.MsgType {
 		case wsft.MessageTypeChunk:
@@ -537,44 +538,47 @@ func (h *FileTransferHandler) writeFile(w ResponseWriter, dst *os.File) (int64, 
 		}
 		return nil
 	}
+
 	for !done {
+		msg, open = <-h.msgChan
+		if !open {
+			return offset, errFileTransferAbort
+		}
+		err = writeChunk(msg)
+		if err == io.EOF {
+			done = true
+		} else if err != nil {
+			return offset, err
+		}
+		// Receive up to ACKSlidingWindowSend file chunks before
+		// responding with an ACK.
 	InnerLoop:
-		for i = 0; i < ACKSlidingWindowSend; i++ {
+		for i = 1; i < ACKSlidingWindowSend; i++ {
+			runtime.Gosched()
 			select {
 			case msg, open = <-h.msgChan:
 				if !open {
 					return offset, errFileTransferAbort
 				}
 				err = writeChunk(msg)
-				if err != nil {
-					i++
-					break InnerLoop
+				if err == io.EOF {
+					done = true
+				} else if err != nil {
+					return offset, err
 				}
-				// Give the session routine a chance to pass down
-				// another message.
-				runtime.Gosched()
 			default:
 				break InnerLoop
 			}
-		}
-		if i == 0 {
-			// Slow producer
-			msg, open = <-h.msgChan
-			if !open {
-				return offset, errFileTransferAbort
-			}
-			err = writeChunk(msg)
-		}
-		if err == io.EOF {
-			done = true
-		} else if err != nil {
-			return offset, err
 		}
 
 		// Copy message headers to response and change message type to ACK.
 		rsp := &ws.ProtoMsg{Header: msg.Header}
 		rsp.Header.MsgType = wsft.MessageTypeACK
-		w.WriteProtoMsg(rsp)
+		err = w.WriteProtoMsg(rsp)
+		if err != nil {
+			log.Errorf("failed to ack file chunk: %s", err.Error())
+			return offset, errFileTransferAbort
+		}
 	}
 	return offset, nil
 }
