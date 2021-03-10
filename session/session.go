@@ -157,8 +157,70 @@ func (sess *Session) HandleControl(msg *ws.ProtoMsg) (close bool) {
 		}
 		close = sess.w.WriteProtoMsg(pong) != nil
 
-	case ws.MessageTypePong, ws.MessageTypeOpen:
+	case ws.MessageTypePong:
 		// No-op
+
+	case ws.MessageTypeOpen:
+		var req ws.Open
+		err := msgpack.Unmarshal(msg.Body, &req)
+		if err != nil {
+			sess.Error(msg, true, fmt.Sprintf(
+				"failed to decode handshake request: %s",
+				err.Error(),
+			))
+			close = true
+			return
+		}
+		// Check if the client supports current protocol version.
+		for _, v := range req.Versions {
+			if v == ws.ProtocolVersion {
+				protocols := make([]ws.ProtoType, len(sess.Routes))
+				i := 0
+				for typ := range sess.Routes {
+					protocols[i] = typ
+					i++
+				}
+				rspAccept := ws.Accept{
+					Version:   ws.ProtocolVersion,
+					Protocols: protocols,
+				}
+				b, _ := msgpack.Marshal(rspAccept)
+				err := sess.w.WriteProtoMsg(&ws.ProtoMsg{
+					Header: ws.ProtoHdr{
+						Proto:     ws.ProtoTypeControl,
+						MsgType:   ws.MessageTypeAccept,
+						SessionID: msg.Header.SessionID,
+					},
+					Body: b,
+				})
+				if err != nil {
+					log.Errorf("failed to reply to peer handshake: %s", err.Error())
+					close = true
+				} else {
+					log.Infof("session: accepting new session with ID: %s", sess.ID)
+				}
+				return
+			}
+		}
+		sess.Error(msg, true, fmt.Sprintf("hanshake rejected: require version %d", ws.ProtocolVersion))
+		close = true
+
+	case ws.MessageTypeAccept:
+		var req ws.Accept
+		err := msgpack.Unmarshal(msg.Body, &req)
+		if err != nil {
+			sess.Error(msg, true, fmt.Sprintf("malformed handshake response: %s", err.Error()))
+			close = true
+			return
+		}
+		if req.Version != ws.ProtocolVersion {
+			sess.Error(msg, true, fmt.Sprintf(
+				"unsupported protocol version %d: require version %d",
+				req.Version, ws.ProtocolVersion,
+			))
+			close = true
+			return
+		}
 
 	case ws.MessageTypeClose:
 		close = true
