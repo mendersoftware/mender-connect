@@ -15,6 +15,7 @@ package session
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -147,6 +148,231 @@ func TestSessionListen(t *testing.T) {
 				SessionID: "1234",
 			},
 		}},
+	}, {
+		Name: "ok, handshake",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+		Routes: ProtoRoutes{
+			ws.ProtoType(0x1234): func() SessionHandler {
+				return new(echoHandler)
+			},
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			b, _ := msgpack.Marshal(ws.Open{
+				Versions: []int{ws.ProtocolVersion},
+			})
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeOpen,
+					SessionID: "1234",
+				},
+				Body: b,
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Accept{
+				Version:   ws.ProtocolVersion,
+				Protocols: []ws.ProtoType{0x1234},
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeAccept,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, protocol version not supported",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			b, _ := msgpack.Marshal(ws.Open{
+				Versions: []int{ws.ProtocolVersion + 1},
+			})
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeOpen,
+					SessionID: "1234",
+				},
+				Body: b,
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Error{
+				Error: fmt.Sprintf(
+					"handshake rejected: require version %d",
+					ws.ProtocolVersion,
+				),
+				MessageProto: ws.ProtoTypeControl,
+				MessageType:  ws.MessageTypeOpen,
+				Close:        true,
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, bad handshake schema",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeOpen,
+					SessionID: "1234",
+				},
+				Body: []byte("foobar"),
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Error{
+				Error: "failed to decode handshake request: " +
+					"msgpack: unexpected code=66 decoding map length",
+				MessageProto: ws.ProtoTypeControl,
+				MessageType:  ws.MessageTypeOpen,
+				Close:        true,
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "ok, accepted",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			b, _ := msgpack.Marshal(ws.Accept{
+				Version:   ws.ProtocolVersion,
+				Protocols: []ws.ProtoType{0x1234},
+			})
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeAccept,
+					SessionID: "1234",
+				},
+				Body: b,
+			}
+			close(msgChan)
+		},
+		// No responses expected in return
+	}, {
+		Name: "error, malformed handshake response",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeAccept,
+					SessionID: "1234",
+				},
+				Body: []byte("foobar"),
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Error{
+				Error: "malformed handshake response: " +
+					"msgpack: unexpected code=66 decoding map length",
+				MessageProto: ws.ProtoTypeControl,
+				MessageType:  ws.MessageTypeAccept,
+				Close:        true,
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, invalid handshake version",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			b, _ := msgpack.Marshal(ws.Accept{
+				Version:   ws.ProtocolVersion + 1,
+				Protocols: []ws.ProtoType{0x1234},
+			})
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeAccept,
+					SessionID: "1234",
+				},
+				Body: b,
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Error{
+				Error: fmt.Sprintf(
+					"unsupported protocol version %d: require version %d",
+					ws.ProtocolVersion+1, ws.ProtocolVersion,
+				),
+				MessageProto: ws.ProtoTypeControl,
+				MessageType:  ws.MessageTypeAccept,
+				Close:        true,
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
 	}, {
 		Name: "error, control message not understood",
 
