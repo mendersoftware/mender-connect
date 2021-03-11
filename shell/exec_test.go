@@ -30,7 +30,7 @@ import (
 	"github.com/gorilla/websocket"
 	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmihailenco/msgpack"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 	"github.com/mendersoftware/mender-connect/connection"

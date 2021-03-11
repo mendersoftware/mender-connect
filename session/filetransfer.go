@@ -25,7 +25,7 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmihailenco/msgpack"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsft "github.com/mendersoftware/go-lib-micro/ws/filetransfer"

@@ -42,7 +42,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/vmihailenco/msgpack"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 )
@@ -202,7 +202,7 @@ func (sess *Session) HandleControl(msg *ws.ProtoMsg) (close bool) {
 				return
 			}
 		}
-		sess.Error(msg, true, fmt.Sprintf("hanshake rejected: require version %d", ws.ProtocolVersion))
+		sess.Error(msg, true, fmt.Sprintf("handshake rejected: require version %d", ws.ProtocolVersion))
 		close = true
 
 	case ws.MessageTypeAccept:

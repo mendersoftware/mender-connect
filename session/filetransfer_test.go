@@ -27,7 +27,7 @@ import (
 	wsft "github.com/mendersoftware/go-lib-micro/ws/filetransfer"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmihailenco/msgpack"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func TestFileTransferUpload(t *testing.T) {

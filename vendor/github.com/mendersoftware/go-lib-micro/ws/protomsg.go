@@ -16,6 +16,8 @@ package ws
 
 import "encoding"
 
+const ProtocolVersion = 1
+
 // ProtoType defines how the ProtoMsg should be interpreted.
 type ProtoType uint16
 
@@ -36,8 +38,7 @@ const (
 )
 
 const (
-	// MessageTypes for session control messages (ProtoTypeControl),
-	// only the error message contains a body.
+	// MessageTypes for session control messages (ProtoTypeControl).
 
 	// MessageTypePing sends a ping. After receiving a ping, the receiver
 	// MUST respond with a pong message or the session will time out.
@@ -45,7 +46,11 @@ const (
 	// MessageTypePong is sent in response to a MessageTypePing.
 	MessageTypePong = "pong"
 	// MessageTypeOpen allocates a new peer-to-peer deviceconnect session.
+	// The other peer can either respond with MessageTypeAccept or
+	// MessageTypeError
 	MessageTypeOpen = "open"
+	// MessageTypeAccept is a successful response to an open request.
+	MessageTypeAccept = "accept"
 	// MessageTypeClose is sent when the session MUST close. All
 	// communication on the session stop after receiving this message.
 	MessageTypeClose = "close"
@@ -104,4 +109,32 @@ type Error struct {
 	// Message id is passed in the MsgProto Properties, and in case it is available and
 	// error occurs it is passed for reference in the Body of the error message
 	MessageID string `msgpack:"msgid,omitempty" json:"message_id,omitempty"`
+}
+
+// ProtoMsg handshake semantics:
+// 1)  The requester sends an "open" control message with all the protocol
+//     versions it supports to the peer.
+// 2a) On success, the peer will respond with a message of type Accept with an
+//     agreed upon version together with all the ProtoTypes the peer is willing
+//     to accept.
+// 2b) On failure, the peer will respond with an Error message with a reasoning.*
+//
+//     *The client can also expect to get an Open message type in return. In
+//     this case it MUST check the header's "status" property, if the property
+//     exists and equal to 1 the client is version 0, and does not support
+//     features added after Mender 2.6.
+
+// Open is the schema used for initiating a ProtoMsg handshake.
+type Open struct {
+	// Versions is a list of versions the client is able to interpret.
+	Versions []int `msgpack:"versions"`
+}
+
+// Accept is the schema for the message type "accept" for a successful response to
+// a ProtoMsg handshake.
+type Accept struct {
+	// Version is the accepted version used for this session.
+	Version int `msgpack:"version"`
+	// Protocols is a list of protocols the peer is willing to accept.
+	Protocols []ProtoType `msgpack:"protocols"`
 }
