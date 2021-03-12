@@ -24,11 +24,11 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mendersoftware/go-lib-micro/ws"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmihailenco/msgpack"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func init() {
-	SetDefaultPingWait(10 * time.Second)
+	DefaultPingWait = 10 * time.Second
 }
 
 func newWebsocketServer() *http.Server {

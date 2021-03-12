@@ -11,447 +11,356 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
+
+// Package session provides ProtoMsg Session abstraction. A session is a
+// persistent communication channel with it's own set of control packets
+// for opening and closing channels and performing end-to-end health checks.
+// This package provides three levels of abstractions. On top, the Router
+// manages creation and deletion as well as routing of messages to Sessions
+// based on the ProtoMsg 'sid' (SessionID) header. The Session abstraction
+// manages persistent session context such as creating and deleting as well as
+// routing messages to SessionHandlers based on the 'proto' (ProtoType) header.
+// The Session also takes care of session control messages. The SessionHandler
+// is the application specific handler interface that takes care of the
+// application specific messages. The ServeProtoMsg function is called for
+// every inbound message with the associated ProtoType for the registered
+// handler. If the SessionHandler requires persisting resources, Close MUST
+// free these resources when the session shuts down.
+// NOTE: ProtoRoutes that are used to map ProtoTypes to SessionHandlers maps
+//       ProtoTypes to Constructors, since the Router must be able to regenerate
+//       new Sessions with independent sets of SessionHandlers.
 package session
 
+//             +--------+ #sid +---------+ #proto +----------------+
+// ProtoMsg -->| Router |----->| Session |------->| SessionHandler |
+//             +--------+      +---------+        +----------------+
+
 import (
-	"errors"
-	"io"
-	"os"
-	"os/exec"
-	"syscall"
+	"fmt"
+	"runtime"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
-	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
-	"github.com/mendersoftware/mender-connect/connectionmanager"
-	"github.com/mendersoftware/mender-connect/procps"
-	"github.com/mendersoftware/mender-connect/shell"
 )
 
-type MenderSessionType int
-
-const (
-	ShellInteractiveSession MenderSessionType = iota
-	MonitoringSession
-	RemoteDebugSession
-	ConfigurationSession
-)
-
-type MenderSessionStatus int
-
-const (
-	ActiveSession MenderSessionStatus = iota
-	ExpiredSession
-	IdleSession
-	HangedSession
-	EmptySession
-	NewSession
-)
-
-const (
-	NoExpirationTimeout = time.Second * 0
-)
-
-var (
-	ErrSessionShellAlreadyRunning         = errors.New("shell is already running")
-	ErrSessionShellNotRunning             = errors.New("shell is not running")
-	ErrSessionShellTooManySessionsPerUser = errors.New("user has too many open sessions")
-	ErrSessionNotFound                    = errors.New("session not found")
-	ErrSessionTooManyShellsAlreadyRunning = errors.New("too many shells spawned")
-)
-
-var (
-	defaultSessionExpiredTimeout     = 1024 * time.Second
-	defaultSessionIdleExpiredTimeout = NoExpirationTimeout
-	defaultTimeFormat                = "Mon Jan 2 15:04:05 -0700 MST 2006"
-	MaxUserSessions                  = 1
-	healthcheckInterval              = time.Second * 60
-	healthcheckTimeout               = time.Second * 5
-)
-
-type MenderShellTerminalSettings struct {
-	Uid            uint32
-	Gid            uint32
-	Shell          string
-	HomeDir        string
-	TerminalString string
-	Height         uint16
-	Width          uint16
+type ResponseWriter interface {
+	WriteProtoMsg(msg *ws.ProtoMsg) error
 }
 
-type MenderShellSession struct {
-	//mender shell represents a process of passing data between a running shell
-	//subprocess running
-	shell *shell.MenderShell
-	//session id, generated
-	id string
-	//user id given with the MessageTypeSpawnShell message
-	userId string
-	//time at which session was created
-	createdAt time.Time
-	//time after which session is considered to be expired
-	expiresAt time.Time
-	//time of a last received message used to determine if the session is active
-	activeAt time.Time
-	//type of the session
-	sessionType MenderSessionType
-	//status of the session
-	status MenderSessionStatus
-	//terminal settings, for reference, usually it does not change
-	//in theory size of the terminal can change
-	terminal MenderShellTerminalSettings
-	//the pid of the shell process mainly used for stopping the shell
-	shellPid int
-	//reader and writer are connected to the terminal stdio where the shell is running
-	reader io.Reader
-	//reader and writer are connected to the terminal stdio where the shell is running
-	writer    io.Writer
-	pseudoTTY *os.File
-	command   *exec.Cmd
-	// stop channel
-	stop chan struct{}
-	// pong channel
-	pong chan struct{}
-	// healthcheck
-	healthcheckTimeout time.Time
+type ResponseWriterFunc func(msg *ws.ProtoMsg) error
+
+func (f ResponseWriterFunc) WriteProtoMsg(msg *ws.ProtoMsg) error { return f(msg) }
+
+// SessionHandler defines the interface for application specific ProtoMsg handlers.
+type SessionHandler interface {
+	// ServeProtoMsg handles individual messages within the associated
+	// class of ProtoTypes.
+	ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter)
+	// Close frees allocated resources when the session closes. It SHOULD
+	// return an error if the session closes unexpectedly.
+	Close() error
 }
 
-var sessionsMap = map[string]*MenderShellSession{}
-var sessionsByUserIdMap = map[string][]*MenderShellSession{}
+type HandlerFunc func(msg *ws.ProtoMsg, w ResponseWriter)
 
-func timeNow() time.Time {
-	return time.Now().UTC()
+func (h HandlerFunc) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) { h(msg, w) }
+
+func (h HandlerFunc) Close() error { return nil }
+
+// Constructor is a function for SessionHandler initializers. To create a
+// Router, all ProtoType Routes must route to a SessionHandler Constructor
+// (factory).
+type Constructor func() SessionHandler
+
+// Config is the static configuration for Sessions and Routers.
+type Config struct {
+	// IdleTimeout is the duration a session can remain inactive before
+	// it shuts down.
+	IdleTimeout time.Duration
 }
 
-func NewMenderShellSession(sessionId string, userId string, expireAfter time.Duration, expireAfterIdle time.Duration) (s *MenderShellSession, err error) {
-	if userSessions, ok := sessionsByUserIdMap[userId]; ok {
-		log.Debugf("user %s has %d sessions.", userId, len(userSessions))
-		if len(userSessions) >= MaxUserSessions {
-			return nil, ErrSessionShellTooManySessionsPerUser
-		}
-	} else {
-		sessionsByUserIdMap[userId] = []*MenderShellSession{}
-	}
-
-	if expireAfter == NoExpirationTimeout {
-		expireAfter = defaultSessionExpiredTimeout
-	}
-
-	if expireAfterIdle != NoExpirationTimeout {
-		defaultSessionIdleExpiredTimeout = expireAfterIdle
-	}
-
-	createdAt := timeNow()
-	s = &MenderShellSession{
-		id:          sessionId,
-		userId:      userId,
-		createdAt:   createdAt,
-		expiresAt:   createdAt.Add(expireAfter),
-		sessionType: ShellInteractiveSession,
-		status:      NewSession,
-		stop:        make(chan struct{}),
-		pong:        make(chan struct{}),
-	}
-	sessionsMap[sessionId] = s
-	sessionsByUserIdMap[userId] = append(sessionsByUserIdMap[userId], s)
-	return s, nil
+type Session struct {
+	Config
+	ID       string
+	Routes   ProtoRoutes
+	handlers map[ws.ProtoType]SessionHandler
+	msgChan  chan *ws.ProtoMsg
+	done     chan struct{}
+	w        ResponseWriter
 }
 
-func MenderShellSessionGetCount() int {
-	return len(sessionsMap)
-}
-
-func MenderShellSessionGetSessionIds() []string {
-	keys := make([]string, 0, len(sessionsMap))
-	for k := range sessionsMap {
-		keys = append(keys, k)
-	}
-
-	return keys
-}
-
-func MenderShellSessionGetById(id string) *MenderShellSession {
-	if v, ok := sessionsMap[id]; ok {
-		return v
-	} else {
-		return nil
+func New(
+	sessionID string,
+	msgChan chan *ws.ProtoMsg,
+	w ResponseWriter,
+	routes ProtoRoutes,
+	config Config,
+) *Session {
+	return &Session{
+		Config:   config,
+		ID:       sessionID,
+		Routes:   routes,
+		handlers: make(map[ws.ProtoType]SessionHandler),
+		msgChan:  msgChan,
+		done:     make(chan struct{}),
+		w:        w,
 	}
 }
 
-func MenderShellDeleteById(id string) error {
-	if v, ok := sessionsMap[id]; ok {
-		userSessions := sessionsByUserIdMap[v.userId]
-		for i, s := range userSessions {
-			if s.id == id {
-				sessionsByUserIdMap[v.userId] = append(userSessions[:i], userSessions[i+1:]...)
-				break
-			}
-		}
-		delete(sessionsMap, id)
-		return nil
-	} else {
-		return ErrSessionNotFound
+func (sess *Session) Done() <-chan struct{} {
+	return sess.done
+}
+
+func (sess *Session) MsgChan() chan<- *ws.ProtoMsg {
+	return sess.msgChan
+}
+
+func (sess *Session) Error(msg *ws.ProtoMsg, close bool, errMessage string) {
+	errSchema := ws.Error{
+		Error:        errMessage,
+		MessageProto: msg.Header.Proto,
+		MessageType:  msg.Header.MsgType,
+		Close:        close,
 	}
-}
-
-func MenderShellSessionsGetByUserId(userId string) []*MenderShellSession {
-	if v, ok := sessionsByUserIdMap[userId]; ok {
-		return v
-	} else {
-		return nil
+	msgID, ok := msg.Header.Properties["msgid"].(string)
+	if ok {
+		errSchema.MessageID = msgID
 	}
-}
-
-func MenderShellStopByUserId(userId string) (count uint, err error) {
-	a := sessionsByUserIdMap[userId]
-	log.Debugf("stopping all shells of user %s.", userId)
-	if len(a) == 0 {
-		return 0, ErrSessionNotFound
-	}
-	count = 0
-	err = nil
-	for _, s := range a {
-		if s.shell == nil {
-			continue
-		}
-		e := s.StopShell()
-		if e != nil && procps.ProcessExists(s.shellPid) {
-			err = e
-			continue
-		}
-		delete(sessionsMap, s.id)
-		count++
-	}
-	delete(sessionsByUserIdMap, userId)
-	return count, err
-}
-
-func MenderSessionTerminateAll() (shellCount int, sessionCount int, err error) {
-	shellCount = 0
-	sessionCount = 0
-	for id, s := range sessionsMap {
-		e := s.StopShell()
-		if e == nil {
-			shellCount++
-		} else {
-			log.Debugf("terminate sessions: failed to stop shell for session: %s: %s", id, e.Error())
-			err = e
-		}
-		e = MenderShellDeleteById(id)
-		if e == nil {
-			sessionCount++
-		} else {
-			log.Debugf("terminate sessions: failed to remove session: %s: %s", id, e.Error())
-			err = e
-		}
-	}
-
-	return shellCount, sessionCount, err
-}
-
-func MenderSessionTerminateExpired() (shellCount int, sessionCount int, totalExpiredLeft int, err error) {
-	shellCount = 0
-	sessionCount = 0
-	totalExpiredLeft = 0
-	for id, s := range sessionsMap {
-		if s.IsExpired(false) {
-			e := s.StopShell()
-			if e == nil {
-				shellCount++
-			} else {
-				log.Debugf("expire sessions: failed to stop shell for session: %s: %s", id, e.Error())
-				err = e
-			}
-			e = MenderShellDeleteById(id)
-			if e == nil {
-				sessionCount++
-			} else {
-				log.Debugf("expire sessions: failed to delete session: %s: %s", id, e.Error())
-				totalExpiredLeft++
-				err = e
-			}
-		}
-	}
-
-	return shellCount, sessionCount, totalExpiredLeft, err
-}
-
-func (s *MenderShellSession) GetStatus() MenderSessionStatus {
-	return s.status
-}
-
-func (s *MenderShellSession) GetStartedAtFmt() string {
-	return s.createdAt.Format(defaultTimeFormat)
-}
-
-func (s *MenderShellSession) GetExpiresAtFmt() string {
-	return s.expiresAt.Format(defaultTimeFormat)
-}
-
-func (s *MenderShellSession) GetActiveAtFmt() string {
-	return s.activeAt.Format(defaultTimeFormat)
-}
-
-func (s *MenderShellSession) GetShellCommandPath() string {
-	return s.command.Path
-}
-
-func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTerminalSettings) error {
-	if s.status == ActiveSession || s.status == HangedSession {
-		return ErrSessionShellAlreadyRunning
-	}
-
-	pid, pseudoTTY, cmd, err := shell.ExecuteShell(
-		terminal.Uid,
-		terminal.Gid,
-		terminal.HomeDir,
-		terminal.Shell,
-		terminal.TerminalString,
-		terminal.Height,
-		terminal.Width)
+	b, _ := msgpack.Marshal(errSchema)
+	err := sess.w.WriteProtoMsg(&ws.ProtoMsg{
+		Header: ws.ProtoHdr{
+			Proto:     ws.ProtoTypeControl,
+			MsgType:   ws.MessageTypeError,
+			SessionID: sess.ID,
+		},
+		Body: b,
+	})
 	if err != nil {
-		return err
+		log.Errorf("failed to write response to client: %s", err.Error())
 	}
-
-	//MenderShell represents a process of passing messages between backend
-	//and the shell subprocess (started above via shell.ExecuteShell) over
-	//the websocket connection
-	log.Infof("mender-connect starting shell command passing process, pid: %d", pid)
-	s.shell = shell.NewMenderShell(sessionId, pseudoTTY, pseudoTTY)
-	s.shell.Start()
-
-	s.shellPid = pid
-	s.reader = pseudoTTY
-	s.writer = pseudoTTY
-	s.status = ActiveSession
-	s.terminal = terminal
-	s.pseudoTTY = pseudoTTY
-	s.command = cmd
-	s.activeAt = timeNow()
-
-	// start the healthcheck go-routine
-	go s.healthcheck()
-
-	return nil
 }
 
-func (s *MenderShellSession) GetId() string {
-	return s.id
-}
+func (sess *Session) HandleControl(msg *ws.ProtoMsg) (close bool) {
+	switch msg.Header.MsgType {
+	case ws.MessageTypePing:
+		// Send pong
+		pong := &ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeControl,
+				MsgType:   ws.MessageTypePong,
+				SessionID: msg.Header.SessionID,
+			},
+		}
+		close = sess.w.WriteProtoMsg(pong) != nil
 
-func (s *MenderShellSession) GetShellPid() int {
-	return s.shellPid
-}
+	case ws.MessageTypePong:
+		// No-op
 
-func (s *MenderShellSession) IsExpired(setStatus bool) bool {
-	if defaultSessionIdleExpiredTimeout != NoExpirationTimeout {
-		idleTimeoutReached := s.activeAt.Add(defaultSessionIdleExpiredTimeout)
-		return timeNow().After(idleTimeoutReached)
-	}
-	e := timeNow().After(s.expiresAt)
-	if e && setStatus {
-		s.status = ExpiredSession
-	}
-	return e
-}
-
-func (s *MenderShellSession) healthcheck() {
-	nextHealthcheckPing := time.Now().Add(healthcheckInterval)
-	s.healthcheckTimeout = time.Now().Add(healthcheckInterval + healthcheckTimeout)
-
-	for {
-		select {
-		case <-s.stop:
+	case ws.MessageTypeOpen:
+		var req ws.Open
+		err := msgpack.Unmarshal(msg.Body, &req)
+		if err != nil {
+			sess.Error(msg, true, fmt.Sprintf(
+				"failed to decode handshake request: %s",
+				err.Error(),
+			))
+			close = true
 			return
-		case <-s.pong:
-			s.healthcheckTimeout = time.Now().Add(healthcheckInterval + healthcheckTimeout)
-		case <-time.After(time.Until(s.healthcheckTimeout)):
-			if s.healthcheckTimeout.Before(time.Now()) {
-				log.Errorf("session %s, health check failed, connection with the client lost", s.id)
-				s.expiresAt = time.Now()
+		}
+		// Check if the client supports current protocol version.
+		for _, v := range req.Versions {
+			if v == ws.ProtocolVersion {
+				protocols := make([]ws.ProtoType, len(sess.Routes))
+				i := 0
+				for typ := range sess.Routes {
+					protocols[i] = typ
+					i++
+				}
+				rspAccept := ws.Accept{
+					Version:   ws.ProtocolVersion,
+					Protocols: protocols,
+				}
+				b, _ := msgpack.Marshal(rspAccept)
+				err := sess.w.WriteProtoMsg(&ws.ProtoMsg{
+					Header: ws.ProtoHdr{
+						Proto:     ws.ProtoTypeControl,
+						MsgType:   ws.MessageTypeAccept,
+						SessionID: msg.Header.SessionID,
+					},
+					Body: b,
+				})
+				if err != nil {
+					log.Errorf("failed to reply to peer handshake: %s", err.Error())
+					close = true
+				} else {
+					log.Infof("session: accepting new session with ID: %s", sess.ID)
+				}
 				return
 			}
-		case <-time.After(time.Until(nextHealthcheckPing)):
-			s.healthcheckPing()
-			nextHealthcheckPing = time.Now().Add(healthcheckInterval)
 		}
+		sess.Error(msg, true, fmt.Sprintf("handshake rejected: require version %d", ws.ProtocolVersion))
+		close = true
+
+	case ws.MessageTypeAccept:
+		var req ws.Accept
+		err := msgpack.Unmarshal(msg.Body, &req)
+		if err != nil {
+			sess.Error(msg, true, fmt.Sprintf("malformed handshake response: %s", err.Error()))
+			close = true
+			return
+		}
+		if req.Version != ws.ProtocolVersion {
+			sess.Error(msg, true, fmt.Sprintf(
+				"unsupported protocol version %d: require version %d",
+				req.Version, ws.ProtocolVersion,
+			))
+			close = true
+			return
+		}
+
+	case ws.MessageTypeClose:
+		close = true
+		log.Infof("session: closed %s", msg.Header.SessionID)
+
+	case ws.MessageTypeError:
+		var errMsg ws.Error
+		msgpack.Unmarshal(msg.Body, &errMsg) //nolint:errcheck
+		log.Errorf("session: received error from client: %s", errMsg.Error)
+		close = errMsg.Close
+
+	default:
+		sess.Error(msg, false, fmt.Sprintf(
+			"session: control type message not understood: '%s'",
+			msg.Header.MsgType,
+		))
 	}
+	return
 }
 
-func (s *MenderShellSession) healthcheckPing() {
-	msg := &ws.ProtoMsg{
+func (sess *Session) Ping() error {
+	ping := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
-			Proto:     ws.ProtoTypeShell,
-			MsgType:   wsshell.MessageTypePingShell,
-			SessionID: s.id,
-			Properties: map[string]interface{}{
-				"timeout": int(healthcheckInterval.Seconds() + healthcheckTimeout.Seconds()),
-				"status":  wsshell.ControlMessage,
-			},
+			Proto:     ws.ProtoTypeControl,
+			MsgType:   ws.MessageTypePing,
+			SessionID: sess.ID,
 		},
-		Body: nil,
 	}
-	log.Debugf("session %s healthcheck ping", s.id)
-	err := connectionmanager.Write(ws.ProtoTypeShell, msg)
-	if err != nil {
-		log.Debugf("error on write: %s", err.Error())
-	}
+	return sess.w.WriteProtoMsg(ping)
 }
 
-func (s *MenderShellSession) HealthcheckPong() {
-	s.pong <- struct{}{}
+func funcname(fn string) string {
+	// strip package path
+	i := strings.LastIndex(fn, "/")
+	fn = fn[i+1:]
+	// strip package name.
+	i = strings.Index(fn, ".")
+	fn = fn[i+1:]
+	return fn
 }
 
-func (s *MenderShellSession) ShellCommand(m *ws.ProtoMsg) error {
-	s.activeAt = timeNow()
-	data := m.Body
-	commandLine := string(data)
-	n, err := s.writer.Write(data)
-	if err != nil && n != len(data) {
-		err = shell.ErrExecWriteBytesShort
+// handlePanic recover from panics within session handlers by responding with
+// an internal error message and dumping a log entry with the panic message and
+// a stack trace.
+func (sess *Session) handlePanic() {
+	if r := recover(); r != nil {
+		var stacktrace strings.Builder
+		var trace [MaxTraceback]uintptr
+		num := runtime.Callers(3, trace[:])
+		for i := 0; i < num; i++ {
+			fn := runtime.FuncForPC(trace[i])
+			if fn == nil {
+				fmt.Fprintf(&stacktrace, "\n???")
+				continue
+			}
+			file, line := fn.FileLine(trace[i])
+			fmt.Fprintf(&stacktrace, "\n%s:%d.%s",
+				file, line, funcname(fn.Name()),
+			)
+		}
+		log.WithField("trace", stacktrace.String()).
+			Errorf("[panic] %s", r)
+		sess.Error(&ws.ProtoMsg{}, true, "internal error")
 	}
-	if err != nil {
-		log.Debugf("error: '%s' while running '%s'.", err.Error(), commandLine)
-	} else {
-		log.Debugf("executed: '%s'", commandLine)
-	}
-	return err
+	close(sess.done)
 }
 
-func (s *MenderShellSession) ResizeShell(height, width uint16) {
-	shell.ResizeShell(s.pseudoTTY, height, width)
-}
-
-func (s *MenderShellSession) StopShell() (err error) {
-	log.Infof("session %s status:%d stopping shell", s.id, s.status)
-	if s.status != ActiveSession && s.status != HangedSession {
-		return ErrSessionShellNotRunning
+func (sess *Session) ListenAndServe() {
+	defer sess.handlePanic()
+	var (
+		msg       *ws.ProtoMsg
+		open      bool
+		sessIdle  bool
+		pingWait  = (sess.Config.IdleTimeout * 4) / 5
+		pongWait  = sess.Config.IdleTimeout - pingWait
+		timerPing = time.NewTimer(pingWait)
+	)
+	select {
+	case <-sess.done:
+		panic("session already finished")
+	default:
 	}
+	for {
+		select {
+		case <-timerPing.C:
+			if sessIdle {
+				// If the timer triggers twice without receiving
+				// messages, we know the session timed out.
+				sess.Error(&ws.ProtoMsg{}, true, "session timeout")
+				return
+			} else {
+				// Send a ping and set the sessIdle flag, and
+				// expect a new message to arrive before
+				// pongWait (the remaining time before
+				// Config.IdleTimeout)
+				err := sess.Ping()
+				if err != nil {
+					log.Errorf("failed to ping client: %s", err.Error())
+					return
+				}
+				sessIdle = true
+				timerPing.Reset(pongWait)
+			}
+			continue
 
-	close(s.stop)
-	s.shell.Stop()
-	s.terminal = MenderShellTerminalSettings{}
-	s.status = EmptySession
+		case msg, open = <-sess.msgChan:
+			if !open {
+				return
+			}
+			// Always reset the ping timer and clear sessIdle flag
+			// on incoming messages from the other peer.
+			timerPing.Reset(pingWait)
+			sessIdle = false
+		}
 
-	p, err := os.FindProcess(s.shellPid)
-	if err != nil {
-		log.Errorf("session %s, shell pid %d, find process error: %s", s.id, s.shellPid, err.Error())
-		return err
+		if msg.Header.Proto == ws.ProtoTypeControl {
+			// Handle session control message.
+			if sess.HandleControl(msg) {
+				return
+			}
+			continue
+		}
+
+		// Lookup existing handlers for this session.
+		handler, ok := sess.handlers[msg.Header.Proto]
+		if !ok {
+			// Try to create a new SessionHandler if the route exist.
+			constructor, ok := sess.Routes[msg.Header.Proto]
+			if !ok {
+				sess.Error(msg, false, fmt.Sprintf(
+					"no handler registered for protocol: 0x%04X",
+					msg.Header.Proto,
+				))
+				continue
+			}
+			handler = constructor()
+			defer handler.Close()
+			sess.handlers[msg.Header.Proto] = handler
+		}
+		// Apply the SessionHandler.
+		handler.ServeProtoMsg(msg, sess.w)
 	}
-	err = p.Signal(syscall.SIGINT)
-	if err != nil {
-		log.Errorf("session %s, shell pid %d, signal error: %s", s.id, s.shellPid, err.Error())
-		return err
-	}
-	s.pseudoTTY.Close()
-
-	err = procps.TerminateAndWait(s.shellPid, s.command, 2*time.Second)
-	if err != nil {
-		log.Errorf("session %s, shell pid %d, termination error: %s", s.id, s.shellPid, err.Error())
-		return err
-	}
-
-	return nil
 }

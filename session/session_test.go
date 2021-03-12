@@ -14,6 +14,8 @@
 package session
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -28,6 +30,7 @@ import (
 	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
@@ -36,6 +39,531 @@ import (
 	"github.com/mendersoftware/mender-connect/connectionmanager"
 	"github.com/mendersoftware/mender-connect/procps"
 )
+
+type echoHandler struct{}
+
+func (h echoHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) {
+	w.WriteProtoMsg(msg)
+}
+
+func (h echoHandler) Close() error {
+	return nil
+}
+
+type testWriter struct {
+	Called   chan struct{}
+	Messages []*ws.ProtoMsg
+	err      error
+}
+
+func NewTestWriter(err error) *testWriter {
+	return &testWriter{
+		Called: make(chan struct{}, 1),
+		err:    err,
+	}
+}
+
+func (w *testWriter) WriteProtoMsg(msg *ws.ProtoMsg) error {
+	select {
+	case w.Called <- struct{}{}:
+	default:
+	}
+	w.Messages = append(w.Messages, msg)
+	return w.err
+}
+
+func TestSessionListen(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		Name string
+
+		Config
+		SessionID  string
+		Routes     ProtoRoutes
+		WriteError error
+
+		ClientFunc func(msgChan chan<- *ws.ProtoMsg)
+		Responses  []*ws.ProtoMsg
+	}{{
+		Name: "ok",
+
+		SessionID: "1234",
+
+		Routes: ProtoRoutes{
+			ws.ProtoType(0x1234): func() SessionHandler {
+				return new(echoHandler)
+			},
+		},
+
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoType(0x1234),
+					MsgType:   "testing123",
+					SessionID: "1234",
+				},
+			}
+			close(msgChan)
+		},
+		Responses: []*ws.ProtoMsg{{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoType(0x1234),
+				MsgType:   "testing123",
+				SessionID: "1234",
+			},
+		}},
+	}, {
+		Name: "ok, ping/pong -> close",
+
+		SessionID: "1234",
+
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypePing,
+					SessionID: "1234",
+				},
+			}
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeClose,
+					SessionID: "1234",
+				},
+			}
+		},
+		Responses: []*ws.ProtoMsg{{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeControl,
+				MsgType:   ws.MessageTypePong,
+				SessionID: "1234",
+			},
+		}},
+	}, {
+		Name: "ok, handshake",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+		Routes: ProtoRoutes{
+			ws.ProtoType(0x1234): func() SessionHandler {
+				return new(echoHandler)
+			},
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			b, _ := msgpack.Marshal(ws.Open{
+				Versions: []int{ws.ProtocolVersion},
+			})
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeOpen,
+					SessionID: "1234",
+				},
+				Body: b,
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Accept{
+				Version:   ws.ProtocolVersion,
+				Protocols: []ws.ProtoType{0x1234},
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeAccept,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, protocol version not supported",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			b, _ := msgpack.Marshal(ws.Open{
+				Versions: []int{ws.ProtocolVersion + 1},
+			})
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeOpen,
+					SessionID: "1234",
+				},
+				Body: b,
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Error{
+				Error: fmt.Sprintf(
+					"handshake rejected: require version %d",
+					ws.ProtocolVersion,
+				),
+				MessageProto: ws.ProtoTypeControl,
+				MessageType:  ws.MessageTypeOpen,
+				Close:        true,
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, bad handshake schema",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeOpen,
+					SessionID: "1234",
+				},
+				Body: []byte("foobar"),
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Error{
+				Error: "failed to decode handshake request: " +
+					"msgpack: unexpected code=66 decoding map length",
+				MessageProto: ws.ProtoTypeControl,
+				MessageType:  ws.MessageTypeOpen,
+				Close:        true,
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "ok, accepted",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			b, _ := msgpack.Marshal(ws.Accept{
+				Version:   ws.ProtocolVersion,
+				Protocols: []ws.ProtoType{0x1234},
+			})
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeAccept,
+					SessionID: "1234",
+				},
+				Body: b,
+			}
+			close(msgChan)
+		},
+		// No responses expected in return
+	}, {
+		Name: "error, malformed handshake response",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeAccept,
+					SessionID: "1234",
+				},
+				Body: []byte("foobar"),
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Error{
+				Error: "malformed handshake response: " +
+					"msgpack: unexpected code=66 decoding map length",
+				MessageProto: ws.ProtoTypeControl,
+				MessageType:  ws.MessageTypeAccept,
+				Close:        true,
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, invalid handshake version",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			b, _ := msgpack.Marshal(ws.Accept{
+				Version:   ws.ProtocolVersion + 1,
+				Protocols: []ws.ProtoType{0x1234},
+			})
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeAccept,
+					SessionID: "1234",
+				},
+				Body: b,
+			}
+			close(msgChan)
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Error{
+				Error: fmt.Sprintf(
+					"unsupported protocol version %d: require version %d",
+					ws.ProtocolVersion+1, ws.ProtocolVersion,
+				),
+				MessageProto: ws.ProtoTypeControl,
+				MessageType:  ws.MessageTypeAccept,
+				Close:        true,
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, control message not understood",
+
+		SessionID: "1234",
+
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   "ehlo?",
+					SessionID: "1234",
+				},
+			}
+			close(msgChan)
+		},
+		Responses: func() []*ws.ProtoMsg {
+			errMsg := ws.Error{
+				Error: "session: control type message not understood: 'ehlo?'",
+
+				MessageProto: ws.ProtoTypeControl,
+				MessageType:  "ehlo?",
+			}
+			b, _ := msgpack.Marshal(errMsg)
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, bad protocol -> close error",
+
+		SessionID: "1234",
+
+		Config: Config{
+			IdleTimeout: time.Second * 10,
+		},
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     0,
+					MsgType:   "msgtyp",
+					SessionID: "1234",
+					Properties: map[string]interface{}{
+						"msgid": "123456",
+					},
+				},
+			}
+			errMsg := ws.Error{
+				Error: "dunno what to do next...",
+				Close: true,
+			}
+			b, _ := msgpack.Marshal(errMsg)
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}
+		},
+		Responses: func() []*ws.ProtoMsg {
+			errMsg := ws.Error{
+				Error:        "no handler registered for protocol: 0x0000",
+				MessageProto: 0,
+				MessageType:  "msgtyp",
+				MessageID:    "123456",
+			}
+			b, _ := msgpack.Marshal(errMsg)
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, session timeout",
+
+		SessionID: "1234",
+
+		Config: Config{
+			IdleTimeout: time.Second / 4,
+		},
+
+		Responses: func() []*ws.ProtoMsg {
+			errMsg := ws.Error{
+				Error: "session timeout",
+				Close: true,
+			}
+			b, _ := msgpack.Marshal(errMsg)
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypePing,
+					SessionID: "1234",
+				},
+			}, {
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}, {
+		Name: "error, ping write error",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second / 4,
+		},
+		WriteError: errors.New("this is bad!"),
+
+		Responses: []*ws.ProtoMsg{{
+			Header: ws.ProtoHdr{
+				Proto:     ws.ProtoTypeControl,
+				MsgType:   ws.MessageTypePing,
+				SessionID: "1234",
+			},
+		}},
+	}, {
+		Name: "error, write error",
+
+		SessionID: "1234",
+		Config: Config{
+			IdleTimeout: time.Second,
+		},
+		WriteError: errors.New("this is bad!"),
+
+		ClientFunc: func(msgChan chan<- *ws.ProtoMsg) {
+			msgChan <- &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto: 0x1234,
+				},
+			}
+			close(msgChan)
+		},
+		Responses: func() []*ws.ProtoMsg {
+			b, _ := msgpack.Marshal(ws.Error{
+				Error:        "no handler registered for protocol: 0x1234",
+				MessageProto: ws.ProtoType(0x1234),
+			})
+			return []*ws.ProtoMsg{{
+				Header: ws.ProtoHdr{
+					Proto:     ws.ProtoTypeControl,
+					MsgType:   ws.MessageTypeError,
+					SessionID: "1234",
+				},
+				Body: b,
+			}}
+		}(),
+	}}
+	for i := range testCases {
+		tc := testCases[i]
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+
+			w := NewTestWriter(tc.WriteError)
+			msgChan := make(chan *ws.ProtoMsg)
+			sess := New(
+				tc.SessionID, msgChan,
+				w, tc.Routes, tc.Config,
+			)
+			go sess.ListenAndServe()
+			if tc.ClientFunc != nil {
+				tc.ClientFunc(sess.MsgChan())
+			}
+			select {
+			case <-sess.Done():
+				assert.Equal(t, tc.Responses, w.Messages)
+			case <-time.After(time.Second * 10):
+				panic("[PROGERR] test case timeout")
+			}
+		})
+	}
+}
+
+// Unit tests for shell.go consider moving into shell_test.go
 
 func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 	var upgrader = websocket.Upgrader{}
@@ -51,7 +579,7 @@ func newShellTransaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func init() {
-	connectionmanager.SetDefaultPingWait(10 * time.Second)
+	connectionmanager.DefaultPingWait = 10 * time.Second
 }
 
 func TestMenderShellStartStopShell(t *testing.T) {

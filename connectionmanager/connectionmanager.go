@@ -54,7 +54,7 @@ type ProtocolHandler struct {
 var handlersByTypeMutex = &sync.Mutex{}
 var handlersByType = map[ws.ProtoType]*ProtocolHandler{}
 var reconnectIntervalSeconds = 5
-var defaultPingWait = time.Minute
+var DefaultPingWait = time.Minute
 
 func GetWriteTimeout() time.Duration {
 	return writeWait
@@ -62,10 +62,6 @@ func GetWriteTimeout() time.Duration {
 
 func SetReconnectIntervalSeconds(i int) {
 	reconnectIntervalSeconds = i
-}
-
-func SetDefaultPingWait(wait time.Duration) {
-	defaultPingWait = wait
 }
 
 func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, ctx context.Context) error {
@@ -81,7 +77,7 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 	var i uint = 0
 	for {
 		i++
-		c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, defaultPingWait, skipVerify, serverCertificate)
+		c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, DefaultPingWait, skipVerify, serverCertificate)
 		if err != nil || c == nil {
 			if retries == 0 || i < retries {
 				if err == nil {

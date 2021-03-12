@@ -24,13 +24,12 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
-	wsmenderclient "github.com/mendersoftware/go-lib-micro/ws/menderclient"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 	"github.com/pkg/errors"
 
 	"github.com/mendersoftware/mender-connect/client/dbus"
 	"github.com/mendersoftware/mender-connect/client/mender"
-	configuration "github.com/mendersoftware/mender-connect/config"
+	"github.com/mendersoftware/mender-connect/config"
 	"github.com/mendersoftware/mender-connect/connectionmanager"
 	"github.com/mendersoftware/mender-connect/procps"
 	"github.com/mendersoftware/mender-connect/session"
@@ -77,17 +76,33 @@ type MenderShellDaemon struct {
 	expireSessionsAfter     time.Duration
 	expireSessionsAfterIdle time.Duration
 	terminalString          string
-	terminalWidth           uint16
-	terminalHeight          uint16
 	uid                     uint64
 	gid                     uint64
 	homeDir                 string
 	shellsSpawned           uint
 	debug                   bool
+	router                  session.Router
+	config.TerminalConfig
+	config.FileTransferConfig
+	config.MenderClientConfig
 }
 
-func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
+func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 	ctx, ctxCancel := context.WithCancel(context.Background())
+
+	// Setup ProtoMsg routes.
+	routes := make(session.ProtoRoutes)
+	if !conf.FileTransfer.Disable {
+		routes[ws.ProtoTypeFileTransfer] = session.FileTransfer()
+	}
+	if !conf.MenderClient.Disable {
+		routes[ws.ProtoTypeMenderClient] = session.MenderClient()
+	}
+	router := session.NewRouter(
+		routes, session.Config{
+			IdleTimeout: connectionmanager.DefaultPingWait,
+		},
+	)
 
 	daemon := MenderShellDaemon{
 		ctx:                     ctx,
@@ -98,24 +113,24 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		reconnectChan:           make(chan MenderShellDaemonEvent),
 		stop:                    false,
 		authorized:              false,
-		username:                config.User,
-		shell:                   config.ShellCommand,
-		serverUrl:               config.ServerURL,
-		serverCertificate:       config.ServerCertificate,
-		skipVerify:              config.SkipVerify,
-		expireSessionsAfter:     time.Second * time.Duration(config.Sessions.ExpireAfter),
-		expireSessionsAfterIdle: time.Second * time.Duration(config.Sessions.ExpireAfterIdle),
-		deviceConnectUrl:        configuration.DefaultDeviceConnectPath,
-		terminalString:          configuration.DefaultTerminalString,
-		terminalWidth:           config.Terminal.Width,
-		terminalHeight:          config.Terminal.Height,
+		username:                conf.User,
+		shell:                   conf.ShellCommand,
+		serverUrl:               conf.ServerURL,
+		serverCertificate:       conf.ServerCertificate,
+		skipVerify:              conf.SkipVerify,
+		expireSessionsAfter:     time.Second * time.Duration(conf.Sessions.ExpireAfter),
+		expireSessionsAfterIdle: time.Second * time.Duration(conf.Sessions.ExpireAfterIdle),
+		deviceConnectUrl:        config.DefaultDeviceConnectPath,
+		terminalString:          config.DefaultTerminalString,
+		TerminalConfig:          conf.Terminal,
 		shellsSpawned:           0,
-		debug:                   config.Debug,
+		debug:                   conf.Debug,
+		router:                  router,
 	}
 
-	connectionmanager.SetReconnectIntervalSeconds(config.ReconnectIntervalSeconds)
-	if config.Sessions.MaxPerUser > 0 {
-		session.MaxUserSessions = int(config.Sessions.MaxPerUser)
+	connectionmanager.SetReconnectIntervalSeconds(conf.ReconnectIntervalSeconds)
+	if conf.Sessions.MaxPerUser > 0 {
+		session.MaxUserSessions = int(conf.Sessions.MaxPerUser)
 	}
 	return &daemon
 }
@@ -153,16 +168,21 @@ func (d *MenderShellDaemon) timeToSweepSessions() bool {
 }
 
 func (d *MenderShellDaemon) wsReconnect(token string) (err error) {
-	err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, token, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts, d.ctx)
+	err = connectionmanager.Reconnect(
+		ws.ProtoTypeShell, d.serverUrl,
+		d.deviceConnectUrl, token,
+		d.skipVerify, d.serverCertificate,
+		config.MaxReconnectAttempts, d.ctx,
+	)
 	if err != nil {
-		return errors.New("failed to reconnect after " + strconv.Itoa(int(configuration.MaxReconnectAttempts)) + " tries: " + err.Error())
+		return errors.New("failed to reconnect after " + strconv.Itoa(int(config.MaxReconnectAttempts)) + " tries: " + err.Error())
 	} else {
 		return nil
 	}
 }
 
 func (d *MenderShellDaemon) outputStatus() {
-	log.Infof("mender-connect daemon v%s", configuration.VersionString())
+	log.Infof("mender-connect daemon v%s", config.VersionString())
 	log.Info(" status: ")
 	log.Infof("  sessions: %d", session.MenderShellSessionGetCount())
 	sessionIds := session.MenderShellSessionGetSessionIds()
@@ -334,7 +354,12 @@ func (d *MenderShellDaemon) eventLoop() {
 		log.Debugf("eventLoop: got event: %s", event.event)
 		switch event.event {
 		case EventReconnect:
-			err = connectionmanager.Reconnect(ws.ProtoTypeShell, d.serverUrl, d.deviceConnectUrl, event.data, d.skipVerify, d.serverCertificate, configuration.MaxReconnectAttempts, d.ctx)
+			err = connectionmanager.Reconnect(
+				ws.ProtoTypeShell, d.serverUrl,
+				d.deviceConnectUrl, event.data,
+				d.skipVerify, d.serverCertificate,
+				config.MaxReconnectAttempts, d.ctx,
+			)
 			if err != nil {
 				log.Errorf("eventLoop: event: error reconnecting: %s", err.Error())
 			} else {
@@ -479,8 +504,15 @@ func (d *MenderShellDaemon) responseMessage(msg *ws.ProtoMsg) (err error) {
 }
 
 func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
+	var err error
+	// NOTE: the switch is required for backward compatibility, otherwise
+	//       routing is performed and managed by the session.Router.
+	//       Use the new API in sessions package (see filetransfer.go for an example)
 	switch msg.Header.Proto {
 	case ws.ProtoTypeShell:
+		if d.TerminalConfig.Disable {
+			break
+		}
 		switch msg.Header.MsgType {
 		case wsshell.MessageTypeSpawnShell:
 			return d.routeMessageSpawnShell(msg)
@@ -493,15 +525,12 @@ func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
 		case wsshell.MessageTypePongShell:
 			return d.routeMessagePongShell(msg)
 		}
-	case ws.ProtoTypeMenderClient:
-		switch msg.Header.MsgType {
-		case wsmenderclient.MessageTypeMenderClientCheckUpdate:
-			return processMessageMenderClient(msg)
-		case wsmenderclient.MessageTypeMenderClientSendInventory:
-			return processMessageMenderClient(msg)
-		}
+	default:
+		return d.router.RouteMessage(
+			msg, session.ResponseWriterFunc(d.responseMessage),
+		)
 	}
-	err := errors.New(fmt.Sprintf("unknown message protocol and type: %d/%s", msg.Header.Proto, msg.Header.MsgType))
+	err = errors.New(fmt.Sprintf("unknown message protocol and type: %d/%s", msg.Header.Proto, msg.Header.MsgType))
 	response := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
 			Proto:     msg.Header.Proto,
@@ -550,7 +579,7 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *ws.ProtoMsg) error {
 		},
 		Body: []byte{},
 	}
-	if d.shellsSpawned >= configuration.MaxShellsSpawned {
+	if d.shellsSpawned >= config.MaxShellsSpawned {
 		err = session.ErrSessionTooManyShellsAlreadyRunning
 		d.routeMessageResponse(response, err)
 		return err
@@ -567,8 +596,8 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *ws.ProtoMsg) error {
 
 	response.Header.SessionID = s.GetId()
 
-	terminalHeight := d.terminalHeight
-	terminalWidth := d.terminalWidth
+	terminalHeight := d.TerminalConfig.Height
+	terminalWidth := d.TerminalConfig.Width
 
 	requestedHeight, requestedWidth := mapPropertiesToTerminalHeightAndWidth(message.Header.Properties)
 	if requestedHeight > 0 && requestedWidth > 0 {
@@ -695,9 +724,6 @@ func (d *MenderShellDaemon) routeMessageShellCommand(message *ws.ProtoMsg) error
 		d.routeMessageResponse(response, err)
 		return err
 	}
-	// suppress the response message setting the variable to nil
-	response = nil
-	_ = response
 	return nil
 }
 
