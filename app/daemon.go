@@ -92,6 +92,11 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 
 	// Setup ProtoMsg routes.
 	routes := make(session.ProtoRoutes)
+	if !conf.Terminal.Disable {
+		// Shell message is not handled by the Session, but the map
+		// entry must be set to give the correct 'accept' response.
+		routes[ws.ProtoTypeShell] = nil
+	}
 	if !conf.FileTransfer.Disable {
 		routes[ws.ProtoTypeFileTransfer] = session.FileTransfer()
 	}
