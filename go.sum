@@ -169,10 +169,10 @@ github.com/mattn/go-isatty v0.0.12/go.mod h1:cbi8OIDigv2wuxKPP5vlRcQ1OAZbq2CE4Ky
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/mendersoftware/cli/v2 v2.1.1-minimal h1:NWX83kF8Eobfb3oBWeUmw9Ef2H9ZqFPZGWRXCimtXwg=
 github.com/mendersoftware/cli/v2 v2.1.1-minimal/go.mod h1:SE9GqnLQmjVa0iPEY0f1w3ygNIYcIJ0OKPMoW2caLfQ=
-github.com/mendersoftware/go-lib-micro v0.0.0-20210310094411-54024edff7ea h1:FkE2jfmmmKkgPEzje2XfH6/RMnR0Z+fV9FOgRiz277c=
-github.com/mendersoftware/go-lib-micro v0.0.0-20210310094411-54024edff7ea/go.mod h1:AYMV1BNNHDcAt25V7KY6cd5XhAZXIlOVlCV9yZt51zM=
-github.com/mendersoftware/go-lib-micro v0.0.0-20210311084510-06d0c5918746 h1:P6zxuOT3ATh8AnYZTI95iLnH0kEo7BWno/U6iytqIuI=
-github.com/mendersoftware/go-lib-micro v0.0.0-20210311084510-06d0c5918746/go.mod h1:AYMV1BNNHDcAt25V7KY6cd5XhAZXIlOVlCV9yZt51zM=
+github.com/mendersoftware/go-lib-micro v0.0.0-20210317131202-d8b47cfebb37 h1:vT2UmT4zNBkqQYpD9FSCt9IDU20rd7jjwFTExCHisfg=
+github.com/mendersoftware/go-lib-micro v0.0.0-20210317131202-d8b47cfebb37/go.mod h1:AYMV1BNNHDcAt25V7KY6cd5XhAZXIlOVlCV9yZt51zM=
+github.com/mendersoftware/go-lib-micro v0.0.0-20210319123318-8cee8f55d7f5 h1:ggqfF3oHRWyahqgvzdLuHRlhGWv92e5Eos9fNnB+57k=
+github.com/mendersoftware/go-lib-micro v0.0.0-20210319123318-8cee8f55d7f5/go.mod h1:AYMV1BNNHDcAt25V7KY6cd5XhAZXIlOVlCV9yZt51zM=
 github.com/miekg/dns v1.0.14/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
 github.com/mitchellh/cli v1.0.0/go.mod h1:hNIlj7HEI86fIcpObd7a0FcrxTWetlwJDGcceTlRvqc=
 github.com/mitchellh/go-homedir v1.0.0/go.mod h1:SfyaCUpYCn1Vlf4IUYiD9fPX4A5wJrkLzIz1N1q0pr0=

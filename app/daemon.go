@@ -77,6 +77,7 @@ type MenderShellDaemon struct {
 	router                  session.Router
 	config.TerminalConfig
 	config.FileTransferConfig
+	config.PortForwardConfig
 	config.MenderClientConfig
 }
 
@@ -92,6 +93,9 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 	}
 	if !conf.FileTransfer.Disable {
 		routes[ws.ProtoTypeFileTransfer] = session.FileTransfer()
+	}
+	if !conf.PortForward.Disable {
+		routes[ws.ProtoTypePortForward] = session.PortForward()
 	}
 	if !conf.MenderClient.Disable {
 		routes[ws.ProtoTypeMenderClient] = session.MenderClient()
@@ -121,6 +125,9 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		deviceConnectUrl:        config.DefaultDeviceConnectPath,
 		terminalString:          config.DefaultTerminalString,
 		TerminalConfig:          conf.Terminal,
+		FileTransferConfig:      conf.FileTransfer,
+		PortForwardConfig:       conf.PortForward,
+		MenderClientConfig:      conf.MenderClient,
 		shellsSpawned:           0,
 		debug:                   conf.Debug,
 		trace:                   conf.Trace,

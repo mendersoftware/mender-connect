@@ -49,6 +49,11 @@ type FileTransferConfig struct {
 	Disable bool
 }
 
+type PortForwardConfig struct {
+	// Disable port forwarding feature
+	Disable bool
+}
+
 type SessionsConfig struct {
 	// Whether to stop expired sessions
 	StopExpired bool
@@ -84,9 +89,11 @@ type MenderShellConfigFromFile struct {
 	Sessions SessionsConfig `json:"Sessions"`
 	// Reconnect interval
 	ReconnectIntervalSeconds int
-
+	// FileTransfer config
 	FileTransfer FileTransferConfig
-
+	// PortForward config
+	PortForward PortForwardConfig
+	// MenderClient config
 	MenderClient MenderClientConfig
 }
 
