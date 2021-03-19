@@ -94,6 +94,7 @@ type MenderShellConfigFromFile struct {
 type MenderShellConfig struct {
 	MenderShellConfigFromFile
 	Debug bool
+	Trace bool
 }
 
 // NewMenderShellConfig initializes a new MenderShellConfig struct

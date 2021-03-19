@@ -36,6 +36,7 @@ var (
 	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "mender-connect.conf")
 
 	DefaultDebug = false
+	DefaultTrace = false
 
 	MaxReconnectAttempts             = uint(0) // 0 means to reconnect forever
 	DefaultReconnectIntervalsSeconds = 5

@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -56,9 +56,16 @@ func SetupCLI(args []string) error {
 			&cli.BoolFlag{
 				Name:        "debug",
 				Aliases:     []string{"d"},
-				Usage:       "Enable the debug mode",
+				Usage:       "Set the logging level to debug",
 				Value:       config.DefaultDebug,
 				Destination: &runOptions.debug,
+			},
+			&cli.BoolFlag{
+				Name:        "trace",
+				Aliases:     []string{"dd"},
+				Usage:       "Set the logging level to trace",
+				Value:       config.DefaultTrace,
+				Destination: &runOptions.trace,
 			},
 		},
 	}
@@ -74,6 +81,7 @@ func (runOptions *runOptionsType) handleCLIOptions(ctx *cli.Context) error {
 	}
 
 	config.Debug = runOptions.debug
+	config.Trace = runOptions.trace
 
 	err = config.Validate()
 	if err != nil {
