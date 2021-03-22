@@ -95,7 +95,7 @@ func (f *MenderPortForwarder) Close(sendStopMessage bool) error {
 			log.Errorf("portForwardHandler: webSock.WriteMessage(%+v)", err)
 		}
 	}
-	defer delete(f.portForwarders, f.SessionID)
+	defer delete(f.portForwarders, f.ConnectionID)
 	f.ctxCancel()
 	return f.conn.Close()
 }
@@ -179,7 +179,7 @@ func PortForward() Constructor {
 
 func (h *PortForwardHandler) Close() error {
 	for _, f := range h.portForwarders {
-		f.Close(true)
+		f.Close(false)
 	}
 	return nil
 }
@@ -247,13 +247,12 @@ func (h *PortForwardHandler) portForwardHandlerNew(message *ws.ProtoMsg, w Respo
 		portForwarders: h.portForwarders,
 	}
 
-	key := message.Header.SessionID + "/" + connectionID
-	h.portForwarders[key] = portForwarder
+	h.portForwarders[connectionID] = portForwarder
 
-	log.Infof("port-forward: new %s: %s/%s:%d", key, *protocol, *host, *portNumber)
+	log.Infof("port-forward: new %s/%s: %s/%s:%d", message.Header.SessionID, connectionID, *protocol, *host, *portNumber)
 	err = portForwarder.Connect(string(*protocol), *host, *portNumber)
 	if err != nil {
-		delete(h.portForwarders, key)
+		delete(h.portForwarders, connectionID)
 		return err
 	}
 
@@ -276,10 +275,9 @@ func (h *PortForwardHandler) portForwardHandlerNew(message *ws.ProtoMsg, w Respo
 
 func (h *PortForwardHandler) portForwardHandlerStop(message *ws.ProtoMsg, w ResponseWriter) error {
 	connectionID, _ := message.Header.Properties[wspf.PropertyConnectionID].(string)
-	key := message.Header.SessionID + "/" + connectionID
-	if portForwarder, ok := h.portForwarders[key]; ok {
-		log.Infof("port-forward: stop %s", key)
-		defer delete(h.portForwarders, key)
+	if portForwarder, ok := h.portForwarders[connectionID]; ok {
+		log.Infof("port-forward: stop %s/%s", message.Header.SessionID, connectionID)
+		defer delete(h.portForwarders, connectionID)
 		if err := portForwarder.Close(false); err != nil {
 			return err
 		}
@@ -306,8 +304,7 @@ func (h *PortForwardHandler) portForwardHandlerStop(message *ws.ProtoMsg, w Resp
 
 func (h *PortForwardHandler) portForwardHandlerForward(message *ws.ProtoMsg, w ResponseWriter) error {
 	connectionID, _ := message.Header.Properties[wspf.PropertyConnectionID].(string)
-	key := message.Header.SessionID + "/" + connectionID
-	if portForwarder, ok := h.portForwarders[key]; ok {
+	if portForwarder, ok := h.portForwarders[connectionID]; ok {
 		err := portForwarder.Write(message.Body)
 		// send ack
 		response := &ws.ProtoMsg{
@@ -331,8 +328,7 @@ func (h *PortForwardHandler) portForwardHandlerForward(message *ws.ProtoMsg, w R
 
 func (h *PortForwardHandler) portForwardHandlerAck(message *ws.ProtoMsg, w ResponseWriter) error {
 	connectionID, _ := message.Header.Properties[wspf.PropertyConnectionID].(string)
-	key := message.Header.SessionID + "/" + connectionID
-	if portForwarder, ok := h.portForwarders[key]; ok {
+	if portForwarder, ok := h.portForwarders[connectionID]; ok {
 		// unlock the ack mutex, do not panic if it is not locked
 		defer func() {
 			if r := recover(); r != nil {
