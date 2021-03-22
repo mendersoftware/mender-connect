@@ -12,7 +12,7 @@ github.com/gorilla/websocket
 # github.com/magefile/mage v1.10.0
 github.com/magefile/mage/mg
 github.com/magefile/mage/sh
-# github.com/mendersoftware/go-lib-micro v0.0.0-20210319123318-8cee8f55d7f5
+# github.com/mendersoftware/go-lib-micro v0.0.0-20210322083710-42186ab64a1e
 ## explicit
 github.com/mendersoftware/go-lib-micro/ws
 github.com/mendersoftware/go-lib-micro/ws/filetransfer

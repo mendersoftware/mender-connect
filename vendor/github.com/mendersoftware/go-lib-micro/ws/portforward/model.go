@@ -22,6 +22,8 @@ const (
 	MessageTypePortForwardStop = "stop"
 	// MessageTypePortForward is the message type for streaming data
 	MessageTypePortForward = "forward"
+	// MessageTypePortForwardAck is the message type for streaming data acknowledgement
+	MessageTypePortForwardAck = "ack"
 	// MessageTypeError is returned on internal or protocol errors. The
 	// body MUST contain an Error object.
 	MessageTypeError = "error"
@@ -36,10 +38,13 @@ const (
 	PortForwardProtocolUDP = "udp"
 )
 
+// PropertyConnectionID is the name of the property holding the connection ID
+const PropertyConnectionID = "connection_id"
+
 // PortForwardNew represents a new port forwarding request
 type PortForwardNew struct {
 	RemoteHost *string              `msgpack:"remote_host" json:"remote_host"`
-	RemotePort *uint                `msgpack:"remote_port" json:"remote_port"`
+	RemotePort *uint16              `msgpack:"remote_port" json:"remote_port"`
 	Protocol   *PortForwardProtocol `msgpack:"protocol" json:"protocol"`
 }
 

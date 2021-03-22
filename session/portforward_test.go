@@ -64,7 +64,7 @@ func TestPortForwardHandler(t *testing.T) {
 	// new
 	protocol := wspf.PortForwardProtocol(wspf.PortForwardProtocolTCP)
 	remoteHost := "localhost"
-	remotePort := uint(getFreeTCPPort())
+	remotePort := uint16(getFreeTCPPort())
 	portForwardNew := &wspf.PortForwardNew{
 		Protocol:   &protocol,
 		RemoteHost: &remoteHost,
@@ -77,7 +77,7 @@ func TestPortForwardHandler(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForwardNew,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 		Body: body,
@@ -98,7 +98,7 @@ func TestPortForwardHandler(t *testing.T) {
 	// new - unknown protocol
 	protocol = "dummy"
 	remoteHost = "localhost"
-	remotePort = uint(getFreeTCPPort())
+	remotePort = uint16(getFreeTCPPort())
 	portForwardNew = &wspf.PortForwardNew{
 		Protocol:   &protocol,
 		RemoteHost: &remoteHost,
@@ -111,7 +111,7 @@ func TestPortForwardHandler(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForwardNew,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 		Body: body,
@@ -136,7 +136,7 @@ func TestPortForwardHandler(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForwardStop,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 	}
@@ -160,7 +160,7 @@ func TestPortForwardHandler(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForward,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 	}
@@ -221,7 +221,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	// c1: new
 	protocol := wspf.PortForwardProtocol(wspf.PortForwardProtocolTCP)
 	remoteHost := "localhost"
-	remotePort := uint(tcpPort)
+	remotePort := uint16(tcpPort)
 	portForwardNew := &wspf.PortForwardNew{
 		Protocol:   &protocol,
 		RemoteHost: &remoteHost,
@@ -234,7 +234,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForwardNew,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 		Body: body,
@@ -259,7 +259,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForward,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 		Body: []byte("abcdefghi"),
@@ -273,16 +273,16 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	}
 
 	for _, rsp := range w.Messages {
-		if rsp.Header.MsgType == MessageTypePortForwardAck {
+		if rsp.Header.MsgType == wspf.MessageTypePortForwardAck {
 			assert.Equal(t, ws.ProtoTypePortForward, rsp.Header.Proto)
-			assert.Equal(t, MessageTypePortForwardAck, rsp.Header.MsgType)
+			assert.Equal(t, wspf.MessageTypePortForwardAck, rsp.Header.MsgType)
 			assert.Equal(t, "session", rsp.Header.SessionID)
-			assert.Equal(t, "c1", rsp.Header.Properties[propertyConnectionID].(string))
+			assert.Equal(t, "c1", rsp.Header.Properties[wspf.PropertyConnectionID].(string))
 		} else if rsp.Header.MsgType == wspf.MessageTypePortForward {
 			assert.Equal(t, ws.ProtoTypePortForward, rsp.Header.Proto)
 			assert.Equal(t, wspf.MessageTypePortForward, rsp.Header.MsgType)
 			assert.Equal(t, "session", rsp.Header.SessionID)
-			assert.Equal(t, "c1", rsp.Header.Properties[propertyConnectionID].(string))
+			assert.Equal(t, "c1", rsp.Header.Properties[wspf.PropertyConnectionID].(string))
 			assert.Equal(t, []byte("ABCDEFGHI"), rsp.Body)
 		}
 	}
@@ -290,10 +290,10 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	msg = &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
 			Proto:     ws.ProtoTypePortForward,
-			MsgType:   MessageTypePortForwardAck,
+			MsgType:   wspf.MessageTypePortForwardAck,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 	}
@@ -302,7 +302,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	// c2: new
 	protocol = wspf.PortForwardProtocol(wspf.PortForwardProtocolTCP)
 	remoteHost = "localhost"
-	remotePort = uint(tcpPort)
+	remotePort = uint16(tcpPort)
 	portForwardNew = &wspf.PortForwardNew{
 		Protocol:   &protocol,
 		RemoteHost: &remoteHost,
@@ -315,7 +315,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForwardNew,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c2",
+				wspf.PropertyConnectionID: "c2",
 			},
 		},
 		Body: body,
@@ -332,7 +332,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	assert.Equal(t, ws.ProtoTypePortForward, rsp.Header.Proto)
 	assert.Equal(t, wspf.MessageTypePortForwardNew, rsp.Header.MsgType)
 	assert.Equal(t, "session", rsp.Header.SessionID)
-	assert.Equal(t, "c2", rsp.Header.Properties[propertyConnectionID].(string))
+	assert.Equal(t, "c2", rsp.Header.Properties[wspf.PropertyConnectionID].(string))
 	assert.Nil(t, rsp.Body)
 
 	// c1: forward, again
@@ -342,7 +342,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForward,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 		Body: []byte("1234"),
@@ -356,16 +356,16 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	}
 
 	for _, rsp := range w.Messages {
-		if rsp.Header.MsgType == MessageTypePortForwardAck {
+		if rsp.Header.MsgType == wspf.MessageTypePortForwardAck {
 			assert.Equal(t, ws.ProtoTypePortForward, rsp.Header.Proto)
-			assert.Equal(t, MessageTypePortForwardAck, rsp.Header.MsgType)
+			assert.Equal(t, wspf.MessageTypePortForwardAck, rsp.Header.MsgType)
 			assert.Equal(t, "session", rsp.Header.SessionID)
-			assert.Equal(t, "c1", rsp.Header.Properties[propertyConnectionID].(string))
+			assert.Equal(t, "c1", rsp.Header.Properties[wspf.PropertyConnectionID].(string))
 		} else if rsp.Header.MsgType == wspf.MessageTypePortForward {
 			assert.Equal(t, ws.ProtoTypePortForward, rsp.Header.Proto)
 			assert.Equal(t, wspf.MessageTypePortForward, rsp.Header.MsgType)
 			assert.Equal(t, "session", rsp.Header.SessionID)
-			assert.Equal(t, "c1", rsp.Header.Properties[propertyConnectionID].(string))
+			assert.Equal(t, "c1", rsp.Header.Properties[wspf.PropertyConnectionID].(string))
 			assert.Equal(t, []byte("1234"), rsp.Body)
 		}
 	}
@@ -373,10 +373,10 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	msg = &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
 			Proto:     ws.ProtoTypePortForward,
-			MsgType:   MessageTypePortForwardAck,
+			MsgType:   wspf.MessageTypePortForwardAck,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 	}
@@ -389,7 +389,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForwardStop,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 	}
@@ -405,7 +405,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	assert.Equal(t, ws.ProtoTypePortForward, rsp.Header.Proto)
 	assert.Equal(t, wspf.MessageTypePortForwardStop, rsp.Header.MsgType)
 	assert.Equal(t, "session", rsp.Header.SessionID)
-	assert.Equal(t, "c1", rsp.Header.Properties[propertyConnectionID].(string))
+	assert.Equal(t, "c1", rsp.Header.Properties[wspf.PropertyConnectionID].(string))
 	assert.Nil(t, rsp.Body)
 
 	// c2: forward the message with the "stop" payload
@@ -415,7 +415,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 			MsgType:   wspf.MessageTypePortForward,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c2",
+				wspf.PropertyConnectionID: "c2",
 			},
 		},
 		Body: []byte("stop"),
@@ -429,22 +429,22 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	}
 
 	for _, rsp := range w.Messages {
-		if rsp.Header.MsgType == MessageTypePortForwardAck {
+		if rsp.Header.MsgType == wspf.MessageTypePortForwardAck {
 			assert.Equal(t, ws.ProtoTypePortForward, rsp.Header.Proto)
-			assert.Equal(t, MessageTypePortForwardAck, rsp.Header.MsgType)
+			assert.Equal(t, wspf.MessageTypePortForwardAck, rsp.Header.MsgType)
 			assert.Equal(t, "session", rsp.Header.SessionID)
-			assert.Equal(t, "c2", rsp.Header.Properties[propertyConnectionID].(string))
+			assert.Equal(t, "c2", rsp.Header.Properties[wspf.PropertyConnectionID].(string))
 		} else if rsp.Header.MsgType == wspf.MessageTypePortForward {
 			assert.Equal(t, ws.ProtoTypePortForward, rsp.Header.Proto)
 			assert.Equal(t, wspf.MessageTypePortForward, rsp.Header.MsgType)
 			assert.Equal(t, "session", rsp.Header.SessionID)
-			assert.Equal(t, "c2", rsp.Header.Properties[propertyConnectionID].(string))
+			assert.Equal(t, "c2", rsp.Header.Properties[wspf.PropertyConnectionID].(string))
 			assert.Equal(t, []byte("STOP"), rsp.Body)
 		} else if rsp.Header.MsgType == wspf.MessageTypePortForwardStop {
 			assert.Equal(t, ws.ProtoTypePortForward, rsp.Header.Proto)
 			assert.Equal(t, wspf.MessageTypePortForwardStop, rsp.Header.MsgType)
 			assert.Equal(t, "session", rsp.Header.SessionID)
-			assert.Equal(t, "c2", rsp.Header.Properties[propertyConnectionID].(string))
+			assert.Equal(t, "c2", rsp.Header.Properties[wspf.PropertyConnectionID].(string))
 			assert.Nil(t, rsp.Body)
 		}
 	}
@@ -452,10 +452,10 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 	msg = &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
 			Proto:     ws.ProtoTypePortForward,
-			MsgType:   MessageTypePortForwardAck,
+			MsgType:   wspf.MessageTypePortForwardAck,
 			SessionID: "session",
 			Properties: map[string]interface{}{
-				propertyConnectionID: "c1",
+				wspf.PropertyConnectionID: "c1",
 			},
 		},
 	}
