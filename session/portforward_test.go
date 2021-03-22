@@ -39,6 +39,8 @@ func getFreeTCPPort() int {
 }
 
 func TestPortForwardHandler(t *testing.T) {
+	handler := PortForward()()
+
 	// unkonwn message
 	msg := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
@@ -47,7 +49,7 @@ func TestPortForwardHandler(t *testing.T) {
 		},
 	}
 	w := new(testWriter)
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 	if !assert.Len(t, w.Messages, 1) {
 		t.FailNow()
 	}
@@ -81,7 +83,7 @@ func TestPortForwardHandler(t *testing.T) {
 		Body: body,
 	}
 	w = new(testWriter)
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 	if !assert.Len(t, w.Messages, 1) {
 		t.FailNow()
 	}
@@ -115,7 +117,7 @@ func TestPortForwardHandler(t *testing.T) {
 		Body: body,
 	}
 	w = new(testWriter)
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 	if !assert.Len(t, w.Messages, 1) {
 		t.FailNow()
 	}
@@ -139,7 +141,7 @@ func TestPortForwardHandler(t *testing.T) {
 		},
 	}
 	w = new(testWriter)
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 	if !assert.Len(t, w.Messages, 1) {
 		t.FailNow()
 	}
@@ -163,7 +165,7 @@ func TestPortForwardHandler(t *testing.T) {
 		},
 	}
 	w = new(testWriter)
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 	if !assert.Len(t, w.Messages, 1) {
 		t.FailNow()
 	}
@@ -177,6 +179,8 @@ func TestPortForwardHandler(t *testing.T) {
 }
 
 func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
+	handler := PortForward()()
+
 	// mock echo TCP server
 	tcpPort := getFreeTCPPort()
 	go func(tcpPort int) {
@@ -236,7 +240,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 		Body: body,
 	}
 	w := new(testWriter)
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 
 	time.Sleep(200 * time.Millisecond)
 	if !assert.Len(t, w.Messages, 1) {
@@ -261,7 +265,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 		Body: []byte("abcdefghi"),
 	}
 	w.Messages = []*ws.ProtoMsg{}
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 
 	time.Sleep(200 * time.Millisecond)
 	if !assert.Len(t, w.Messages, 2) {
@@ -293,7 +297,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 			},
 		},
 	}
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 
 	// c2: new
 	protocol = wspf.PortForwardProtocol(wspf.PortForwardProtocolTCP)
@@ -317,7 +321,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 		Body: body,
 	}
 	w.Messages = []*ws.ProtoMsg{}
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 
 	time.Sleep(200 * time.Millisecond)
 	if !assert.Len(t, w.Messages, 1) {
@@ -344,7 +348,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 		Body: []byte("1234"),
 	}
 	w.Messages = []*ws.ProtoMsg{}
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 
 	time.Sleep(200 * time.Millisecond)
 	if !assert.Len(t, w.Messages, 2) {
@@ -376,7 +380,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 			},
 		},
 	}
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 
 	// c1: stop
 	msg = &ws.ProtoMsg{
@@ -390,7 +394,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 		},
 	}
 	w.Messages = []*ws.ProtoMsg{}
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 
 	time.Sleep(200 * time.Millisecond)
 	if !assert.Len(t, w.Messages, 1) {
@@ -417,7 +421,7 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 		Body: []byte("stop"),
 	}
 	w.Messages = []*ws.ProtoMsg{}
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 
 	time.Sleep(200 * time.Millisecond)
 	if !assert.Len(t, w.Messages, 3) {
@@ -455,5 +459,5 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 			},
 		},
 	}
-	portForwardHandler(msg, w)
+	handler.ServeProtoMsg(msg, w)
 }
