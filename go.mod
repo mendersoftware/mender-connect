@@ -8,7 +8,7 @@ require (
 	github.com/creack/pty v1.1.11
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/gorilla/websocket v1.4.2
-	github.com/mendersoftware/go-lib-micro v0.0.0-20210311084510-06d0c5918746
+	github.com/mendersoftware/go-lib-micro v0.0.0-20210322083710-42186ab64a1e
 	github.com/pkg/errors v0.9.1
 	github.com/satori/go.uuid v1.2.0
 	github.com/sirupsen/logrus v1.8.0
