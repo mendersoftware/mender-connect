@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -172,6 +172,26 @@ func validateConfiguration(t *testing.T, actual *MenderShellConfig) {
 			MaxPerUser:      4,
 		},
 		ReconnectIntervalSeconds: DefaultReconnectIntervalsSeconds,
+		Limits: Limits{
+			Enabled: false,
+			FileTransfer: FileTransferLimits{
+				Chroot:         "",
+				FollowSymLinks: false,
+				AllowOverwrite: false,
+				OwnerPut:       "",
+				GroupPut:       "",
+				Umask:          "",
+				MaxFileSize:    0,
+				Counters: RateLimits{
+					MaxBytesTxPerMinute: 0,
+					MaxBytesRxPerMinute: 0,
+				},
+				AllowSuid:        false,
+				RegularFilesOnly: false,
+				PreserveMode:     true,
+				PreserveOwner:    true,
+			},
+		},
 	}
 	if !assert.True(t, reflect.DeepEqual(actual, expectedConfig)) {
 		t.Logf("got:      %+v", actual)

@@ -17,15 +17,14 @@ package config
 import (
 	"bufio"
 	"encoding/json"
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
-
-	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/mendersoftware/mender-connect/client/https"
 )
@@ -65,6 +64,57 @@ type SessionsConfig struct {
 	MaxPerUser uint32
 }
 
+// Counter for the limits  and restrictions for the File Transfer
+//on and off the device(MEN-4325)
+type RateLimits struct {
+	// Maximum bytes count allowed to transfer per minute
+	// this is per device global limit, which is consulted
+	// every time there is a transfer starting. if above
+	// the limit, we answer with error message indicating
+	// limit reached.
+	MaxBytesTxPerMinute uint64
+	MaxBytesRxPerMinute uint64
+}
+
+// Limits and restrictions for the File Transfer on and off the device(MEN-4325)
+type FileTransferLimits struct {
+	// the global parent directory that File Transfer will never escape
+	Chroot string
+	// No way to escape Chroot, even if this one is set the Chroot setting will
+	// be checked for the target of any link and restricted accordingly
+	FollowSymLinks bool
+	// Allow overwrite files
+	AllowOverwrite bool
+	// set the owner of new files to OwnerPut
+	OwnerPut string
+	// set the owner of new files to OwnerPut
+	GroupPut string
+	// allow to get only files owned by OwnerGet
+	OwnerGet []string
+	// allow to get only files owned by OwnerGet
+	GroupGet []string
+	// umask for new files
+	Umask string
+	// Maximum allowed file size
+	MaxFileSize uint64
+	// File transfer rate limits
+	Counters RateLimits
+	// If true it is allowed to upload files with set user id on execute bit set
+	AllowSuid bool
+	// By default we only allow to send/put regular files
+	RegularFilesOnly bool
+	// By default we preserve the file modes but set one according to
+	//the current umask or configured Umask above
+	PreserveMode bool
+	// By default we preserve the owner of the file uploaded
+	PreserveOwner bool
+}
+
+type Limits struct {
+	Enabled      bool               `json:"Enabled"`
+	FileTransfer FileTransferLimits `json:"FileTransfer"`
+}
+
 // MenderShellConfigFromFile holds the configuration settings read from the config file
 type MenderShellConfigFromFile struct {
 	// ClientProtocol "https"
@@ -87,6 +137,8 @@ type MenderShellConfigFromFile struct {
 	Terminal TerminalConfig `json:"Terminal"`
 	// User sessions settings
 	Sessions SessionsConfig `json:"Sessions"`
+	// Limits and restrictions
+	Limits Limits `json:"Limits"`
 	// Reconnect interval
 	ReconnectIntervalSeconds int
 	// FileTransfer config
@@ -263,6 +315,10 @@ func (c *MenderShellConfig) Validate() (err error) {
 	}
 
 	c.HTTPSClient.Validate()
+
+	// permit by default, probably will be changed after integration test is modified
+	c.Limits.FileTransfer.PreserveMode = true
+	c.Limits.FileTransfer.PreserveOwner = true
 	log.Debugf("Verified configuration = %#v", c)
 
 	return nil
@@ -281,7 +337,7 @@ func loadConfigFile(configFile string, config *MenderShellConfig, filesLoadedCou
 		return err
 	}
 
-	(*filesLoadedCount)++
+	*filesLoadedCount++
 	log.Info("Loaded configuration file: ", configFile)
 	return nil
 }
