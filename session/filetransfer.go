@@ -378,6 +378,18 @@ func (h *FileTransferHandler) InitFileUpload(msg *ws.ProtoMsg, w ResponseWriter)
 		return errors.Wrap(err, "invalid request parameters")
 	}
 
+	if info, errStat := os.Lstat(*params.Path); errStat != nil {
+		if !os.IsNotExist(errStat) {
+			err = errors.Wrap(errStat, "error checking file location")
+			return err
+		}
+	} else if !info.Mode().IsRegular() {
+		err = errors.New(
+			"conflicting file path: cannot overwrite irregular file",
+		)
+		return err
+	}
+
 	select {
 	case h.mutex <- struct{}{}:
 		go h.FileUploadHandler(msg, params, w) //nolint:errcheck
