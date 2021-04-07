@@ -1,7 +1,6 @@
 #
 # Apache-2.0
 b4acfcfa2a0ba1a8c82ec3965fbcee886cff8394ca4214e0ddac0a36beb1e05a  LICENSE
-e31497e5f27700c6c7f25c7831641d0af1df47c3d4c6c3699d12d74d75fd0b33  vendor/github.com/magefile/mage/LICENSE
 3eb823230e5d112e1bd032ccc82ae765cf676d0d6d46a1a1daa2d658b3005b67  vendor/github.com/mendersoftware/go-lib-micro/LICENSE
 #
 # BSD-2-Clause
