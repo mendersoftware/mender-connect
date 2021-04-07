@@ -91,7 +91,7 @@ func NewPermit(config config.Limits) *Permit {
 	}
 }
 
-func (p *Permit) UploadFile(fileStat model.FileInfo) error {
+func (p *Permit) UploadFile(fileStat model.UploadRequest) error {
 	if !p.limits.Enabled {
 		return nil
 	}
@@ -145,12 +145,12 @@ func (p *Permit) UploadFile(fileStat model.FileInfo) error {
 	return nil
 }
 
-func (p *Permit) DownloadFile(fileStat model.FileInfo) error {
+func (p *Permit) DownloadFile(params model.GetFile) error {
 	if !p.limits.Enabled {
 		return nil
 	}
 
-	filePath := *fileStat.Path
+	filePath := *params.Path
 
 	if p.limits.FileTransfer.RegularFilesOnly && !utils.IsRegularFile(filePath) {
 		return ErrOnlyRegularFilesAllowed
