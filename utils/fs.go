@@ -60,7 +60,7 @@ func FileOwnerMatches(path string, username string) bool {
 		if err != nil {
 			return false
 		} else {
-			return fileUser.Name == username && fileUser.Uid == uidString
+			return fileUser.Username == username && fileUser.Uid == uidString
 		}
 	}
 }
