@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"os"
 	"os/user"
+	"path"
 	"strconv"
 	"syscall"
 	"testing"
@@ -172,7 +173,7 @@ func TestUpdateCounters(t *testing.T) {
 
 func createRandomFile(prefix string) string {
 	if prefix != "" {
-		prefix = os.TempDir() + prefix
+		prefix = path.Join(os.TempDir(), prefix)
 		os.Mkdir(prefix, 0755)
 	}
 
@@ -187,7 +188,7 @@ func createRandomFile(prefix string) string {
 
 	maxBytes := 512
 	array := make([]byte, rand.Intn(maxBytes))
-	for i, _ := range array {
+	for i := range array {
 		array[i] = byte(rand.Intn(255))
 	}
 	f.Write(array)
@@ -495,7 +496,7 @@ func TestPermit_DownloadFile(t *testing.T) {
 			if tc.FilePath != "" {
 				filePath = tc.FilePath
 			}
-			err := tc.Permit.DownloadFile(model.FileInfo{
+			err := tc.Permit.DownloadFile(model.GetFile{
 				Path: &filePath,
 			})
 			if tc.ExpectedDownload != nil {
@@ -650,15 +651,15 @@ func TestPermit_UploadFile(t *testing.T) {
 		},
 	}
 
-	path := createRandomFile("")
-	if path == "" {
+	filename := createRandomFile("")
+	if filename == "" {
 		t.Fatal("cant create a file")
 	}
-	defer os.Remove(path)
+	defer os.Remove(filename)
 
 	for _, tc := range testCases {
 		t.Run(tc.Name, func(t *testing.T) {
-			filePath := path
+			filePath := filename
 			if tc.FilePath != "" {
 				filePath = tc.FilePath
 			}
@@ -673,11 +674,11 @@ func TestPermit_UploadFile(t *testing.T) {
 				rand.Seed(time.Now().UnixNano())
 				newTempSubDir := "linktarget" + strconv.Itoa(rand.Int())
 				newTempSubDirLink := "linkname" + strconv.Itoa(rand.Int())
-				err := os.Mkdir(os.TempDir()+newTempSubDir, 0700)
+				err := os.Mkdir(path.Join(os.TempDir(), newTempSubDir), 0700)
 				if err != nil {
 					t.Fatal("cant create directory " + os.TempDir() + newTempSubDir + " err:" + err.Error())
 				}
-				os.Symlink(os.TempDir()+newTempSubDir, os.TempDir()+newTempSubDirLink)
+				os.Symlink(path.Join(os.TempDir(), newTempSubDir), path.Join(os.TempDir(), newTempSubDirLink))
 				filePath = createRandomFile(newTempSubDirLink)
 				defer func() {
 					os.Remove(filePath)
@@ -689,7 +690,7 @@ func TestPermit_UploadFile(t *testing.T) {
 				}
 			}
 
-			err := tc.Permit.UploadFile(model.FileInfo{
+			err := tc.Permit.UploadFile(model.UploadRequest{
 				Path: &filePath,
 				Size: &size,
 				Mode: &fileMode,
