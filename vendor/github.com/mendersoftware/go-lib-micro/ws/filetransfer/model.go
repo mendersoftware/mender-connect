@@ -79,3 +79,21 @@ type FileInfo struct {
 	// ModTime is the last modification time for the file.
 	ModTime *time.Time `msgpack:"modtime,omitempty" json:"modification_time,omitempty"`
 }
+
+type UploadRequest struct {
+	// SrcPath is the (optional) source filename which will be appended
+	// to the target path if it points to a directory.
+	SrcPath *string `msgpack:"src_path,omitempty" json:"src_path,omitempty"`
+	// The file path to the file we are sending status for
+	Path *string `msgpack:"path" json:"path"`
+	// The file size
+	Size *int64 `msgpack:"size,omitempty" json:"size,omitempty"`
+	// The file owner
+	UID *uint32 `msgpack:"uid,omitempty" json:"uid,omitempty"`
+	// The file group
+	GID *uint32 `msgpack:"gid,omitempty" json:"gid,omitempty"`
+	// Mode contains the file mode and permission bits.
+	Mode *uint32 `msgpack:"mode,omitempty" json:"mode,omitempty"`
+	// ModTime is the last modification time for the file.
+	ModTime *time.Time `msgpack:"modtime,omitempty" json:"modification_time,omitempty"`
+}
