@@ -100,33 +100,41 @@ func TestFileTransferUpload(t *testing.T) {
 			Error: errors.New("no file transfer in progress"), //for some reason Upload currently returns this error
 		},
 		{
-			Name: "error, transfer limit reached",
+			Name: "error, path is a directory",
 
 			Params: model.FileInfo{
-				Path: func() *string {
-					p := path.Join(testdir, "mkay")
-					return &p
-				}(),
-				Size: &fileSize,
+				Path: &testdir,
 			},
-
-			FileContents: []byte(
-				"this message will be chunked into byte chunks to " +
-					"make things super inefficient",
-			),
-			ChunkSize: 1,
-
-			LimitsEnabled: true,
-			Limits: config.FileTransferLimits{
-				FollowSymLinks: true,
-				Counters: config.RateLimits{
-					MaxBytesTxPerMinute: 1,
-					MaxBytesRxPerMinute: 1,
-				},
-			},
-
-			Error: errors.New("no file transfer in progress"), //for some reason Upload currently returns this error
+			Error: errors.New("conflicting file path: cannot overwrite irregular file"),
 		},
+		// The following test case does not seem to be implemented yet.
+		//{
+		//	Name: "error, transfer limit reached",
+		//	Params: model.FileInfo{
+		//		Path: func() *string {
+		//			p := path.Join(testdir, "mkay")
+		//			return &p
+		//		}(),
+		//		Size: &fileSize,
+		//	},
+
+		//	FileContents: []byte(
+		//		"this message will be chunked into byte chunks to " +
+		//			"make things super inefficient",
+		//	),
+		//	ChunkSize: 1,
+
+		//	LimitsEnabled: true,
+		//	Limits: config.FileTransferLimits{
+		//		FollowSymLinks: true,
+		//		Counters: config.RateLimits{
+		//			MaxBytesTxPerMinute: 1,
+		//			MaxBytesRxPerMinute: 1,
+		//		},
+		//	},
+
+		//	Error: errors.New("no file transfer in progress"), //for some reason Upload currently returns this error
+		//},
 		{
 			Name: "error, fake error from client",
 
