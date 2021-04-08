@@ -110,6 +110,13 @@ func TestFileTransferUpload(t *testing.T) {
 		Error: errors.New("received unexpected message type 'ack' " +
 			"during file upload"),
 	}, {
+		Name: "error, path is a directory",
+
+		Params: FileInfo{
+			Path: &testdir,
+		},
+		Error: errors.New("conflicting file path: cannot overwrite irregular file"),
+	}, {
 		Name: "error, chunk missing offset",
 
 		Params: FileInfo{
