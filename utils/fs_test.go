@@ -16,47 +16,23 @@ package utils
 
 import (
 	"io/ioutil"
-	"math/rand"
 	"os"
 	"os/user"
+	"path"
 	"strconv"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func createRandomFile(prefix string) string {
-	if prefix != "" {
-		prefix = os.TempDir() + prefix
-		os.Mkdir(prefix, 0755)
-	}
-
-	f, err := ioutil.TempFile(prefix, "")
-	if err != nil || f == nil {
-		return ""
-	}
-	defer f.Close()
-	fileName := f.Name()
-
-	rand.Seed(time.Now().UnixNano())
-
-	maxBytes := 512
-	array := make([]byte, rand.Intn(maxBytes))
-	for i, _ := range array {
-		array[i] = byte(rand.Intn(255))
-	}
-	f.Write(array)
-	f.Close()
-	return fileName
-}
-
 func TestFileSize(t *testing.T) {
-	fileName := createRandomFile("")
-	if fileName == "" {
+	fd, err := ioutil.TempFile("", "tempfile")
+	if err != nil {
 		t.Fatal("cant create a file")
 	}
+	fileName := fd.Name()
+	fd.Close()
 	defer os.Remove(fileName)
 
 	stat, err := os.Stat(fileName)
@@ -73,10 +49,12 @@ func TestFileSize(t *testing.T) {
 }
 
 func TestFileExists(t *testing.T) {
-	fileName := createRandomFile("")
-	if fileName == "" {
+	fd, err := ioutil.TempFile("", "tempfile")
+	if err != nil {
 		t.Fatal("cant create a file")
 	}
+	fileName := fd.Name()
+	fd.Close()
 	defer os.Remove(fileName)
 
 	expectedExists := true
@@ -89,10 +67,12 @@ func TestFileExists(t *testing.T) {
 }
 
 func TestFileGetUidGid(t *testing.T) {
-	fileName := createRandomFile("")
-	if fileName == "" {
+	fd, err := ioutil.TempFile("", "tempfile")
+	if err != nil {
 		t.Fatal("cant create a file")
 	}
+	fileName := fd.Name()
+	fd.Close()
 	defer os.Remove(fileName)
 
 	stat, err := os.Stat(fileName)
@@ -116,10 +96,12 @@ func TestFileGetUidGid(t *testing.T) {
 }
 
 func TestFileGroupMatches(t *testing.T) {
-	fileName := createRandomFile("")
-	if fileName == "" {
+	fd, err := ioutil.TempFile("", "tempfile")
+	if err != nil {
 		t.Fatal("cant create a file")
 	}
+	fileName := fd.Name()
+	fd.Close()
 	defer os.Remove(fileName)
 
 	stat, err := os.Stat(fileName)
@@ -143,10 +125,12 @@ func TestFileGroupMatches(t *testing.T) {
 }
 
 func TestFileOwnerMatches(t *testing.T) {
-	fileName := createRandomFile("")
-	if fileName == "" {
+	fd, err := ioutil.TempFile("", "tempfile")
+	if err != nil {
 		t.Fatal("cant create a file")
 	}
+	fileName := fd.Name()
+	fd.Close()
 	defer os.Remove(fileName)
 
 	stat, err := os.Stat(fileName)
@@ -161,22 +145,24 @@ func TestFileOwnerMatches(t *testing.T) {
 	}
 
 	user, err := user.LookupId(strconv.Itoa(int(statT.Uid)))
-	expectedMatch := FileOwnerMatches(fileName, user.Name)
+	expectedMatch := FileOwnerMatches(fileName, user.Username)
 	assert.NoError(t, err)
 	assert.True(t, expectedMatch)
 
-	expectedMatch = FileOwnerMatches("lets just say it does not exists"+fileName, user.Name)
+	expectedMatch = FileOwnerMatches("lets just say it does not exists"+fileName, user.Username)
 	assert.False(t, expectedMatch)
 }
 
 func TestIsRegularFile(t *testing.T) {
-	fileName := createRandomFile("")
-	if fileName == "" {
+	fd, err := ioutil.TempFile("", "tempfile")
+	if err != nil {
 		t.Fatal("cant create a file")
 	}
+	fileName := fd.Name()
+	fd.Close()
 	defer os.Remove(fileName)
 
-	err := os.Symlink(fileName, fileName+"-link")
+	err = os.Symlink(fileName, fileName+"-link")
 	if err != nil {
 		t.Fatal("cant create a link")
 	}
@@ -192,18 +178,25 @@ func TestIsRegularFile(t *testing.T) {
 }
 
 func TestIsInChroot(t *testing.T) {
-	chroot := os.TempDir() + "chroot"
-	fileName := createRandomFile("")
-	if fileName == "" {
+	chroot := path.Join(os.TempDir(), "chroot")
+	if err := os.Mkdir(chroot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(chroot)
+	fd, err := ioutil.TempFile("", "tempfile")
+	if err != nil {
 		t.Fatal("cant create a file")
 	}
+	fileName := fd.Name()
+	fd.Close()
 	defer os.Remove(fileName)
-	fileNameChroot := createRandomFile("chroot")
-	if fileNameChroot == "" {
+	fd, err = ioutil.TempFile(chroot, "tempfile")
+	if err != nil {
 		t.Fatal("cant create a file")
 	}
+	fd.Close()
+	fileNameChroot := fd.Name()
 	defer os.Remove(fileNameChroot)
-	defer os.Remove(chroot)
 
 	notInChrootExpected := IsInChroot(fileName, chroot)
 	assert.False(t, notInChrootExpected)

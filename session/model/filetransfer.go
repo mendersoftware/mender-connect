@@ -19,9 +19,9 @@ import (
 	wsft "github.com/mendersoftware/go-lib-micro/ws/filetransfer"
 )
 
-type FileInfo wsft.FileInfo
+type UploadRequest wsft.UploadRequest
 
-func (f FileInfo) Validate() error {
+func (f UploadRequest) Validate() error {
 	return validation.ValidateStruct(&f,
 		validation.Field(&f.Path, validation.Required),
 	)

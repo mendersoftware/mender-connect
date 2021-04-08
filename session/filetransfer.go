@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"runtime"
 	"strconv"
 	"sync/atomic"
@@ -201,27 +202,20 @@ func (c *chunkWriter) Write(b []byte) (int, error) {
 }
 
 func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWriter) (err error) {
-	params := new(model.GetFile)
+	var params model.GetFile
 	defer func() {
 		if err != nil {
 			log.Error(err.Error())
 			h.Error(msg, w, err)
 		}
 	}()
-	if err = msgpack.Unmarshal(msg.Body, params); err != nil {
+	if err = msgpack.Unmarshal(msg.Body, &params); err != nil {
 		err = errors.Wrap(err, "malformed request parameters")
 		return err
 	} else if err = params.Validate(); err != nil {
 		err = errors.Wrap(err, "invalid request parameters")
 		return err
-	} else if err = h.permit.DownloadFile(model.FileInfo{
-		Path:    params.Path,
-		Size:    nil,
-		UID:     nil,
-		GID:     nil,
-		Mode:    nil,
-		ModTime: nil,
-	}); err != nil {
+	} else if err = h.permit.DownloadFile(params); err != nil {
 		log.Warnf("file download access denied: %s", err.Error())
 		err = errors.Wrap(err, "access denied")
 		return err
@@ -365,7 +359,7 @@ func (h *FileTransferHandler) InitFileUpload(msg *ws.ProtoMsg, w ResponseWriter)
 		defaultUID  uint32 = uint32(os.Getuid())
 		defaultGID  uint32 = uint32(os.Getgid())
 	)
-	params := model.FileInfo{
+	params := model.UploadRequest{
 		UID:  &defaultUID,
 		GID:  &defaultGID,
 		Mode: &defaultMode,
@@ -393,9 +387,19 @@ func (h *FileTransferHandler) InitFileUpload(msg *ws.ProtoMsg, w ResponseWriter)
 		return filetransfer.ErrTxBytesLimitExhausted
 	}
 
+StatAgain:
 	if info, errStat := os.Lstat(*params.Path); errStat != nil {
 		if !os.IsNotExist(errStat) {
 			err = errors.Wrap(errStat, "error checking file location")
+			return err
+		}
+	} else if info.IsDir() {
+		if params.SrcPath != nil {
+			*params.Path = path.Join(*params.Path, path.Base(*params.SrcPath))
+			params.SrcPath = nil
+			goto StatAgain
+		} else {
+			err = errors.New("conflicting file path: cannot overwrite directory")
 			return err
 		}
 	} else if !info.Mode().IsRegular() {
@@ -417,7 +421,7 @@ func (h *FileTransferHandler) InitFileUpload(msg *ws.ProtoMsg, w ResponseWriter)
 
 var atomicSuffix uint32
 
-func createWrOnlyTempFile(params model.FileInfo) (fd *os.File, err error) {
+func createWrOnlyTempFile(params model.UploadRequest) (fd *os.File, err error) {
 	for i := 0; i < 100; i++ {
 		suffix := atomic.AddUint32(&atomicSuffix, 1)
 		filename := *params.Path + fmt.Sprintf(".%08x%02x", suffix, i)
@@ -437,7 +441,7 @@ func createWrOnlyTempFile(params model.FileInfo) (fd *os.File, err error) {
 
 func (h *FileTransferHandler) FileUploadHandler(
 	msg *ws.ProtoMsg,
-	params model.FileInfo,
+	params model.UploadRequest,
 	w ResponseWriter,
 ) (err error) {
 	var (
