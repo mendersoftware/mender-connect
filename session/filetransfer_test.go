@@ -40,7 +40,7 @@ func TestFileTransferUpload(t *testing.T) {
 	testCases := []struct {
 		Name string
 
-		Params FileInfo
+		Params UploadRequest
 
 		// TransferMessages, if set, are sent before file contents
 		TransferMessages []*ws.ProtoMsg
@@ -53,7 +53,7 @@ func TestFileTransferUpload(t *testing.T) {
 	}{{
 		Name: "ok",
 
-		Params: FileInfo{
+		Params: UploadRequest{
 			Path: func() *string {
 				p := path.Join(testdir, "mkay")
 				return &p
@@ -66,9 +66,23 @@ func TestFileTransferUpload(t *testing.T) {
 		),
 		ChunkSize: 1,
 	}, {
+		Name: "ok, relative path",
+
+		Params: UploadRequest{
+			Path: &testdir,
+			SrcPath: func() *string {
+				s := "/home/acme/.local/important/file"
+				return &s
+			}(),
+		},
+		FileContents: []byte(
+			"short message",
+		),
+		ChunkSize: 123,
+	}, {
 		Name: "error, fake error from client",
 
-		Params: FileInfo{
+		Params: UploadRequest{
 			Path: func() *string {
 				p := path.Join(testdir, "clienterr")
 				return &p
@@ -94,7 +108,7 @@ func TestFileTransferUpload(t *testing.T) {
 	}, {
 		Name: "error, unexpected ACK message from client",
 
-		Params: FileInfo{
+		Params: UploadRequest{
 			Path: func() *string {
 				p := path.Join(testdir, "ackerr")
 				return &p
@@ -112,14 +126,14 @@ func TestFileTransferUpload(t *testing.T) {
 	}, {
 		Name: "error, path is a directory",
 
-		Params: FileInfo{
+		Params: UploadRequest{
 			Path: &testdir,
 		},
-		Error: errors.New("conflicting file path: cannot overwrite irregular file"),
+		Error: errors.New("conflicting file path: cannot overwrite directory"),
 	}, {
 		Name: "error, chunk missing offset",
 
-		Params: FileInfo{
+		Params: UploadRequest{
 			Path: func() *string {
 				p := path.Join(testdir, "offseterr")
 				return &p
@@ -139,7 +153,7 @@ func TestFileTransferUpload(t *testing.T) {
 	}, {
 		Name: "error, offset jumps beyond EOF",
 
-		Params: FileInfo{
+		Params: UploadRequest{
 			Path: func() *string {
 				p := path.Join(testdir, "badOffset")
 				return &p
@@ -162,7 +176,7 @@ func TestFileTransferUpload(t *testing.T) {
 	}, {
 		Name: "error, broken response writer",
 
-		Params: FileInfo{
+		Params: UploadRequest{
 			Path: func() *string {
 				p := path.Join(testdir, "errfile")
 				return &p
@@ -173,7 +187,7 @@ func TestFileTransferUpload(t *testing.T) {
 	}, {
 		Name: "error, parent directory does not exist",
 
-		Params: FileInfo{
+		Params: UploadRequest{
 			Path: func() *string {
 				p := path.Join(
 					testdir, "parent", "dir",
