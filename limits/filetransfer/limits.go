@@ -160,18 +160,30 @@ func (p *Permit) DownloadFile(params model.GetFile) error {
 		return ErrChrootViolation
 	}
 
-	for _, owner := range p.limits.FileTransfer.OwnerGet {
-		if utils.FileOwnerMatches(filePath, owner) {
-			break
+	if len(p.limits.FileTransfer.OwnerGet) > 0 {
+		matched := false
+		for _, owner := range p.limits.FileTransfer.OwnerGet {
+			if utils.FileOwnerMatches(filePath, owner) {
+				matched = true
+				break
+			}
 		}
-		return ErrFileOwnerMismatch
+		if !matched {
+			return ErrFileOwnerMismatch
+		}
 	}
 
-	for _, group := range p.limits.FileTransfer.GroupGet {
-		if utils.FileGroupMatches(filePath, group) {
-			break
+	if len(p.limits.FileTransfer.GroupGet) > 0 {
+		matched := false
+		for _, group := range p.limits.FileTransfer.GroupGet {
+			if utils.FileGroupMatches(filePath, group) {
+				matched = true
+				break
+			}
 		}
-		return ErrFileGroupMismatch
+		if !matched {
+			return ErrFileGroupMismatch
+		}
 	}
 
 	if !p.limits.FileTransfer.FollowSymLinks {
