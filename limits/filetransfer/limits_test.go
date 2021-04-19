@@ -436,7 +436,7 @@ func TestPermit_DownloadFile(t *testing.T) {
 			Permit: NewPermit(config.Limits{
 				Enabled: true,
 				FileTransfer: config.FileTransferLimits{
-					OwnerGet:       []string{currentUser},
+					OwnerGet:       []string{"this-is-not-that-owner", currentUser},
 					FollowSymLinks: true,
 				},
 			}),
@@ -456,7 +456,7 @@ func TestPermit_DownloadFile(t *testing.T) {
 			Permit: NewPermit(config.Limits{
 				Enabled: true,
 				FileTransfer: config.FileTransferLimits{
-					GroupGet:       []string{currentGroup.Name},
+					GroupGet:       []string{"this is not that group", currentGroup.Name},
 					FollowSymLinks: true,
 				},
 			}),
