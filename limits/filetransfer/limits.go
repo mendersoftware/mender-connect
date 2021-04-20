@@ -375,12 +375,12 @@ func updateCounters() {
 	for counterUpdateRunning {
 		select {
 		case <-tick.C:
-			rxTot := deviceCounters.bytesTransferred
-			txTot := deviceCounters.bytesReceived
+			txTot := deviceCounters.bytesTransferred
+			rxTot := deviceCounters.bytesReceived
 			rx := rxTot - lastRX
 			tx := txTot - lastTX
 			lastRX = rxTot
-			lastTX = rxTot
+			lastTX = txTot
 			// avg[n+1] = w * Y[n] + (1 - w) avg[n]
 			avgRX = w1*float64(rx) + _w1*avgRX
 			avgTX = w1*float64(tx) + _w1*avgTX
