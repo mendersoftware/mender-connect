@@ -138,7 +138,7 @@ func (p *Permit) UploadFile(fileStat model.UploadRequest) error {
 
 	if !p.limits.FileTransfer.AllowSuid &&
 		fileStat.Mode != nil &&
-		(os.FileMode(*fileStat.Mode)&os.ModeSetuid) != 0 {
+		(os.FileMode(*fileStat.Mode)&syscall.S_ISUID) != 0 {
 		return ErrSuidModeForbidden
 	}
 

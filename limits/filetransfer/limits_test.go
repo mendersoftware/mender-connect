@@ -634,7 +634,7 @@ func TestPermit_UploadFile(t *testing.T) {
 					AllowSuid:      false,
 				},
 			}),
-			Modes:          os.ModePerm | os.ModeSetuid,
+			Modes:          os.ModePerm | syscall.S_ISUID,
 			ExpectedUpload: ErrSuidModeForbidden,
 		},
 		{
