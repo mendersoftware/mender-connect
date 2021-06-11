@@ -62,6 +62,7 @@ type MenderShellDaemon struct {
 	printStatus             bool
 	username                string
 	shell                   string
+	shellArguments          []string
 	serverUrl               string
 	serverCertificate       string
 	skipVerify              bool
@@ -118,6 +119,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		authorized:              false,
 		username:                conf.User,
 		shell:                   conf.ShellCommand,
+		shellArguments:          conf.ShellArguments,
 		serverUrl:               conf.ServerURL,
 		serverCertificate:       conf.ServerCertificate,
 		skipVerify:              conf.SkipVerify,
