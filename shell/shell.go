@@ -41,7 +41,7 @@ func ExecuteShell(uid uint32,
 
 	currentUser, err := user.Current()
 	if err != nil {
-		log.Debugf("cant get current user: %s", err.Error())
+		log.Debugf("can't get current user: %s", err.Error())
 		return -1, nil, nil, errors.New("unknown error with exec.Command(" + shell + ")")
 	}
 
