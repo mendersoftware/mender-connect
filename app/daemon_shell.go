@@ -86,6 +86,7 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *ws.ProtoMsg) error {
 		TerminalString: d.terminalString,
 		Height:         terminalHeight,
 		Width:          terminalWidth,
+		ShellArguments: d.shellArguments,
 	}); err != nil {
 		err = errors.Wrap(err, "failed to start shell")
 		d.routeMessageResponse(response, err)
