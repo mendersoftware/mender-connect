@@ -64,6 +64,9 @@ type MenderShellConfigFromFile struct {
 	Servers []https.MenderServer
 	// The command to run as shell
 	ShellCommand string
+	// ShellArguments is the arguments the shell is launched with. Defaults
+	// to '--login'.
+	ShellArguments []string
 	// Name of the user who owns the shell process
 	User string
 	// Terminal settings
@@ -197,6 +200,11 @@ func (c *MenderShellConfig) Validate() (err error) {
 	if c.ShellCommand == "" {
 		log.Warnf("ShellCommand is empty, defaulting to %s", DefaultShellCommand)
 		c.ShellCommand = DefaultShellCommand
+	}
+
+	if c.ShellArguments == nil {
+		log.Warnf("ShellArguments is empty, defaulting to %s", DefaultShellArguments)
+		c.ShellArguments = DefaultShellArguments
 	}
 
 	if !filepath.IsAbs(c.ShellCommand) {

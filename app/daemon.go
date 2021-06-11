@@ -23,9 +23,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/pkg/errors"
+
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
-	"github.com/pkg/errors"
 
 	"github.com/mendersoftware/mender-connect/client/dbus"
 	"github.com/mendersoftware/mender-connect/client/mender"
@@ -69,6 +70,7 @@ type MenderShellDaemon struct {
 	printStatus             bool
 	username                string
 	shell                   string
+	shellArguments          []string
 	serverUrl               string
 	serverCertificate       string
 	skipVerify              bool
@@ -99,6 +101,7 @@ func NewDaemon(config *configuration.MenderShellConfig) *MenderShellDaemon {
 		authorized:              false,
 		username:                config.User,
 		shell:                   config.ShellCommand,
+		shellArguments:          config.ShellArguments,
 		serverUrl:               config.ServerURL,
 		serverCertificate:       config.ServerCertificate,
 		skipVerify:              config.SkipVerify,
@@ -577,6 +580,7 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *ws.ProtoMsg) error {
 		TerminalString: d.terminalString,
 		Height:         terminalHeight,
 		Width:          terminalWidth,
+		ShellArguments: d.shellArguments,
 	}); err != nil {
 		err = errors.Wrap(err, "failed to start shell")
 		d.routeMessageResponse(response, err)
