@@ -17,14 +17,15 @@ package config
 import (
 	"bufio"
 	"encoding/json"
-	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/mendersoftware/mender-connect/client/https"
 )
@@ -131,6 +132,9 @@ type MenderShellConfigFromFile struct {
 	Servers []https.MenderServer
 	// The command to run as shell
 	ShellCommand string
+	// ShellArguments is the arguments the shell is launched with. Defaults
+	// to '--login'.
+	ShellArguments []string
 	// Name of the user who owns the shell process
 	User string
 	// Terminal settings
@@ -234,8 +238,7 @@ func validateUser(c *MenderShellConfig) (err error) {
 	return nil
 }
 
-// Validate verifies the Servers fields in the configuration
-func (c *MenderShellConfig) Validate() (err error) {
+func (c *MenderShellConfig) applyDefaults() error {
 	if c.Servers == nil {
 		if c.ServerURL == "" {
 			log.Warn("No server URL(s) specified in mender configuration.")
@@ -250,24 +253,6 @@ func (c *MenderShellConfig) Validate() (err error) {
 		return errors.New("Both Servers AND ServerURL given in " +
 			"mender-connect.conf")
 	}
-	for i, u := range c.Servers {
-		_, err := url.Parse(u.ServerURL)
-		if err != nil {
-			log.Errorf("'%s' at Servers[%d].ServerURL is not a valid URL", u.ServerURL, i)
-			return err
-		}
-	}
-	for i := 0; i < len(c.Servers); i++ {
-		// trim possible '/' suffix, which is added back in URL path
-		if strings.HasSuffix(c.Servers[i].ServerURL, "/") {
-			c.Servers[i].ServerURL =
-				strings.TrimSuffix(
-					c.Servers[i].ServerURL, "/")
-		}
-		if c.Servers[i].ServerURL == "" {
-			log.Warnf("Server entry %d has no associated server URL.", i+1)
-		}
-	}
 
 	//check if shell is given, if not, defaulting to /bin/sh
 	if c.ShellCommand == "" {
@@ -275,22 +260,9 @@ func (c *MenderShellConfig) Validate() (err error) {
 		c.ShellCommand = DefaultShellCommand
 	}
 
-	if !filepath.IsAbs(c.ShellCommand) {
-		return errors.New("given shell (" + c.ShellCommand + ") is not an absolute path")
-	}
-
-	if !isExecutable(c.ShellCommand) {
-		return errors.New("given shell (" + c.ShellCommand + ") is not executable")
-	}
-
-	err = validateUser(c)
-	if err != nil {
-		return err
-	}
-
-	if !isInShells(c.ShellCommand) {
-		log.Errorf("ShellCommand %s is not present in /etc/shells", c.ShellCommand)
-		return errors.New("ShellCommand " + c.ShellCommand + " is not present in /etc/shells")
+	if c.ShellArguments == nil {
+		log.Warnf("ShellArguments is empty, defaulting to %s", DefaultShellArguments)
+		c.ShellArguments = DefaultShellArguments
 	}
 
 	if c.Terminal.Width == 0 {
@@ -314,11 +286,57 @@ func (c *MenderShellConfig) Validate() (err error) {
 		c.ReconnectIntervalSeconds = DefaultReconnectIntervalsSeconds
 	}
 
-	c.HTTPSClient.Validate()
-
 	// permit by default, probably will be changed after integration test is modified
 	c.Limits.FileTransfer.PreserveMode = true
 	c.Limits.FileTransfer.PreserveOwner = true
+
+	return nil
+}
+
+// Validate verifies the Servers fields in the configuration
+func (c *MenderShellConfig) Validate() (err error) {
+	if err = c.applyDefaults(); err != nil {
+		return err
+	}
+	for i, u := range c.Servers {
+		_, err := url.Parse(u.ServerURL)
+		if err != nil {
+			log.Errorf("'%s' at Servers[%d].ServerURL is not a valid URL", u.ServerURL, i)
+			return err
+		}
+	}
+	for i := 0; i < len(c.Servers); i++ {
+		// trim possible '/' suffix, which is added back in URL path
+		if strings.HasSuffix(c.Servers[i].ServerURL, "/") {
+			c.Servers[i].ServerURL =
+				strings.TrimSuffix(
+					c.Servers[i].ServerURL, "/")
+		}
+		if c.Servers[i].ServerURL == "" {
+			log.Warnf("Server entry %d has no associated server URL.", i+1)
+		}
+	}
+
+	if !filepath.IsAbs(c.ShellCommand) {
+		return errors.New("given shell (" + c.ShellCommand + ") is not an absolute path")
+	}
+
+	if !isExecutable(c.ShellCommand) {
+		return errors.New("given shell (" + c.ShellCommand + ") is not executable")
+	}
+
+	err = validateUser(c)
+	if err != nil {
+		return err
+	}
+
+	if !isInShells(c.ShellCommand) {
+		log.Errorf("ShellCommand %s is not present in /etc/shells", c.ShellCommand)
+		return errors.New("ShellCommand " + c.ShellCommand + " is not present in /etc/shells")
+	}
+
+	c.HTTPSClient.Validate()
+
 	log.Debugf("Verified configuration = %#v", c)
 
 	return nil

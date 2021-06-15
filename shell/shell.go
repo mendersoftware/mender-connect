@@ -34,12 +34,14 @@ func ExecuteShell(uid uint32,
 	shell string,
 	termString string,
 	height uint16,
-	width uint16) (pid int, pseudoTTY *os.File, cmd *exec.Cmd, err error) {
-	cmd = exec.Command(shell)
+	width uint16,
+	shellArguments []string) (pid int, pseudoTTY *os.File, cmd *exec.Cmd, err error) {
+
+	cmd = exec.Command(shell, shellArguments...)
 
 	currentUser, err := user.Current()
 	if err != nil {
-		log.Debugf("cant get current user: %s", err.Error())
+		log.Debugf("can't get current user: %s", err.Error())
 		return -1, nil, nil, errors.New("unknown error with exec.Command(" + shell + ")")
 	}
 

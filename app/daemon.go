@@ -16,22 +16,21 @@ package app
 import (
 	"context"
 	"fmt"
-	"github.com/mendersoftware/mender-connect/limits/filetransfer"
 	"os/user"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
-	"github.com/pkg/errors"
-
 	"github.com/mendersoftware/mender-connect/client/dbus"
 	"github.com/mendersoftware/mender-connect/client/mender"
 	"github.com/mendersoftware/mender-connect/config"
 	"github.com/mendersoftware/mender-connect/connectionmanager"
+	"github.com/mendersoftware/mender-connect/limits/filetransfer"
 	"github.com/mendersoftware/mender-connect/session"
 )
 
@@ -62,6 +61,7 @@ type MenderShellDaemon struct {
 	printStatus             bool
 	username                string
 	shell                   string
+	shellArguments          []string
 	serverUrl               string
 	serverCertificate       string
 	skipVerify              bool
@@ -118,6 +118,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		authorized:              false,
 		username:                conf.User,
 		shell:                   conf.ShellCommand,
+		shellArguments:          conf.ShellArguments,
 		serverUrl:               conf.ServerURL,
 		serverCertificate:       conf.ServerCertificate,
 		skipVerify:              conf.SkipVerify,

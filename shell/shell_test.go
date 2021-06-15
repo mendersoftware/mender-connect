@@ -45,21 +45,35 @@ func TestMenderShellExecShell(t *testing.T) {
 	}
 
 	//command does not exist
-	pid, pseudoTTY, cmd, err := ExecuteShell(uint32(uid), uint32(gid), "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80)
+	pid, pseudoTTY, cmd, err := ExecuteShell(uint32(uid), uint32(gid), "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80, []string{"--login"})
 	assert.Error(t, err)
 	assert.Equal(t, pid, -1)
 	assert.Nil(t, pseudoTTY)
 	assert.Nil(t, cmd)
 
 	//home directory doesn't exist
-	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/does-not-exist", "true", "xterm-256color", 24, 80)
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/does-not-exist", "true", "xterm-256color", 24, 80, []string{"--login"})
 	assert.Nil(t, err)
 	assert.NotZero(t, pid)
 	assert.NotNil(t, pseudoTTY)
 	assert.Equal(t, "/", cmd.Dir)
 
+	// Empty ShellArguments
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80, []string{""})
+	assert.Error(t, err)
+	assert.Equal(t, pid, -1)
+	assert.Nil(t, pseudoTTY)
+	assert.Nil(t, cmd)
+
+	// Bogus ShellArguments
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80, []string{"--i-do-not-exist-flag"})
+	assert.Error(t, err)
+	assert.Equal(t, pid, -1)
+	assert.Nil(t, pseudoTTY)
+	assert.Nil(t, cmd)
+
 	//shell
-	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/tmp", "/bin/sh", "xterm-256color", 24, 80)
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/tmp", "/bin/sh", "xterm-256color", 24, 80, []string{"--login"})
 	assert.Nil(t, err)
 	assert.NotZero(t, pid)
 	assert.NotNil(t, pseudoTTY)
