@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -161,6 +161,7 @@ func validateConfiguration(t *testing.T, actual *MenderShellConfig) {
 		Servers:           []https.MenderServer{{ServerURL: "https://hosted.mender.io"}},
 		User:              "root",
 		ShellCommand:      DefaultShellCommand,
+		ShellArguments:    DefaultShellArguments,
 		Terminal: TerminalConfig{
 			Width:  24,
 			Height: 80,
@@ -421,4 +422,64 @@ func TestConfigurationNeitherFileExistsIsNotError(t *testing.T) {
 	config, err := LoadConfig("does-not-exist", "also-does-not-exist")
 	assert.NoError(t, err)
 	assert.IsType(t, &MenderShellConfig{}, config)
+}
+
+func TestShellArgumentsEmptyDefaults(t *testing.T) {
+	// Test default shell arguments
+	var mainConfigJSON = `{
+		"ShellCommand": "/bin/bash",
+		"SkipVerify": true
+	}`
+
+	mainConfigFile, err := os.Create("main.config")
+	assert.NoError(t, err)
+	defer os.Remove("main.config")
+	mainConfigFile.WriteString(mainConfigJSON)
+
+	config, err := LoadConfig("main.config", "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+
+	config.Validate()
+
+	assert.Equal(t, []string{"--login"}, config.ShellArguments)
+
+	// Test empty shell arguments
+	mainConfigJSON = `{
+		"ShellCommand": "/bin/bash",
+		"SkipVerify": true,
+	        "ShellArguments": [""]
+	}`
+
+	mainConfigFile, err = os.Create("main.config")
+	assert.NoError(t, err)
+	defer os.Remove("main.config")
+	mainConfigFile.WriteString(mainConfigJSON)
+
+	config, err = LoadConfig("main.config", "")
+	assert.NoError(t, err)
+
+	config.Validate()
+
+	assert.Equal(t, []string{""}, config.ShellArguments)
+
+	// Test setting custom shell arguments
+	mainConfigJSON = `{
+		"ShellCommand": "/bin/bash",
+		"SkipVerify": true,
+	        "ShellArguments": ["--no-profile", "--norc", "--restricted"]
+	}`
+
+	mainConfigFile, err = os.Create("main.config")
+	assert.NoError(t, err)
+	defer os.Remove("main.config")
+	mainConfigFile.WriteString(mainConfigJSON)
+
+	config, err = LoadConfig("main.config", "")
+	assert.NoError(t, err)
+
+	config.Validate()
+
+	assert.Equal(t, []string{"--no-profile", "--norc", "--restricted"}, config.ShellArguments)
+
 }

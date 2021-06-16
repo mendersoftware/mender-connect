@@ -26,6 +26,7 @@ var (
 	DefaultDataStore   = "/var/lib/mender"
 
 	DefaultShellCommand      = "/bin/sh"
+	DefaultShellArguments    = []string{"--login"}
 	DefaultDeviceConnectPath = "/api/devices/v1/deviceconnect/connect"
 
 	DefaultTerminalString = "xterm-256color"
