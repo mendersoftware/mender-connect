@@ -80,6 +80,7 @@ type MenderShellTerminalSettings struct {
 	TerminalString string
 	Height         uint16
 	Width          uint16
+	ShellArguments []string
 }
 
 type MenderShellSession struct {
@@ -311,7 +312,8 @@ func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTe
 		terminal.Shell,
 		terminal.TerminalString,
 		terminal.Height,
-		terminal.Width)
+		terminal.Width,
+		terminal.ShellArguments)
 	if err != nil {
 		return err
 	}
