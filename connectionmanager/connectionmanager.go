@@ -45,6 +45,12 @@ var (
 	ErrConnectionRetriesExhausted = errors.New("failed to connect after max number of retries")
 )
 
+var (
+	reconnectingMutex   = sync.Mutex{}
+	reconnecting        = map[ws.ProtoType]bool{}
+	cancelReconnectChan = map[ws.ProtoType]chan bool{}
+)
+
 type ProtocolHandler struct {
 	proto      ws.ProtoType
 	connection *connection.Connection
@@ -77,9 +83,14 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 	scheme := getWebSocketScheme(parsedUrl.Scheme)
 	u := url.URL{Scheme: scheme, Host: parsedUrl.Host, Path: connectUrl}
 
+	cancelReconnectChan[proto] = make(chan bool)
 	var c *connection.Connection
 	var i uint = 0
-	for {
+	defer func() {
+		setReconnecting(proto, false)
+	}()
+	setReconnecting(proto, true)
+	for IsReconnecting(proto) {
 		i++
 		c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, defaultPingWait, skipVerify, serverCertificate)
 		if err != nil || c == nil {
@@ -91,6 +102,11 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 					"reconnecting in %ds (try %d/%d); len(token)=%d", serverUrl, connectUrl,
 					err.Error(), reconnectIntervalSeconds, i, retries, len(token))
 				select {
+				case cancelFlag := <-cancelReconnectChan[proto]:
+					log.Tracef("connectionmanager connect got cancelFlag=%+v", cancelFlag)
+					if cancelFlag {
+						return nil
+					}
 				case <-ctx.Done():
 					return nil
 				case <-time.After(time.Second * time.Duration(reconnectIntervalSeconds)):
@@ -111,6 +127,8 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 		connection: c,
 		mutex:      &sync.Mutex{},
 	}
+
+	log.Tracef("connectionmanager connect returning")
 	return nil
 }
 
@@ -166,7 +184,39 @@ func Write(proto ws.ProtoType, m *ws.ProtoMsg) error {
 	return h.connection.WriteMessage(m)
 }
 
+func IsReconnecting(proto ws.ProtoType) bool {
+	reconnectingMutex.Lock()
+	defer reconnectingMutex.Unlock()
+	return reconnecting[proto]
+}
+
+func setReconnecting(proto ws.ProtoType, v bool) bool {
+	reconnectingMutex.Lock()
+	defer reconnectingMutex.Unlock()
+	reconnecting[proto] = v
+	return v
+}
+
+func CancelReconnection(proto ws.ProtoType) {
+	maxWaitSeconds := 8
+	cancelReconnectChan[proto] <- true
+	for maxWaitSeconds > 0 {
+		time.Sleep(time.Second)
+		if !IsReconnecting(proto) {
+			break
+		}
+		maxWaitSeconds--
+	}
+	if IsReconnecting(proto) {
+		log.Error("failed to cancel reconnection")
+	}
+}
+
 func Close(proto ws.ProtoType) error {
+	if IsReconnecting(proto) {
+		CancelReconnection(proto)
+	}
+
 	handlersByTypeMutex.Lock()
 	defer handlersByTypeMutex.Unlock()
 
