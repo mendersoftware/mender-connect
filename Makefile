@@ -1,7 +1,7 @@
-DESTDIR ?= /
-prefix ?= $(DESTDIR)
-bindir=/usr/bin
-datadir ?= /usr/share
+DESTDIR ?=
+prefix ?= /usr
+bindir=$(prefix)/bin
+datadir ?= $(prefix)/share
 sysconfdir ?= /etc
 systemd_unitdir ?= /lib/systemd
 
@@ -51,26 +51,26 @@ mender-connect: $(PKGFILES)
 install: install-bin install-systemd
 
 install-bin: mender-connect
-	@install -m 755 -d $(prefix)$(bindir)
-	@install -m 755 mender-connect $(prefix)$(bindir)/
+	@install -m 755 -d $(bindir)
+	@install -m 755 mender-connect $(bindir)/
 
 install-conf:
-	@install -m 755 -d $(prefix)$(sysconfdir)/mender
-	@install -m 600 examples/mender-connect.conf $(prefix)$(sysconfdir)/mender/
+	@install -m 755 -d $(DESTDIR)$(sysconfdir)/mender
+	@install -m 600 examples/mender-connect.conf $(DESTDIR)$(sysconfdir)/mender/
 
 install-systemd:
-	@install -m 755 -d $(prefix)$(systemd_unitdir)/system
-	@install -m 0644 support/mender-connect.service $(prefix)$(systemd_unitdir)/system/
+	@install -m 755 -d $(DESTDIR)$(systemd_unitdir)/system
+	@install -m 0644 support/mender-connect.service $(DESTDIR)$(systemd_unitdir)/system/
 
 uninstall: uninstall-bin uninstall-systemd
 
 uninstall-bin:
-	@rm -f $(prefix)$(bindir)/mender-connect
-	@-rmdir -p $(prefix)$(bindir)
+	@rm -f $(bindir)/mender-connect
+	@-rmdir -p $(bindir)
 
 uninstall-systemd:
-	@rm -f $(prefix)$(systemd_unitdir)/system/mender-connect.service
-	@-rmdir -p $(prefix)$(systemd_unitdir)/system
+	@rm -f $(DESTDIR)$(systemd_unitdir)/system/mender-connect.service
+	@-rmdir -p $(DESTDIR)$(systemd_unitdir)/system
 
 check: test extracheck
 
