@@ -30,6 +30,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	uuid "github.com/satori/go.uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/vmihailenco/msgpack/v5"
@@ -55,6 +56,9 @@ var (
 
 func init() {
 	connectionmanager.DefaultPingWait = 10 * time.Second
+	if _, ok := os.LookupEnv("DEBUG"); ok {
+		logrus.SetLevel(logrus.TraceLevel)
+	}
 }
 
 func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID string, data string) error {
@@ -776,37 +780,6 @@ func TestMenderShellGotAuthToken(t *testing.T) {
 	}
 }
 
-func TestMenderShellNeedsReconnect(t *testing.T) {
-	currentUser, err := user.Current()
-	if err != nil {
-		t.Errorf("cant get current user: %s", err.Error())
-		return
-	}
-
-	d := NewDaemon(&config.MenderShellConfig{
-		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
-			ShellCommand: "/bin/sh",
-			User:         currentUser.Name,
-			Terminal: config.TerminalConfig{
-				Width:  24,
-				Height: 80,
-			},
-		},
-	})
-
-	assert.False(t, d.needsReconnect())
-
-	go func() {
-		d.reconnectChan <- MenderShellDaemonEvent{
-			event: "any",
-			data:  "anyAny",
-			id:    "some",
-		}
-	}()
-
-	assert.True(t, d.needsReconnect())
-}
-
 func TestMenderShellPostEvent(t *testing.T) {
 	currentUser, err := user.Current()
 	if err != nil {
@@ -1020,6 +993,7 @@ func TestWaitForJWTToken(t *testing.T) {
 }
 
 func TestDBusEventLoop(t *testing.T) {
+	t.Parallel()
 	currentUser, err := user.Current()
 	if err != nil {
 		t.Errorf("cant get current user: %s", err.Error())
@@ -1042,46 +1016,11 @@ func TestDBusEventLoop(t *testing.T) {
 			timeout: 15 * time.Second,
 		},
 	}
-
 	for _, tc := range testCases {
 		if tc.name == "token_not_returned_wait_forever" {
-			timeout := time.After(tc.timeout)
-			done := make(chan bool)
-			go func() {
-				t.Run(tc.name, func(t *testing.T) {
-					d := NewDaemon(&config.MenderShellConfig{
-						MenderShellConfigFromFile: config.MenderShellConfigFromFile{
-							ShellCommand: "/bin/sh",
-							User:         currentUser.Name,
-							Terminal: config.TerminalConfig{
-								Width:  24,
-								Height: 80,
-							},
-						},
-					})
-
-					dbusAPI := &dbusmocks.DBusAPI{}
-					defer dbusAPI.AssertExpectations(t)
-					client := &authmocks.AuthClient{}
-					client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
-						{
-							ParamType: "s",
-							ParamData: tc.token,
-						},
-					}, tc.err)
-					client.On("GetJWTToken").Return(tc.token, "", tc.err)
-					d.dbusEventLoop(client)
-				})
-				done <- true
-			}()
-
-			select {
-			case <-timeout:
-				t.Logf("ok: expected to run forever")
-			case <-done:
-			}
-		} else {
 			t.Run(tc.name, func(t *testing.T) {
+				timeout := time.After(tc.timeout)
+				done := make(chan bool)
 				d := NewDaemon(&config.MenderShellConfig{
 					MenderShellConfigFromFile: config.MenderShellConfigFromFile{
 						ShellCommand: "/bin/sh",
@@ -1096,24 +1035,70 @@ func TestDBusEventLoop(t *testing.T) {
 				dbusAPI := &dbusmocks.DBusAPI{}
 				defer dbusAPI.AssertExpectations(t)
 				client := &authmocks.AuthClient{}
-				client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
-					{
-						ParamType: "s",
-						ParamData: tc.token,
+				dbusChan := make(chan []dbus.SignalParams, 1)
+				client.On("GetJwtTokenStateChangeChannel").
+					Run(func(mock.Arguments) {
+						dbusChan <- []dbus.SignalParams{
+							{
+								ParamType: "s",
+								ParamData: tc.token,
+							},
+						}
+					}).
+					Return(dbusChan)
+				client.On("GetJWTToken").Return(tc.token, "", tc.err)
+				go func() {
+					d.eventLoop(client)
+					done <- true
+				}()
+
+				select {
+				case <-timeout:
+					t.Logf("ok: expected to run forever")
+					d.StopDaemon()
+				case <-done:
+					t.FailNow()
+				}
+			})
+		} else {
+			t.Run(tc.name, func(t *testing.T) {
+				d := NewDaemon(&config.MenderShellConfig{
+					MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+						ShellCommand: "/bin/sh",
+						User:         currentUser.Name,
+						Terminal: config.TerminalConfig{
+							Width:  24,
+							Height: 80,
+						},
 					},
-				}, tc.err)
+				})
+				dbusAPI := &dbusmocks.DBusAPI{}
+				defer dbusAPI.AssertExpectations(t)
+				client := &authmocks.AuthClient{}
+				dbusChan := make(chan []dbus.SignalParams, 1)
+				client.On("GetJwtTokenStateChangeChannel").
+					Run(func(mock.Arguments) {
+						dbusChan <- []dbus.SignalParams{
+							{
+								ParamType: "s",
+								ParamData: tc.token,
+							},
+						}
+					}).
+					Return(dbusChan)
 				client.On("GetJWTToken").Return(tc.token, "", tc.err)
 				go func() {
 					time.Sleep(time.Second)
-					d.stop = true
+					d.StopDaemon()
 				}()
-				d.dbusEventLoop(client)
+				d.eventLoop(client)
 			})
 		}
 	}
 }
 
 func TestEventLoop(t *testing.T) {
+	t.Parallel()
 	currentUser, err := user.Current()
 	if err != nil {
 		t.Errorf("cant get current user: %s", err.Error())
@@ -1139,29 +1124,35 @@ func TestEventLoop(t *testing.T) {
 		if tc.name == "run_forever" {
 			timeout := time.After(tc.timeout)
 			done := make(chan bool)
-			go func() {
-				t.Run(tc.name, func(t *testing.T) {
-					d := NewDaemon(&config.MenderShellConfig{
-						MenderShellConfigFromFile: config.MenderShellConfigFromFile{
-							ShellCommand: "/bin/sh",
-							User:         currentUser.Name,
-							Terminal: config.TerminalConfig{
-								Width:  24,
-								Height: 80,
-							},
+			t.Run(tc.name, func(t *testing.T) {
+				d := NewDaemon(&config.MenderShellConfig{
+					MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+						ShellCommand: "/bin/sh",
+						User:         currentUser.Name,
+						Terminal: config.TerminalConfig{
+							Width:  24,
+							Height: 80,
 						},
-					})
-
-					d.eventLoop()
+					},
 				})
-				done <- true
-			}()
 
-			select {
-			case <-timeout:
-				t.Logf("ok: expected to run forever")
-			case <-done:
-			}
+				client := &authmocks.AuthClient{}
+				defer client.AssertExpectations(t)
+				dbusChan := make(chan []dbus.SignalParams)
+				client.On("GetJwtTokenStateChangeChannel").
+					Return(dbusChan)
+				go func() {
+					d.eventLoop(client)
+					done <- true
+				}()
+				select {
+				case <-timeout:
+					t.Logf("ok: expected to run forever")
+				case <-done:
+					t.FailNow()
+				}
+			})
+
 		} else {
 			t.Run(tc.name, func(t *testing.T) {
 				d := NewDaemon(&config.MenderShellConfig{
@@ -1182,9 +1173,14 @@ func TestEventLoop(t *testing.T) {
 						data:  "data",
 						id:    "id",
 					})
-					d.stop = true
+					d.StopDaemon()
 				}()
-				d.eventLoop()
+				client := &authmocks.AuthClient{}
+				defer client.AssertExpectations(t)
+				dbusChan := make(chan []dbus.SignalParams)
+				client.On("GetJwtTokenStateChangeChannel").
+					Return(dbusChan)
+				d.eventLoop(client)
 			})
 		}
 	}
