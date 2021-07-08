@@ -1097,7 +1097,7 @@ func TestDBusEventLoop(t *testing.T) {
 	}
 }
 
-func TestEventLoop(t *testing.T) {
+func TestEventLoopBasic(t *testing.T) {
 	t.Parallel()
 	currentUser, err := user.Current()
 	if err != nil {
@@ -1183,6 +1183,147 @@ func TestEventLoop(t *testing.T) {
 				d.eventLoop(client)
 			})
 		}
+	}
+}
+
+func TestEventLoop(t *testing.T) {
+	const timeout = time.Second * 10
+	t.Parallel()
+	testCases := []struct {
+		Name string
+
+		AuthClient     func(*testing.T, *httptest.Server) *authmocks.AuthClient
+		SrvHandler     http.HandlerFunc
+		EventGenerator func(*testing.T, *MenderShellDaemon)
+	}{{
+		Name: "token update and successfull websocket re-connection",
+
+		AuthClient: func(t *testing.T, srv *httptest.Server) *authmocks.AuthClient {
+			client := new(authmocks.AuthClient)
+			tc := make(chan []dbus.SignalParams, 1)
+			client.On("GetJwtTokenStateChangeChannel").
+				Return(tc)
+			tc <- []dbus.SignalParams{{
+				ParamType: dbus.GDBusTypeString,
+				ParamData: "foo.bar.baz",
+			}, {
+				ParamType: dbus.GDBusTypeString,
+				ParamData: srv.URL,
+			}}
+			return client
+		},
+		SrvHandler: func(w http.ResponseWriter, r *http.Request) {
+			upgrader := new(websocket.Upgrader)
+			upgrader.Upgrade(w, r, nil)
+			time.Sleep(timeout)
+		},
+		EventGenerator: func(t *testing.T, d *MenderShellDaemon) {
+			d.eventChan <- MenderShellDaemonEvent{
+				event: EventReconnect,
+				data:  "foo.bar.baz",
+			}
+			<-d.connectionEstChan
+			d.StopDaemon()
+		},
+	}, {
+		Name: "reconnect request with simulated expired token",
+
+		AuthClient: func(t *testing.T, srv *httptest.Server) *authmocks.AuthClient {
+			client := new(authmocks.AuthClient)
+			tc := make(chan []dbus.SignalParams)
+			client.On("GetJwtTokenStateChangeChannel").
+				Return(tc)
+			client.On("GetJWTToken").
+				Return("bearer.foo.bar", srv.URL, nil).
+				Once().
+				On("GetJWTToken").
+				Return("renewed.bearer.baz", srv.URL, nil).
+				Once()
+			return client
+		},
+		SrvHandler: func() http.HandlerFunc {
+			var callNum int
+			return func(w http.ResponseWriter, r *http.Request) {
+				if callNum < 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+				} else {
+					upgrader := new(websocket.Upgrader)
+					upgrader.Upgrade(w, r, nil)
+					time.Sleep(timeout)
+				}
+				t.Log(callNum)
+
+				callNum++
+			}
+		}(),
+		EventGenerator: func(t *testing.T, d *MenderShellDaemon) {
+			d.authorized = true
+			d.eventChan <- MenderShellDaemonEvent{
+				event: EventReconnectRequest,
+			}
+			<-d.connectionEstChan
+			d.StopDaemon()
+		},
+	}, {
+		Name: "failed reconnect with simulated invalid token",
+
+		AuthClient: func(t *testing.T, srv *httptest.Server) *authmocks.AuthClient {
+			client := new(authmocks.AuthClient)
+			tc := make(chan []dbus.SignalParams)
+			client.On("GetJwtTokenStateChangeChannel").
+				Return(tc)
+			client.On("GetJWTToken").
+				Return("bearer.foo.bar", srv.URL, nil).
+				Once().
+				On("GetJWTToken").
+				Return("renewed.bearer.baz", srv.URL, nil).
+				Once()
+			return client
+		},
+		SrvHandler: func() http.HandlerFunc {
+			return func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+		}(),
+		EventGenerator: func(t *testing.T, d *MenderShellDaemon) {
+			d.authorized = true
+			d.eventChan <- MenderShellDaemonEvent{
+				event: EventReconnectRequest,
+			}
+			time.Sleep(time.Second)
+			d.StopDaemon()
+		},
+	}}
+	for i := range testCases {
+		tc := testCases[i]
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+			var client *authmocks.AuthClient
+			srv := httptest.NewServer(tc.SrvHandler)
+			if tc.AuthClient == nil {
+				client = new(authmocks.AuthClient)
+			} else {
+				client = tc.AuthClient(t, srv)
+			}
+			defer client.AssertExpectations(t)
+			d := NewDaemon(&config.MenderShellConfig{
+				MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+					ServerURL: srv.URL,
+				},
+			})
+			done := make(chan struct{})
+			go func() {
+				d.eventLoop(client)
+				close(done)
+			}()
+			go tc.EventGenerator(t, d)
+			select {
+			case <-done:
+			case <-time.After(timeout):
+				d.StopDaemon()
+				assert.FailNow(t, "timed out waiting for event loop to finish")
+			}
+		})
 	}
 }
 
