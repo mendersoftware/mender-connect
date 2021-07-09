@@ -39,11 +39,6 @@ const (
 		"mender-connect.conf, or make sure that CA certificates are installed on the system"
 )
 
-type HandshakeError struct {
-	error
-	StatusCode int
-}
-
 type Connection struct {
 	writeMutex sync.Mutex
 	// the connection handler
@@ -124,14 +119,8 @@ func NewConnection(u url.URL,
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+token)
-	ws, rsp, err := dialer.Dial(u.String(), headers)
+	ws, _, err := dialer.Dial(u.String(), headers)
 	if err != nil {
-		if rsp != nil {
-			return nil, HandshakeError{
-				error:      err,
-				StatusCode: rsp.StatusCode,
-			}
-		}
 		return nil, err
 	}
 

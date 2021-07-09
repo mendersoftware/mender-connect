@@ -17,7 +17,6 @@ package connectionmanager
 import (
 	"context"
 	"errors"
-	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -44,7 +43,6 @@ var (
 	ErrHandlerNotRegistered       = errors.New("protocol handler not registered")
 	ErrHandlerAlreadyRegistered   = errors.New("protocol handler already registered")
 	ErrConnectionRetriesExhausted = errors.New("failed to connect after max number of retries")
-	ErrClientUnauthorized         = errors.New("client unauthorized")
 )
 
 var (
@@ -92,11 +90,6 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 		i++
 		c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, DefaultPingWait, skipVerify, serverCertificate)
 		if err != nil || c == nil {
-			if he, ok := err.(connection.HandshakeError); ok {
-				if he.StatusCode == http.StatusUnauthorized {
-					return ErrClientUnauthorized
-				}
-			}
 			if retries == 0 || i < retries {
 				if err == nil {
 					err = errors.New("unknown error: connection was nil but no error provided by connection.NewConnection")

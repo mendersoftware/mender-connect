@@ -55,6 +55,7 @@ type MenderShellDaemon struct {
 	writeMutex              *sync.Mutex
 	eventChan               chan MenderShellDaemonEvent
 	connectionEstChan       chan MenderShellDaemonEvent
+	reconnectChan           chan MenderShellDaemonEvent
 	stop                    bool
 	authorized              bool
 	printStatus             bool
@@ -110,8 +111,9 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		ctx:                     ctx,
 		ctxCancel:               ctxCancel,
 		writeMutex:              &sync.Mutex{},
-		eventChan:               make(chan MenderShellDaemonEvent, 1),
+		eventChan:               make(chan MenderShellDaemonEvent),
 		connectionEstChan:       make(chan MenderShellDaemonEvent),
+		reconnectChan:           make(chan MenderShellDaemonEvent),
 		stop:                    false,
 		authorized:              false,
 		username:                conf.User,
@@ -223,7 +225,7 @@ func (d *MenderShellDaemon) messageLoop() (err error) {
 				event: EventReconnectRequest,
 			}
 			log.Tracef("messageLoop: posting event: %s; waiting for response", e.event)
-			d.eventChan <- e
+			d.reconnectChan <- e
 			response := <-d.connectionEstChan
 			log.Tracef("messageLoop: got response: %+v", response)
 			continue
@@ -262,9 +264,9 @@ func (d *MenderShellDaemon) gotAuthToken(p []dbus.SignalParams, needsReconnect b
 	jwtTokenLength := len(jwtToken)
 	if jwtTokenLength > 0 {
 		if !d.authorized {
-			log.Tracef("eventLoop: StateChanged from unauthorized"+
+			log.Tracef("dbusEventLoop: StateChanged from unauthorized"+
 				" to authorized, len(token)=%d", jwtTokenLength)
-			//in here technically it is possible we close a closed connection
+			//in hereT technically it is possible we close a closed connection
 			//but it is not a critical error, the important thing is not to leave
 			//messageLoop waiting forever on readMessage
 			connectionmanager.Close(ws.ProtoTypeShell)
@@ -281,14 +283,14 @@ func (d *MenderShellDaemon) gotAuthToken(p []dbus.SignalParams, needsReconnect b
 		d.authorized = true
 	} else {
 		if d.authorized {
-			log.Tracef("eventLoop: StateChanged from authorized to unauthorized." +
+			log.Tracef("dbusEventLoop: StateChanged from authorized to unauthorized." +
 				"terminating all sessions and disconnecting.")
 			shellsCount, sessionsCount, err := session.MenderSessionTerminateAll()
 			if err == nil {
-				log.Infof("eventLoop terminated %d sessions, %d shells",
+				log.Infof("dbusEventLoop terminated %d sessions, %d shells",
 					shellsCount, sessionsCount)
 			} else {
-				log.Errorf("eventLoop error terminating all sessions: %s",
+				log.Errorf("dbusEventLoop error terminating all sessions: %s",
 					err.Error())
 			}
 		}
@@ -298,94 +300,51 @@ func (d *MenderShellDaemon) gotAuthToken(p []dbus.SignalParams, needsReconnect b
 	return jwtToken
 }
 
-func (d *MenderShellDaemon) eventLoop(client mender.AuthClient) {
-	var err error
+func (d *MenderShellDaemon) needsReconnect() bool {
+	select {
+	case e := <-d.reconnectChan:
+		log.Tracef("needsReconnect: got event: %s", e.event)
+		return true
+	case <-time.After(time.Second):
+		return false
+	}
+}
+
+func (d *MenderShellDaemon) dbusEventLoop(client mender.AuthClient) {
 	needsReconnect := false
-	done := d.ctx.Done()
-	tokenChan := client.GetJwtTokenStateChangeChannel()
-EventLoop:
 	for {
-		select {
-		case <-done:
-			break EventLoop
+		if d.shouldStop() {
+			break
+		}
 
-		case p := <-tokenChan:
-			if len(p) > 0 && p[0].ParamType == dbus.GDBusTypeString {
-				token := d.gotAuthToken(p, needsReconnect)
-				if len(token) > 0 {
-					log.Tracef("eventLoop: got a token len=%d", len(token))
-					needsReconnect = false
-				}
+		if d.needsReconnect() {
+			log.Trace("dbusEventLoop: daemon needs to reconnect")
+			needsReconnect = true
+		}
+
+		p, _ := client.WaitForJwtTokenStateChange()
+		if len(p) > 0 && p[0].ParamType == dbus.GDBusTypeString {
+			token := d.gotAuthToken(p, needsReconnect)
+			if len(token) > 0 {
+				log.Tracef("dbusEventLoop: got a token len=%d", len(token))
+				needsReconnect = false
 			}
-
-		case event := <-d.eventChan:
-			log.Tracef("eventLoop: got event: %s", event.event)
-			switch event.event {
-			case EventReconnectRequest:
-				log.Trace("eventLoop: daemon needs to reconnect")
-				needsReconnect = true
-				if d.authorized {
-					jwtToken, serverURL, _ := client.GetJWTToken()
-					e := MenderShellDaemonEvent{
-						event: EventReconnect,
-						data:  jwtToken,
-						id:    "(eventLoop)",
-					}
-					log.Tracef("(eventLoop) posting Event: %s", e.event)
-					d.serverUrl = serverURL
-					d.postEvent(e)
-					needsReconnect = false
-				}
-			case EventReconnect:
-				err = connectionmanager.Reconnect(
-					ws.ProtoTypeShell, d.serverUrl,
-					d.deviceConnectUrl, event.data,
-					d.skipVerify, d.serverCertificate,
-					config.MaxReconnectAttempts, d.ctx,
-				)
-				if err != nil {
-					switch errors.Cause(err) {
-					case connectionmanager.ErrClientUnauthorized:
-						jwtToken, serverURL, err := client.GetJWTToken()
-						if err == nil && jwtToken != event.data {
-							// JWT changed, let's try again
-							// But let's clear any pending token-
-							// change events.
-							select {
-							case <-tokenChan:
-							default:
-							}
-							d.serverUrl = serverURL
-							err = connectionmanager.Reconnect(
-								ws.ProtoTypeShell, d.serverUrl,
-								d.deviceConnectUrl, event.data,
-								d.skipVerify, d.serverCertificate,
-								config.MaxReconnectAttempts, d.ctx,
-							)
-							if err == nil {
-								log.Trace("eventLoop: reconnected")
-								d.connectionEstChan <- MenderShellDaemonEvent{
-									event: EventConnectionEstablished,
-								}
-								continue
-							}
-						}
-						d.authorized = false
-						needsReconnect = true
-					}
-					log.Errorf("eventLoop: event: error reconnecting: %s", err.Error())
-				} else {
-					log.Trace("eventLoop: reconnected")
-					d.connectionEstChan <- MenderShellDaemonEvent{
-						event: EventConnectionEstablished,
-					}
-				}
-
+		}
+		if needsReconnect && d.authorized {
+			jwtToken, serverURL, _ := client.GetJWTToken()
+			e := MenderShellDaemonEvent{
+				event: EventReconnect,
+				data:  jwtToken,
+				id:    "(dbusEventLoop)",
 			}
+			log.Tracef("(dbusEventLoop) posting Event: %s", e.event)
+			d.serverUrl = serverURL
+			d.postEvent(e)
+			needsReconnect = false
 		}
 	}
 
-	log.Trace("eventLoop: returning")
+	log.Trace("dbusEventLoop: returning")
 }
 
 func (d *MenderShellDaemon) postEvent(event MenderShellDaemonEvent) {
@@ -394,6 +353,37 @@ func (d *MenderShellDaemon) postEvent(event MenderShellDaemonEvent) {
 
 func (d *MenderShellDaemon) readEvent() MenderShellDaemonEvent {
 	return <-d.eventChan
+}
+
+func (d *MenderShellDaemon) eventLoop() {
+	var err error
+	for {
+		if d.shouldStop() {
+			break
+		}
+
+		event := d.readEvent()
+		log.Tracef("eventLoop: got event: %s", event.event)
+		switch event.event {
+		case EventReconnect:
+			err = connectionmanager.Reconnect(
+				ws.ProtoTypeShell, d.serverUrl,
+				d.deviceConnectUrl, event.data,
+				d.skipVerify, d.serverCertificate,
+				config.MaxReconnectAttempts, d.ctx,
+			)
+			if err != nil {
+				log.Errorf("eventLoop: event: error reconnecting: %s", err.Error())
+			} else {
+				log.Trace("eventLoop: reconnected")
+				d.connectionEstChan <- MenderShellDaemonEvent{
+					event: EventConnectionEstablished,
+				}
+			}
+		}
+	}
+
+	log.Trace("eventLoop: returning")
 }
 
 func (d *MenderShellDaemon) setupLogging() {
@@ -495,7 +485,8 @@ func (d *MenderShellDaemon) Run() error {
 	}
 
 	go d.messageLoop()
-	go d.eventLoop(client)
+	go d.dbusEventLoop(client)
+	go d.eventLoop()
 
 	log.Trace("mender-connect entering main loop.")
 	for {
