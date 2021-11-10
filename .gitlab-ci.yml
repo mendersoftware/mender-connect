@@ -72,6 +72,7 @@ trigger:mender-dist-packages:
     - if: '$CI_COMMIT_BRANCH == "master"'
   variables:
     MENDER_CONNECT_VERSION: $CI_COMMIT_REF_NAME
+    PUBLISH_MENDER_DIST_PACKAGES_AUTOMATIC: "true"
   trigger:
     project: Northern.tech/Mender/mender-dist-packages
     branch: master
