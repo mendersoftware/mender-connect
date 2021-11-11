@@ -70,7 +70,7 @@ func SetReconnectIntervalSeconds(i int) {
 	reconnectIntervalSeconds = i
 }
 
-func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, ctx context.Context) error {
+func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, retries uint, ctx context.Context) error {
 	parsedUrl, err := url.Parse(serverUrl)
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 	setReconnecting(proto, true)
 	for IsReconnecting(proto) {
 		i++
-		c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, DefaultPingWait, skipVerify, serverCertificate)
+		c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, DefaultPingWait)
 		if err != nil || c == nil {
 			if retries == 0 || i < retries {
 				if err == nil {
@@ -128,7 +128,7 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 	return nil
 }
 
-func Connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, ctx context.Context) error {
+func Connect(proto ws.ProtoType, serverUrl, connectUrl, token string, retries uint, ctx context.Context) error {
 	handlersByTypeMutex.Lock()
 	defer handlersByTypeMutex.Unlock()
 
@@ -136,10 +136,10 @@ func Connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 		return ErrHandlerAlreadyRegistered
 	}
 
-	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries, ctx)
+	return connect(proto, serverUrl, connectUrl, token, retries, ctx)
 }
 
-func Reconnect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify bool, serverCertificate string, retries uint, ctx context.Context) error {
+func Reconnect(proto ws.ProtoType, serverUrl, connectUrl, token string, retries uint, ctx context.Context) error {
 	handlersByTypeMutex.Lock()
 	defer handlersByTypeMutex.Unlock()
 
@@ -150,7 +150,7 @@ func Reconnect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVeri
 	}
 
 	delete(handlersByType, proto)
-	return connect(proto, serverUrl, connectUrl, token, skipVerify, serverCertificate, retries, ctx)
+	return connect(proto, serverUrl, connectUrl, token, retries, ctx)
 }
 
 func Read(proto ws.ProtoType) (*ws.ProtoMsg, error) {

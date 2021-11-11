@@ -84,7 +84,7 @@ func (a *AuthClientDBUS) Connect(objectName, objectPath, interfaceName string) e
 	return nil
 }
 
-// GetJWTToken returns a device JWT token
+// GetJWTToken returns a device JWT token and server URL
 func (a *AuthClientDBUS) GetJWTToken() (string, string, error) {
 	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameGetJwtToken, nil, DBusMethodTimeoutInMilliSeconds)
 	if err != nil {

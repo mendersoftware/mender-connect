@@ -15,10 +15,6 @@
 package connection
 
 import (
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -53,66 +49,12 @@ type Connection struct {
 	done chan bool
 }
 
-func loadServerTrust(serverCertFilePath string) *x509.CertPool {
-	systemPool, err := x509.SystemCertPool()
-	if err != nil {
-		log.Warnf("Error when loading system certificates: %s", err.Error())
-	}
-
-	if systemPool == nil {
-		log.Warn("No system certificates found.")
-		systemPool = x509.NewCertPool()
-	}
-
-	if len(serverCertFilePath) < 1 {
-		log.Warnf(errMissingServerCertF, "no file provided")
-		return systemPool
-	}
-
-	log.Infof("loadServerTrust loading certificate from %s", serverCertFilePath)
-	// Read certificate file.
-	serverCertificate, err := ioutil.ReadFile(serverCertFilePath)
-	if err != nil {
-		// Ignore server certificate error  (See: MEN-2378)
-		log.Warnf(errMissingServerCertF, err.Error())
-	}
-
-	if len(serverCertificate) > 0 {
-		block, _ := pem.Decode(serverCertificate)
-		if block != nil {
-			cert, err := x509.ParseCertificate(block.Bytes)
-			if err == nil {
-				log.Infof("API Gateway certificate (in PEM format): \n%s", string(serverCertificate))
-				log.Infof("Issuer: %s, Valid from: %s, Valid to: %s",
-					cert.Issuer.Organization, cert.NotBefore, cert.NotAfter)
-			} else {
-				log.Warnf("Unparseable certificate '%s': %s", serverCertFilePath, err.Error())
-			}
-		}
-
-		systemPool.AppendCertsFromPEM(serverCertificate)
-	}
-
-	if len(systemPool.Subjects()) == 0 {
-		log.Error(errMissingCerts)
-	}
-	return systemPool
-}
-
 //Websocket connection routine. setup the ping-pong and connection settings
 func NewConnection(u url.URL,
 	token string,
 	writeWait time.Duration,
 	maxMessageSize int64,
-	defaultPingWait time.Duration,
-	skipVerify bool,
-	serverCertFilePath string) (*Connection, error) {
-	// skip verification of HTTPS certificate if skipVerify is set in the config file
-
-	websocket.DefaultDialer.TLSClientConfig = &tls.Config{
-		RootCAs:            loadServerTrust(serverCertFilePath),
-		InsecureSkipVerify: skipVerify,
-	}
+	defaultPingWait time.Duration) (*Connection, error) {
 
 	var ws *websocket.Conn
 	dialer := *websocket.DefaultDialer

@@ -18,19 +18,13 @@ import (
 	"bufio"
 	"encoding/json"
 	"io/ioutil"
-	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
-	"strings"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/mendersoftware/mender-connect/client/https"
 )
-
-const httpsSchema = "https"
 
 type TerminalConfig struct {
 	Width  uint16
@@ -118,18 +112,6 @@ type Limits struct {
 
 // MenderShellConfigFromFile holds the configuration settings read from the config file
 type MenderShellConfigFromFile struct {
-	// ClientProtocol "https"
-	ClientProtocol string
-	// HTTPS client parameters
-	HTTPSClient https.Client `json:"HttpsClient"`
-	// Skip CA certificate validation
-	SkipVerify bool
-	// Path to server SSL certificate
-	ServerCertificate string
-	// Server URL (For single server conf)
-	ServerURL string
-	// List of available servers, to which client can fall over
-	Servers []https.MenderServer
 	// The command to run as shell
 	ShellCommand string
 	// ShellArguments is the arguments the shell is launched with. Defaults
@@ -151,6 +133,28 @@ type MenderShellConfigFromFile struct {
 	PortForward PortForwardConfig
 	// MenderClient config
 	MenderClient MenderClientConfig
+}
+
+// MenderShellConfigDeprecated holds the deprecated configuration settings
+type MenderShellConfigDeprecated struct {
+	// Server URL (For single server conf)
+	ServerURL string
+	// List of available servers, to which client can fall over
+	Servers []struct {
+		ServerURL string
+	}
+	// ClientProtocol "https"
+	ClientProtocol string
+	// HTTPS client parameters
+	HTTPSClient struct {
+		Certificate string
+		Key         string
+		SSLEngine   string
+	} `json:"HttpsClient"`
+	// Skip CA certificate validation
+	SkipVerify bool
+	// Path to server SSL certificate
+	ServerCertificate string
 }
 
 // MenderShellConfig holds the configuration settings for the Mender shell client
@@ -239,21 +243,6 @@ func validateUser(c *MenderShellConfig) (err error) {
 }
 
 func (c *MenderShellConfig) applyDefaults() error {
-	if c.Servers == nil {
-		if c.ServerURL == "" {
-			log.Warn("No server URL(s) specified in mender configuration.")
-		}
-		c.Servers = make([]https.MenderServer, 1)
-		c.Servers[0].ServerURL = c.ServerURL
-	} else if c.ServerURL != "" {
-		log.Error("In mender-connect.conf: don't specify both Servers field " +
-			"AND the corresponding fields in base structure (i.e. " +
-			"ServerURL). The first server on the list overwrites" +
-			"these fields.")
-		return errors.New("Both Servers AND ServerURL given in " +
-			"mender-connect.conf")
-	}
-
 	//check if shell is given, if not, defaulting to /bin/sh
 	if c.ShellCommand == "" {
 		log.Warnf("ShellCommand is empty, defaulting to %s", DefaultShellCommand)
@@ -298,24 +287,6 @@ func (c *MenderShellConfig) Validate() (err error) {
 	if err = c.applyDefaults(); err != nil {
 		return err
 	}
-	for i, u := range c.Servers {
-		_, err := url.Parse(u.ServerURL)
-		if err != nil {
-			log.Errorf("'%s' at Servers[%d].ServerURL is not a valid URL", u.ServerURL, i)
-			return err
-		}
-	}
-	for i := 0; i < len(c.Servers); i++ {
-		// trim possible '/' suffix, which is added back in URL path
-		if strings.HasSuffix(c.Servers[i].ServerURL, "/") {
-			c.Servers[i].ServerURL =
-				strings.TrimSuffix(
-					c.Servers[i].ServerURL, "/")
-		}
-		if c.Servers[i].ServerURL == "" {
-			log.Warnf("Server entry %d has no associated server URL.", i+1)
-		}
-	}
 
 	if !filepath.IsAbs(c.ShellCommand) {
 		return errors.New("given shell (" + c.ShellCommand + ") is not an absolute path")
@@ -334,9 +305,6 @@ func (c *MenderShellConfig) Validate() (err error) {
 		log.Errorf("ShellCommand %s is not present in /etc/shells", c.ShellCommand)
 		return errors.New("ShellCommand " + c.ShellCommand + " is not present in /etc/shells")
 	}
-
-	c.HTTPSClient.Validate()
-
 	log.Debugf("Verified configuration = %#v", c)
 
 	return nil
@@ -355,8 +323,44 @@ func loadConfigFile(configFile string, config *MenderShellConfig, filesLoadedCou
 		return err
 	}
 
+	if err := checkforDeprecatedFields(configFile); err != nil {
+		log.Errorf("Error loading configuration from file: %s (%s)", configFile, err.Error())
+		return err
+	}
+
 	*filesLoadedCount++
 	log.Info("Loaded configuration file: ", configFile)
+	return nil
+}
+
+func checkforDeprecatedFields(configFile string) error {
+	var deprecatedFields MenderShellConfigDeprecated
+	if err := readConfigFile(&deprecatedFields, configFile); err != nil {
+		log.Errorf("Error loading configuration from file: %s (%s)", configFile, err.Error())
+		return err
+	}
+
+	if deprecatedFields.ServerURL != "" {
+		log.Warn("ServerURL field is deprecated, ignoring.")
+	}
+	if len(deprecatedFields.Servers) > 0 {
+		log.Warn("Servers field is deprecated, ignoring.")
+	}
+	if deprecatedFields.ClientProtocol != "" {
+		log.Warn("ClientProtocol field is deprecated, ignoring.")
+	}
+	if deprecatedFields.HTTPSClient.Certificate != "" ||
+		deprecatedFields.HTTPSClient.Key != "" ||
+		deprecatedFields.HTTPSClient.SSLEngine != "" {
+		log.Warn("HTTPSClient field is deprecated, ignoring.")
+	}
+	if deprecatedFields.SkipVerify {
+		log.Warn("SkipVerify field is deprecated, ignoring.")
+	}
+	if deprecatedFields.ServerCertificate != "" {
+		log.Warn("ServerCertificate field is deprecated, ignoring.")
+	}
+
 	return nil
 }
 
@@ -377,24 +381,4 @@ func readConfigFile(config interface{}, fileName string) error {
 	}
 
 	return nil
-}
-
-// maybeHTTPSClient returns the HTTPSClient config only when both
-// certificate and key are provided
-func maybeHTTPSClient(c *MenderShellConfig) *https.Client {
-	c.HTTPSClient.Validate()
-	if c.HTTPSClient.Certificate != "" && c.HTTPSClient.Key != "" {
-		return &c.HTTPSClient
-	}
-	return nil
-}
-
-// GetHTTPConfig returns the configuration for the HTTP client
-func (c *MenderShellConfig) GetHTTPConfig() https.Config {
-	return https.Config{
-		ServerCert: c.ServerCertificate,
-		IsHTTPS:    c.ClientProtocol == httpsSchema,
-		Client:     maybeHTTPSClient(c),
-		NoVerify:   c.SkipVerify,
-	}
 }

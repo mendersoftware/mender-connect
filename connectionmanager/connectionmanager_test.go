@@ -95,7 +95,7 @@ func TestConnect(t *testing.T) {
 	_ = Close(ws.ProtoTypeShell)
 
 	ctx := context.Background()
-	err := Connect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", true, "", 1, ctx)
+	err := Connect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 1, ctx)
 	assert.Nil(t, err)
 
 	msg, err := Read(ws.ProtoTypeShell)
@@ -126,7 +126,7 @@ func TestReconnect(t *testing.T) {
 	_ = Close(ws.ProtoTypeShell)
 
 	ctx := context.Background()
-	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", true, "", 1, ctx)
+	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 1, ctx)
 	assert.Nil(t, err)
 
 	err = Close(ws.ProtoTypeShell)
@@ -137,7 +137,7 @@ func TestConnectFailed(t *testing.T) {
 	_ = Close(ws.ProtoTypeShell)
 
 	ctx := context.Background()
-	err := Connect(ws.ProtoTypeShell, "wrong-url", "/ws", "", true, "token", 1, ctx)
+	err := Connect(ws.ProtoTypeShell, "wrong-url", "/ws", "token", 1, ctx)
 	assert.NotNil(t, err)
 }
 
@@ -151,7 +151,7 @@ func TestConnectRetries(t *testing.T) {
 	_ = Close(ws.ProtoTypeShell)
 
 	ctx := context.Background()
-	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "", true, "token", 3, ctx)
+	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 3, ctx)
 	assert.Equal(t, ErrConnectionRetriesExhausted, err)
 }
 

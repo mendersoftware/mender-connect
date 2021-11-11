@@ -151,7 +151,7 @@ func TestMenderShellSessionStart(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -262,7 +262,7 @@ func TestMenderShellStopByUserId(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -342,7 +342,7 @@ func TestMenderShellUnknownMessage(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	_ = connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+	_ = connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -402,7 +402,7 @@ func TestMenderShellSessionLimitPerUser(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -514,7 +514,7 @@ func TestMenderShellReadMessage(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -568,7 +568,7 @@ func TestMenderShellWsReconnect(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 
 	t.Log("attempting reconnect")
 	d.serverUrl = u
@@ -606,7 +606,7 @@ func TestMenderShellWsReconnectError(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, "this"+u+"wontwork", "/", "token", true, "", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, "this"+u+"wontwork", "/", "token", 8, nil)
 	config.MaxReconnectAttempts = 8
 	err = d.wsReconnect("atoken")
 	assert.Error(t, err)
@@ -636,9 +636,9 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second, true, "")
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -1216,9 +1216,9 @@ func TestMessageMainLoop(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 
-	webSock, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second, true, "")
+	webSock, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 
