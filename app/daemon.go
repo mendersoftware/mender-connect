@@ -63,8 +63,6 @@ type MenderShellDaemon struct {
 	shell                   string
 	shellArguments          []string
 	serverUrl               string
-	serverCertificate       string
-	skipVerify              bool
 	deviceConnectUrl        string
 	expireSessionsAfter     time.Duration
 	expireSessionsAfterIdle time.Duration
@@ -119,9 +117,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		username:                conf.User,
 		shell:                   conf.ShellCommand,
 		shellArguments:          conf.ShellArguments,
-		serverUrl:               conf.ServerURL,
-		serverCertificate:       conf.ServerCertificate,
-		skipVerify:              conf.SkipVerify,
+		serverUrl:               "",
 		expireSessionsAfter:     time.Second * time.Duration(conf.Sessions.ExpireAfter),
 		expireSessionsAfterIdle: time.Second * time.Duration(conf.Sessions.ExpireAfterIdle),
 		deviceConnectUrl:        config.DefaultDeviceConnectPath,
@@ -179,7 +175,6 @@ func (d *MenderShellDaemon) wsReconnect(token string) (err error) {
 	err = connectionmanager.Reconnect(
 		ws.ProtoTypeShell, d.serverUrl,
 		d.deviceConnectUrl, token,
-		d.skipVerify, d.serverCertificate,
 		config.MaxReconnectAttempts, d.ctx,
 	)
 	if err != nil {
@@ -369,7 +364,6 @@ func (d *MenderShellDaemon) eventLoop() {
 			err = connectionmanager.Reconnect(
 				ws.ProtoTypeShell, d.serverUrl,
 				d.deviceConnectUrl, event.data,
-				d.skipVerify, d.serverCertificate,
 				config.MaxReconnectAttempts, d.ctx,
 			)
 			if err != nil {
@@ -474,8 +468,6 @@ func (d *MenderShellDaemon) Run() error {
 		d.serverUrl,
 		d.deviceConnectUrl,
 		jwtToken,
-		d.skipVerify,
-		d.serverCertificate,
 		0,
 		d.ctx,
 	)

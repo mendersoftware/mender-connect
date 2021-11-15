@@ -15,26 +15,19 @@
 package config
 
 import (
-	"io"
+	"bytes"
 	"io/ioutil"
 	"os"
 	"path"
 	"reflect"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	log "github.com/sirupsen/logrus"
 
-	"github.com/mendersoftware/mender-connect/client/https"
+	"github.com/stretchr/testify/assert"
 )
 
 const testConfig = `{
-  "ServerURL": "https://hosted.mender.io",
-  "ServerCertificate": "/var/lib/mender/server.crt",
-  "ClientProtocol": "https",
-  "HttpsClient": {
-    "Certificate": "/data/client.crt",
-    "Key": "/data/client.key"
-  },
   "User":"root",
   "Terminal": {
     "Height": 80,
@@ -49,29 +42,11 @@ const testConfig = `{
 }`
 
 const testBrokenConfig = `{
-  "ServerURL": "mender
-  "ServerCertificate": "/var/lib/mender/server.crt",
-  "ClientProtocol": "https",
-  "HttpsClient": {
-    "Certificate": "/data/client.crt",
-    "Key": "/data/client.key"
-  }
-}`
-
-const testMultipleServersConfig = `{
-  "Servers": [
-    {"ServerURL": "https://server.one/"},
-    {"ServerURL": "https://server.two/"},
-    {"ServerURL": "https://server.three/"}
-  ]
-}`
-
-const testMultipleServersOneNotValidConfig = `{
-  "Servers": [
-    {"ServerURL": "https://server.one/"},
-    {"ServerURL": "%2Casdads://:/sadfa//a"},
-    {"ServerURL": "https://server.three/"}
-  ]
+  "User":"root"
+  "Terminal": {
+    "Height": 80,
+    "Width": 24
+  },
 }`
 
 const testShellIsNotAbsolutePathConfig = `{
@@ -109,17 +84,6 @@ const testOtherErrorConfig = `{
         "User": "root"
 }`
 
-const testTooManyServerDefsConfig = `{
-  "ServerURL": "https://hosted.mender.io",
-  "ServerCertificate": "/var/lib/mender/server.crt",
-  "Servers": [{"ServerURL": "https://hosted.mender.io"}]
-}`
-
-const testEmptyServerURL = `{
-  "ServerURL": "",
-  "User":"root"
-}`
-
 func Test_readConfigFile_noFile_returnsError(t *testing.T) {
 	err := readConfigFile(nil, "non-existing-file")
 	assert.Error(t, err)
@@ -151,17 +115,9 @@ func Test_readConfigFile_brokenContent_returnsError(t *testing.T) {
 func validateConfiguration(t *testing.T, actual *MenderShellConfig) {
 	expectedConfig := NewMenderShellConfig()
 	expectedConfig.MenderShellConfigFromFile = MenderShellConfigFromFile{
-		ClientProtocol: "https",
-		HTTPSClient: https.Client{
-			Certificate: "/data/client.crt",
-			Key:         "/data/client.key",
-		},
-		ServerURL:         "https://hosted.mender.io",
-		ServerCertificate: "/var/lib/mender/server.crt",
-		Servers:           []https.MenderServer{{ServerURL: "https://hosted.mender.io"}},
-		User:              "root",
-		ShellCommand:      DefaultShellCommand,
-		ShellArguments:    DefaultShellArguments,
+		User:           "root",
+		ShellCommand:   DefaultShellCommand,
+		ShellArguments: DefaultShellArguments,
 		Terminal: TerminalConfig{
 			Width:  24,
 			Height: 80,
@@ -218,12 +174,7 @@ func Test_LoadConfig_correctConfFile_returnsConfiguration(t *testing.T) {
 	err = config.Validate()
 	assert.NoError(t, err)
 	validateConfiguration(t, config)
-
-	httpConfig := config.GetHTTPConfig()
-	assert.Equal(t, config.ServerCertificate, httpConfig.ServerCert)
-	assert.Equal(t, config.ClientProtocol == httpsSchema, httpConfig.IsHTTPS)
-	assert.Equal(t, config.SkipVerify, httpConfig.NoVerify)
-	assert.Equal(t, &config.HTTPSClient, httpConfig.Client)
+	assert.Equal(t, "root", config.User)
 
 	// main configuration file does not exist
 	config2, err2 := LoadConfig("does-not-exist.config", configPath)
@@ -232,90 +183,13 @@ func Test_LoadConfig_correctConfFile_returnsConfiguration(t *testing.T) {
 	err = config2.Validate()
 	assert.NoError(t, err)
 	validateConfiguration(t, config2)
-
-	httpConfig = config.GetHTTPConfig()
-	assert.Equal(t, config2.ServerCertificate, httpConfig.ServerCert)
-	assert.Equal(t, config2.ClientProtocol == httpsSchema, httpConfig.IsHTTPS)
-	assert.Equal(t, config2.SkipVerify, httpConfig.NoVerify)
-	assert.Equal(t, &config2.HTTPSClient, httpConfig.Client)
-}
-
-func TestServerURLConfig(t *testing.T) {
-	// create a temporary mender-connect.conf file
-	tdir, err := ioutil.TempDir("", "mendertest")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tdir)
-
-	configPath := path.Join(tdir, "mender-connect.conf")
-	configFile, err := os.Create(configPath)
-	assert.NoError(t, err)
-
-	configFile.WriteString(`{"ServerURL": "https://mender.io/","User":"root"}`)
-
-	// load and validate the configuration
-	config, err := LoadConfig(configPath, "does-not-exist.config")
-	assert.NoError(t, err)
-	err = config.Validate()
-	assert.NoError(t, err)
-	assert.Equal(t, "https://mender.io", config.Servers[0].ServerURL)
-
-	// not allowed to specify server(s) both as a list and string entry.
-	configFile.Seek(0, io.SeekStart)
-	configFile.WriteString(testTooManyServerDefsConfig)
-	config, err = LoadConfig(configPath, "does-not-exist.config")
-	assert.NoError(t, err)
-	err = config.Validate()
-	assert.Error(t, err)
-}
-
-// TestMultipleServersConfig attempts to add multiple servers to config-
-// file, as well as overriding the ServerURL from the first server.
-func TestMultipleServersConfig(t *testing.T) {
-	// create a temporary mender-connect.conf file
-	tdir, err := ioutil.TempDir("", "mendertest")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tdir)
-
-	configPath := path.Join(tdir, "mender-connect.conf")
-	configFile, err := os.Create(configPath)
-	assert.NoError(t, err)
-
-	configFile.WriteString(testMultipleServersConfig)
-
-	// load config and assert expected values i.e. check that all entries
-	// are present and URL's trailing forward slash is trimmed off.
-	conf, err := LoadConfig(configPath, "does-not-exist.config")
-	assert.NoError(t, err)
-	conf.Validate()
-	assert.NoError(t, err)
-	assert.Equal(t, "https://server.one", conf.Servers[0].ServerURL)
-	assert.Equal(t, "https://server.two", conf.Servers[1].ServerURL)
-	assert.Equal(t, "https://server.three", conf.Servers[2].ServerURL)
-}
-
-func TestEmptyServerURL(t *testing.T) {
-	// create a temporary mender-connect.conf file
-	tdir, err := ioutil.TempDir("", "mendertest")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tdir)
-
-	configPath := path.Join(tdir, "mender-connect.conf")
-	configFile, err := os.Create(configPath)
-	assert.NoError(t, err)
-
-	configFile.WriteString(testEmptyServerURL)
-
-	// load and validate the configuration
-	conf, err := LoadConfig(configPath, "does-not-exist.config")
-	assert.NoError(t, err)
-	err = conf.Validate()
-	assert.NoError(t, err)
+	assert.Equal(t, "root", config.User)
 }
 
 func TestConfigurationMergeSettings(t *testing.T) {
 	var mainConfigJSON = `{
 		"ShellCommand": "/bin/bash",
-		"SkipVerify": true
+		"ReconnectIntervalSeconds": 123
 	}`
 
 	var fallbackConfigJSON = `{
@@ -338,14 +212,15 @@ func TestConfigurationMergeSettings(t *testing.T) {
 	assert.NotNil(t, config)
 
 	// when a setting appears in neither file, it is left with its default value.
-	assert.Equal(t, "", config.ServerCertificate)
+	assert.Equal(t, uint16(0), config.Terminal.Width)
+	assert.Equal(t, uint16(0), config.Terminal.Height)
 
 	// when a setting appears in both files, the main file takes precedence.
 	assert.Equal(t, "/bin/bash", config.ShellCommand)
 
 	// when a setting appears in only one file, its value is used.
 	assert.Equal(t, "mender", config.User)
-	assert.Equal(t, true, config.SkipVerify)
+	assert.Equal(t, 123, config.ReconnectIntervalSeconds)
 }
 
 func Test_LoadConfig_various_errors(t *testing.T) {
@@ -358,20 +233,13 @@ func Test_LoadConfig_various_errors(t *testing.T) {
 	configPath := path.Join(tdir, "mender-connect.conf")
 	configFile, err := os.Create(configPath)
 	assert.NoError(t, err)
-	configFile.WriteString(testMultipleServersOneNotValidConfig)
-
-	config, err := LoadConfig(configPath, "")
-	assert.NoError(t, err)
-	assert.NotNil(t, config)
-	err = config.Validate()
-	assert.Error(t, err)
 
 	//shell is not an absolute path
 	configFile, err = os.Create(configPath)
 	assert.NoError(t, err)
 	configFile.WriteString(testShellIsNotAbsolutePathConfig)
 
-	config, err = LoadConfig(configPath, "")
+	config, err := LoadConfig(configPath, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, config)
 	err = config.Validate()
@@ -426,7 +294,7 @@ func Test_LoadConfig_various_errors(t *testing.T) {
 	assert.NoError(t, err)
 	configFile.WriteString(testParsingErrorConfig)
 
-	config, err = LoadConfig(configPath, "")
+	_, err = LoadConfig(configPath, "")
 	assert.Error(t, err)
 
 	//other loading error
@@ -434,7 +302,7 @@ func Test_LoadConfig_various_errors(t *testing.T) {
 	assert.NoError(t, err)
 	configFile.WriteString(testOtherErrorConfig)
 
-	config, err = LoadConfig(configPath, "")
+	_, err = LoadConfig(configPath, "")
 	assert.Error(t, err)
 }
 
@@ -447,8 +315,7 @@ func TestConfigurationNeitherFileExistsIsNotError(t *testing.T) {
 func TestShellArgumentsEmptyDefaults(t *testing.T) {
 	// Test default shell arguments
 	var mainConfigJSON = `{
-		"ShellCommand": "/bin/bash",
-		"SkipVerify": true
+		"ShellCommand": "/bin/bash"
 	}`
 
 	mainConfigFile, err := os.Create("main.config")
@@ -467,7 +334,6 @@ func TestShellArgumentsEmptyDefaults(t *testing.T) {
 	// Test empty shell arguments
 	mainConfigJSON = `{
 		"ShellCommand": "/bin/bash",
-		"SkipVerify": true,
 	        "ShellArguments": [""]
 	}`
 
@@ -486,7 +352,6 @@ func TestShellArgumentsEmptyDefaults(t *testing.T) {
 	// Test setting custom shell arguments
 	mainConfigJSON = `{
 		"ShellCommand": "/bin/bash",
-		"SkipVerify": true,
 	        "ShellArguments": ["--no-profile", "--norc", "--restricted"]
 	}`
 
@@ -502,4 +367,96 @@ func TestShellArgumentsEmptyDefaults(t *testing.T) {
 
 	assert.Equal(t, []string{"--no-profile", "--norc", "--restricted"}, config.ShellArguments)
 
+}
+
+func TestServerArgumentsDeprecated(t *testing.T) {
+	// create a temporary mender-connect.conf file
+	tdir, err := ioutil.TempDir("", "mendertest")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tdir)
+
+	configPath := path.Join(tdir, "mender-connect.conf")
+	configFile, err := os.Create(configPath)
+	assert.NoError(t, err)
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer func() {
+		log.SetOutput(os.Stderr)
+	}()
+
+	configFile.WriteString(`{"ServerURL": "https://mender.io/"}`)
+	_, err = LoadConfig(configPath, "does-not-exist.config")
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "ServerURL field is deprecated")
+
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(`{"Servers": [{"ServerURL": "https://hosted.mender.io"}]}`)
+	buf.Reset()
+	_, err = LoadConfig(configPath, "does-not-exist.config")
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "Servers field is deprecated")
+
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(`{
+		"ServerURL": "https://hosted.mender.io",
+		"User":"root",
+		"ShellCommand": "/bin/bash",
+		"Servers": [{"ServerURL": "https://hosted.mender.io"}]
+	  }`)
+	buf.Reset()
+	_, err = LoadConfig(configPath, "does-not-exist.config")
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "ServerURL field is deprecated")
+	assert.Contains(t, buf.String(), "Servers field is deprecated")
+
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(`{"ClientProtocol": "something"}`)
+	buf.Reset()
+	_, err = LoadConfig(configPath, "does-not-exist.config")
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "ClientProtocol field is deprecated")
+
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(`{"HTTPSClient": {"Certificate": "client.crt"}}`)
+	buf.Reset()
+	_, err = LoadConfig(configPath, "does-not-exist.config")
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "HTTPSClient field is deprecated")
+
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(`{"HTTPSClient": {"Key": "key.secret"}}`)
+	buf.Reset()
+	_, err = LoadConfig(configPath, "does-not-exist.config")
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "HTTPSClient field is deprecated")
+
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(`{"HTTPSClient": {"SSLEngine": "engine.power"}}`)
+	buf.Reset()
+	_, err = LoadConfig(configPath, "does-not-exist.config")
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "HTTPSClient field is deprecated")
+
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(`{"SkipVerify": true}`)
+	buf.Reset()
+	_, err = LoadConfig(configPath, "does-not-exist.config")
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "SkipVerify field is deprecated")
+
+	configFile, err = os.Create(configPath)
+	assert.NoError(t, err)
+	configFile.WriteString(`{"ServerCertificate": "certificate.crt"}`)
+	buf.Reset()
+	_, err = LoadConfig(configPath, "does-not-exist.config")
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "ServerCertificate field is deprecated")
 }

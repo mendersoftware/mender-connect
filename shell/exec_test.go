@@ -114,10 +114,10 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	err = connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", true, "", 8, nil)
+	err = connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 	assert.NoError(t, err)
 
-	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, false, "")
+	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 
@@ -162,7 +162,7 @@ func TestPipeStdout(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second, true, "")
+	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 
