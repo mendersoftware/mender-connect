@@ -44,6 +44,8 @@ generate-qa-trigger:
     - if: '$CI_COMMIT_BRANCH =~ /^(master|[0-9]+\.[0-9]+\.x)$/'
     - if: '$CI_PIPELINE_SOURCE == "pipeline"'
       when: never
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
   before_script:
     - apk add --no-cache git
     - pip3 install pyyaml
@@ -61,6 +63,8 @@ trigger:mender-qa:
     # the following is to prevent an endless loop of qa pipelines caused by downstream pipelines
     - if: '$CI_PIPELINE_SOURCE == "pipeline"'
       when: never
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
   trigger:
     include:
       - artifact: gitlab-ci-client-qemu-publish-job.yml
@@ -70,6 +74,8 @@ trigger:mender-dist-packages:
   stage: trigger
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
   variables:
     MENDER_CONNECT_VERSION: $CI_COMMIT_REF_NAME
     PUBLISH_MENDER_DIST_PACKAGES_AUTOMATIC: "true"
@@ -82,6 +88,8 @@ trigger:integration:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
     - if: '$CI_PIPELINE_SOURCE == "pipeline"'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
       when: never
   trigger:
     project: Northern.tech/Mender/integration
