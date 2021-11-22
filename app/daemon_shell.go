@@ -34,7 +34,7 @@ const (
 )
 
 func getUserIdFromMessage(message *ws.ProtoMsg) string {
-	userID, _ := message.Header.Properties["user_id"].(string)
+	userID, _ := message.Header.Properties[propertyUserID].(string)
 	return userID
 }
 
@@ -59,7 +59,12 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *ws.ProtoMsg) error {
 	s := session.MenderShellSessionGetById(message.Header.SessionID)
 	if s == nil {
 		userId := getUserIdFromMessage(message)
-		if s, err = session.NewMenderShellSession(message.Header.SessionID, userId, d.expireSessionsAfter, d.expireSessionsAfterIdle); err != nil {
+		if s, err = session.NewMenderShellSession(
+			message.Header.SessionID,
+			userId,
+			d.expireSessionsAfter,
+			d.expireSessionsAfterIdle,
+		); err != nil {
 			d.routeMessageResponse(response, err)
 			return err
 		}
@@ -71,7 +76,9 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *ws.ProtoMsg) error {
 	terminalHeight := d.TerminalConfig.Height
 	terminalWidth := d.TerminalConfig.Width
 
-	requestedHeight, requestedWidth := mapPropertiesToTerminalHeightAndWidth(message.Header.Properties)
+	requestedHeight, requestedWidth := mapPropertiesToTerminalHeightAndWidth(
+		message.Header.Properties,
+	)
 	if requestedHeight > 0 && requestedWidth > 0 {
 		terminalHeight = requestedHeight
 		terminalWidth = requestedWidth
@@ -142,7 +149,12 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *ws.ProtoMsg) error {
 
 	s := session.MenderShellSessionGetById(message.Header.SessionID)
 	if s == nil {
-		err = errors.New(fmt.Sprintf("routeMessage: StopShellMessage: session not found for id %s", message.Header.SessionID))
+		err = errors.New(
+			fmt.Sprintf(
+				"routeMessage: StopShellMessage: session not found for id %s",
+				message.Header.SessionID,
+			),
+		)
 		d.routeMessageResponse(response, err)
 		return err
 	}
@@ -193,7 +205,11 @@ func (d *MenderShellDaemon) routeMessageShellCommand(message *ws.ProtoMsg) error
 	}
 	err = s.ShellCommand(message)
 	if err != nil {
-		err = errors.Wrapf(err, "routeMessage: shell command execution error, session_id=%s", message.Header.SessionID)
+		err = errors.Wrapf(
+			err,
+			"routeMessage: shell command execution error, session_id=%s",
+			message.Header.SessionID,
+		)
 		d.routeMessageResponse(response, err)
 		return err
 	}
@@ -225,7 +241,9 @@ func (d *MenderShellDaemon) routeMessageShellResize(message *ws.ProtoMsg) error 
 		return err
 	}
 
-	terminalHeight, terminalWidth := mapPropertiesToTerminalHeightAndWidth(message.Header.Properties)
+	terminalHeight, terminalWidth := mapPropertiesToTerminalHeightAndWidth(
+		message.Header.Properties,
+	)
 	if terminalHeight > 0 && terminalWidth > 0 {
 		s.ResizeShell(terminalHeight, terminalWidth)
 	}

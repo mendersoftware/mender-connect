@@ -70,7 +70,3 @@ func GetDBusAPI() (DBusAPI, error) {
 	}
 	return nil, errors.New("no D-Bus interface available")
 }
-
-func setDBusAPI(api DBusAPI) {
-	dbusAPI = api
-}

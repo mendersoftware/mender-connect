@@ -26,6 +26,7 @@ import (
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
+
 	"github.com/mendersoftware/mender-connect/connectionmanager"
 	"github.com/mendersoftware/mender-connect/procps"
 	"github.com/mendersoftware/mender-connect/shell"
@@ -127,7 +128,12 @@ func timeNow() time.Time {
 	return time.Now().UTC()
 }
 
-func NewMenderShellSession(sessionId string, userId string, expireAfter time.Duration, expireAfterIdle time.Duration) (s *MenderShellSession, err error) {
+func NewMenderShellSession(
+	sessionId string,
+	userId string,
+	expireAfter time.Duration,
+	expireAfterIdle time.Duration,
+) (s *MenderShellSession, err error) {
 	if userSessions, ok := sessionsByUserIdMap[userId]; ok {
 		log.Debugf("user %s has %d sessions.", userId, len(userSessions))
 		if len(userSessions) >= MaxUserSessions {
@@ -238,7 +244,11 @@ func MenderSessionTerminateAll() (shellCount int, sessionCount int, err error) {
 		if e == nil {
 			shellCount++
 		} else {
-			log.Debugf("terminate sessions: failed to stop shell for session: %s: %s", id, e.Error())
+			log.Debugf(
+				"terminate sessions: failed to stop shell for session: %s: %s",
+				id,
+				e.Error(),
+			)
 			err = e
 		}
 		e = MenderShellDeleteById(id)
@@ -253,7 +263,12 @@ func MenderSessionTerminateAll() (shellCount int, sessionCount int, err error) {
 	return shellCount, sessionCount, err
 }
 
-func MenderSessionTerminateExpired() (shellCount int, sessionCount int, totalExpiredLeft int, err error) {
+func MenderSessionTerminateExpired() (
+	shellCount int,
+	sessionCount int,
+	totalExpiredLeft int,
+	err error,
+) {
 	shellCount = 0
 	sessionCount = 0
 	totalExpiredLeft = 0
@@ -263,7 +278,11 @@ func MenderSessionTerminateExpired() (shellCount int, sessionCount int, totalExp
 			if e == nil {
 				shellCount++
 			} else {
-				log.Debugf("expire sessions: failed to stop shell for session: %s: %s", id, e.Error())
+				log.Debugf(
+					"expire sessions: failed to stop shell for session: %s: %s",
+					id,
+					e.Error(),
+				)
 				err = e
 			}
 			e = MenderShellDeleteById(id)
@@ -300,7 +319,10 @@ func (s *MenderShellSession) GetShellCommandPath() string {
 	return s.command.Path
 }
 
-func (s *MenderShellSession) StartShell(sessionId string, terminal MenderShellTerminalSettings) error {
+func (s *MenderShellSession) StartShell(
+	sessionId string,
+	terminal MenderShellTerminalSettings,
+) error {
 	if s.status == ActiveSession || s.status == HangedSession {
 		return ErrSessionShellAlreadyRunning
 	}
@@ -440,7 +462,12 @@ func (s *MenderShellSession) StopShell() (err error) {
 
 	p, err := os.FindProcess(s.shellPid)
 	if err != nil {
-		log.Errorf("session %s, shell pid %d, find process error: %s", s.id, s.shellPid, err.Error())
+		log.Errorf(
+			"session %s, shell pid %d, find process error: %s",
+			s.id,
+			s.shellPid,
+			err.Error(),
+		)
 		return err
 	}
 	err = p.Signal(syscall.SIGINT)

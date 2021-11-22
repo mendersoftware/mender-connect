@@ -41,7 +41,8 @@ type AuthClient interface {
 	GetJWTToken() (string, string, error)
 	// FetchJWTToken schedules the fetching of a new device JWT token
 	FetchJWTToken() (bool, error)
-	// GetJwtTokenStateChangeChannel returns a channel that can be used to wait for the JwtTokenStateChange signal
+	// GetJwtTokenStateChangeChannel returns a channel that can be used to wait for the
+	// JwtTokenStateChange signal
 	GetJwtTokenStateChangeChannel() chan []dbus.SignalParams
 	// WaitForJwtTokenStateChange synchronously waits for the JwtTokenStateChange signal
 	WaitForJwtTokenStateChange() ([]dbus.SignalParams, error)
@@ -75,7 +76,12 @@ func (a *AuthClientDBUS) Connect(objectName, objectPath, interfaceName string) e
 	if err != nil {
 		return err
 	}
-	authManagerProxy, err := a.dbusAPI.BusProxyNew(dbusConnection, objectName, objectPath, interfaceName)
+	authManagerProxy, err := a.dbusAPI.BusProxyNew(
+		dbusConnection,
+		objectName,
+		objectPath,
+		interfaceName,
+	)
 	if err != nil {
 		return err
 	}
@@ -86,7 +92,12 @@ func (a *AuthClientDBUS) Connect(objectName, objectPath, interfaceName string) e
 
 // GetJWTToken returns a device JWT token and server URL
 func (a *AuthClientDBUS) GetJWTToken() (string, string, error) {
-	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameGetJwtToken, nil, DBusMethodTimeoutInMilliSeconds)
+	response, err := a.dbusAPI.BusProxyCall(
+		a.authManagerProxy,
+		DBusMethodNameGetJwtToken,
+		nil,
+		DBusMethodTimeoutInMilliSeconds,
+	)
 	if err != nil {
 		return "", "", err
 	}
@@ -96,14 +107,20 @@ func (a *AuthClientDBUS) GetJWTToken() (string, string, error) {
 
 // FetchJWTToken schedules the fetching of a new device JWT token
 func (a *AuthClientDBUS) FetchJWTToken() (bool, error) {
-	response, err := a.dbusAPI.BusProxyCall(a.authManagerProxy, DBusMethodNameFetchJwtToken, nil, DBusMethodTimeoutInMilliSeconds)
+	response, err := a.dbusAPI.BusProxyCall(
+		a.authManagerProxy,
+		DBusMethodNameFetchJwtToken,
+		nil,
+		DBusMethodTimeoutInMilliSeconds,
+	)
 	if err != nil {
 		return false, err
 	}
 	return response.GetBoolean(), nil
 }
 
-// GetJwtTokenStateChangeChannel returns a channel that can be used to wait for the JwtTokenStateChange signal
+// GetJwtTokenStateChangeChannel returns a channel that can be used to wait for the
+// JwtTokenStateChange signal
 func (a *AuthClientDBUS) GetJwtTokenStateChangeChannel() chan []dbus.SignalParams {
 	return a.dbusAPI.GetChannelForSignal(DBusSignalNameJwtTokenStateChange)
 }

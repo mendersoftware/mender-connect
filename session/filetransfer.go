@@ -85,13 +85,13 @@ func (h *FileTransferHandler) Close() error {
 func (h *FileTransferHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) {
 	switch msg.Header.MsgType {
 	case wsft.MessageTypePut:
-		h.InitFileUpload(msg, w)
+		_ = h.InitFileUpload(msg, w)
 
 	case wsft.MessageTypeStat:
 		h.StatFile(msg, w)
 
 	case wsft.MessageTypeGet:
-		h.InitFileDownload(msg, w)
+		_ = h.InitFileDownload(msg, w)
 
 	case wsft.MessageTypeACK, wsft.MessageTypeChunk:
 		// Messages are digested by async go-routine.
@@ -244,7 +244,11 @@ func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWrite
 	return nil
 }
 
-func (h *FileTransferHandler) DownloadHandler(fd *os.File, msg *ws.ProtoMsg, w ResponseWriter) (err error) {
+func (h *FileTransferHandler) DownloadHandler(
+	fd *os.File,
+	msg *ws.ProtoMsg,
+	w ResponseWriter,
+) (err error) {
 	var (
 		ackOffset int64
 		N         int64
