@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -11,6 +11,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
+//go:build !nodbus && cgo
 // +build !nodbus,cgo
 
 package dbus
@@ -42,12 +43,4 @@ func (v *Error) Message() string {
 // ErrorFromNative returns an Error object from a native error
 func ErrorFromNative(err Handle) error {
 	return &Error{C.to_error(unsafe.Pointer(err))}
-}
-
-// errorToNative returns an Error object from a native error
-func errorToNative(err error) Handle {
-	errMessage := C.CString(err.Error())
-	gErr := C.GError{}
-	gErr.message = errMessage
-	return Handle(&gErr)
 }

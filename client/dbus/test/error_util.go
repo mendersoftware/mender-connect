@@ -11,27 +11,24 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-package main
+//go:build !nodbus && cgo
+// +build !nodbus,cgo
+
+package test
+
+// #cgo pkg-config: gio-2.0
+// #include <gio/gio.h>
+// #include <glib/gerror.h>
+import "C"
 
 import (
-	"os"
-
-	log "github.com/sirupsen/logrus"
-
-	"github.com/mendersoftware/mender-connect/cli"
+	"unsafe"
 )
 
-func doMain() int {
-	log.SetFormatter(&log.TextFormatter{
-		FullTimestamp: true,
-	})
-	if err := cli.SetupCLI(os.Args); err != nil {
-		log.Errorln(err.Error())
-		return 1
-	}
-	return 0
-}
-
-func main() {
-	os.Exit(doMain())
+// ErrorToNative returns an Error object from a native error
+func ErrorToNative(err error) unsafe.Pointer {
+	errMessage := C.CString(err.Error())
+	gErr := C.GError{}
+	gErr.message = errMessage
+	return unsafe.Pointer(&gErr)
 }

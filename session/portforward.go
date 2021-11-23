@@ -35,7 +35,9 @@ const (
 )
 
 var (
-	errPortForwardInvalidMessage     = errors.New("invalid port-forward message: missing connection_id, remort_port or protocol")
+	errPortForwardInvalidMessage = errors.New(
+		"invalid port-forward message: missing connection_id, remote_port or protocol",
+	)
 	errPortForwardUnkonwnMessageType = errors.New("unknown message type")
 	errPortForwardUnkonwnConnection  = errors.New("unknown connection")
 )
@@ -53,7 +55,14 @@ type MenderPortForwarder struct {
 }
 
 func (f *MenderPortForwarder) Connect(protocol string, host string, portNumber uint16) error {
-	log.Debugf("port-forward[%s/%s] connect: %s/%s:%d", f.SessionID, f.ConnectionID, protocol, host, portNumber)
+	log.Debugf(
+		"port-forward[%s/%s] connect: %s/%s:%d",
+		f.SessionID,
+		f.ConnectionID,
+		protocol,
+		host,
+		portNumber,
+	)
 
 	if protocol == wspf.PortForwardProtocolTCP || protocol == wspf.PortForwardProtocolUDP {
 		conn, err := net.Dial(protocol, host+":"+strconv.Itoa(int(portNumber)))
@@ -125,7 +134,12 @@ func (f *MenderPortForwarder) Read() {
 		select {
 		case err := <-errChan:
 			if err != io.EOF {
-				log.Errorf("port-forward[%s/%s] error: %v\n", f.SessionID, f.ConnectionID, err.Error())
+				log.Errorf(
+					"port-forward[%s/%s] error: %v\n",
+					f.SessionID,
+					f.ConnectionID,
+					err.Error(),
+				)
 			}
 			f.Close(true)
 		case data := <-dataChan:
@@ -235,7 +249,9 @@ func (h *PortForwardHandler) portForwardHandlerNew(message *ws.ProtoMsg, w Respo
 	portNumber := req.RemotePort
 	connectionID, _ := message.Header.Properties[wspf.PropertyConnectionID].(string)
 
-	if protocol == nil || *protocol == "" || host == nil || *host == "" || portNumber == nil || *portNumber == 0 || connectionID == "" {
+	if protocol == nil || *protocol == "" || host == nil || *host == "" || portNumber == nil ||
+		*portNumber == 0 ||
+		connectionID == "" {
 		return errPortForwardInvalidMessage
 	}
 
@@ -249,7 +265,14 @@ func (h *PortForwardHandler) portForwardHandlerNew(message *ws.ProtoMsg, w Respo
 
 	h.portForwarders[connectionID] = portForwarder
 
-	log.Infof("port-forward: new %s/%s: %s/%s:%d", message.Header.SessionID, connectionID, *protocol, *host, *portNumber)
+	log.Infof(
+		"port-forward: new %s/%s: %s/%s:%d",
+		message.Header.SessionID,
+		connectionID,
+		*protocol,
+		*host,
+		*portNumber,
+	)
 	err = portForwarder.Connect(string(*protocol), *host, *portNumber)
 	if err != nil {
 		delete(h.portForwarders, connectionID)
@@ -302,7 +325,10 @@ func (h *PortForwardHandler) portForwardHandlerStop(message *ws.ProtoMsg, w Resp
 	}
 }
 
-func (h *PortForwardHandler) portForwardHandlerForward(message *ws.ProtoMsg, w ResponseWriter) error {
+func (h *PortForwardHandler) portForwardHandlerForward(
+	message *ws.ProtoMsg,
+	w ResponseWriter,
+) error {
 	connectionID, _ := message.Header.Properties[wspf.PropertyConnectionID].(string)
 	if portForwarder, ok := h.portForwarders[connectionID]; ok {
 		err := portForwarder.Write(message.Body)

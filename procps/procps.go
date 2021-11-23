@@ -42,11 +42,15 @@ func TerminateAndWait(pid int, command *exec.Cmd, waitTimeout time.Duration) (er
 	}()
 	select {
 	case err := <-done:
-		if err != nil && err.Error() != "signal: killed" && err.Error() != "signal: terminated" && err.Error() != "signal: hangup" && err.Error() != "exit status 130" {
+		if err != nil && err.Error() != "signal: killed" && err.Error() != "signal: terminated" &&
+			err.Error() != "signal: hangup" &&
+			err.Error() != "exit status 130" {
 			return errors.New("error waiting for the process: " + err.Error())
 		}
 	case <-time.After(waitTimeout):
-		return errors.New("waiting for pid " + strconv.Itoa(pid) + " timeout. the process will remain as zombie.")
+		return errors.New(
+			"waiting for pid " + strconv.Itoa(pid) + " timeout. the process will remain as zombie.",
+		)
 	}
 	return nil
 }

@@ -26,6 +26,7 @@ import (
 
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
+
 	"github.com/mendersoftware/mender-connect/client/dbus"
 	"github.com/mendersoftware/mender-connect/client/mender"
 	"github.com/mendersoftware/mender-connect/config"
@@ -171,19 +172,6 @@ func (d *MenderShellDaemon) timeToSweepSessions() bool {
 	}
 }
 
-func (d *MenderShellDaemon) wsReconnect(token string) (err error) {
-	err = connectionmanager.Reconnect(
-		ws.ProtoTypeShell, d.serverUrl,
-		d.deviceConnectUrl, token,
-		config.MaxReconnectAttempts, d.ctx,
-	)
-	if err != nil {
-		return errors.New("failed to reconnect after " + strconv.Itoa(int(config.MaxReconnectAttempts)) + " tries: " + err.Error())
-	} else {
-		return nil
-	}
-}
-
 func (d *MenderShellDaemon) outputStatus() {
 	log.Infof("mender-connect daemon v%s", config.VersionString())
 	log.Info(" status: ")
@@ -214,7 +202,10 @@ func (d *MenderShellDaemon) messageLoop() (err error) {
 		message, err := d.readMessage()
 		log.Tracef("messageLoop: called readMessage: %v,%v", message, err)
 		if err != nil {
-			log.Errorf("messageLoop: error on readMessage: %v; disconnecting, waiting for reconnect.", err)
+			log.Errorf(
+				"messageLoop: error on readMessage: %v; disconnecting, waiting for reconnect.",
+				err,
+			)
 			connectionmanager.Close(ws.ProtoTypeShell)
 			e := MenderShellDaemonEvent{
 				event: EventReconnectRequest,
@@ -242,10 +233,12 @@ func (d *MenderShellDaemon) waitForJWTToken(client mender.AuthClient) (string, e
 	for {
 		select {
 		case p := <-tokenStateChange:
-			if len(p) > 1 && p[1].ParamType == dbus.GDBusTypeString && len(p[1].ParamData.(string)) > 0 {
+			if len(p) > 1 && p[1].ParamType == dbus.GDBusTypeString &&
+				len(p[1].ParamData.(string)) > 0 {
 				d.serverUrl = p[1].ParamData.(string)
 			}
-			if len(p) > 0 && p[0].ParamType == dbus.GDBusTypeString && len(p[0].ParamData.(string)) > 0 {
+			if len(p) > 0 && p[0].ParamType == dbus.GDBusTypeString &&
+				len(p[0].ParamData.(string)) > 0 {
 				return p[0].ParamData.(string), nil
 			}
 		case <-d.ctx.Done():
@@ -391,7 +384,8 @@ func (d *MenderShellDaemon) setupLogging() {
 //starts all needed elements of the mender-connect daemon
 // * executes given shell (shell.ExecuteShell)
 // * get dbus API and starts the dbus main loop (dbus.GetDBusAPI(), go dbusAPI.MainLoopRun(loop))
-// * creates a new dbus client and connects to dbus (mender.NewAuthClient(dbusAPI), client.Connect(...))
+// * creates a new dbus client and connects to dbus (mender.NewAuthClient(dbusAPI),
+//   client.Connect(...))
 // * gets the JWT token from the mender-client via dbus (client.GetJWTToken())
 // * connects to the backend and returns a new websocket (deviceconnect.Connect(...))
 // * starts the message flow between the shell and websocket (shell.NewMenderShell(...))
@@ -476,7 +470,9 @@ func (d *MenderShellDaemon) Run() error {
 		return err
 	}
 
-	go d.messageLoop()
+	go func() {
+		_ = d.messageLoop()
+	}()
 	go d.dbusEventLoop(client)
 	go d.eventLoop()
 
@@ -491,7 +487,8 @@ func (d *MenderShellDaemon) Run() error {
 		}
 
 		if d.timeToSweepSessions() {
-			shellStoppedCount, sessionStoppedCount, totalExpiredLeft, err := session.MenderSessionTerminateExpired()
+			shellStoppedCount, sessionStoppedCount, totalExpiredLeft, err :=
+				session.MenderSessionTerminateExpired()
 			if err != nil {
 				log.Errorf("main-loop: failed to terminate some expired sessions, left: %d",
 					totalExpiredLeft)
@@ -540,7 +537,13 @@ func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
 			msg, session.ResponseWriterFunc(d.responseMessage),
 		)
 	}
-	err = errors.New(fmt.Sprintf("unknown message protocol and type: %d/%s", msg.Header.Proto, msg.Header.MsgType))
+	err = errors.New(
+		fmt.Sprintf(
+			"unknown message protocol and type: %d/%s",
+			msg.Header.Proto,
+			msg.Header.MsgType,
+		),
+	)
 	response := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
 			Proto:     msg.Header.Proto,

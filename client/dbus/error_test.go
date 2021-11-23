@@ -1,4 +1,4 @@
-// Copyright 2020 Northern.tech AS
+// Copyright 2021 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -20,11 +20,13 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/mendersoftware/mender-connect/client/dbus/test"
 )
 
 func TestError(t *testing.T) {
 	const errMessage = "error-message"
-	gerror := errorToNative(errors.New(errMessage))
+	gerror := Handle(test.ErrorToNative(errors.New(errMessage)))
 
 	err := ErrorFromNative(gerror)
 	assert.NotNil(t, err)

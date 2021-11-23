@@ -202,7 +202,11 @@ func (sess *Session) HandleControl(msg *ws.ProtoMsg) (close bool) {
 				return
 			}
 		}
-		sess.Error(msg, true, fmt.Sprintf("handshake rejected: require version %d", ws.ProtocolVersion))
+		sess.Error(
+			msg,
+			true,
+			fmt.Sprintf("handshake rejected: require version %d", ws.ProtocolVersion),
+		)
 		close = true
 
 	case ws.MessageTypeAccept:

@@ -222,7 +222,9 @@ func (p *Permit) BytesSent(n uint64) (belowLimit bool) {
 		}
 	}
 	if p.limits.FileTransfer.Counters.MaxBytesTxPerMinute > 0 &&
-		uint64(deviceCounters.bytesTransferredAvg1m) >= p.limits.FileTransfer.Counters.MaxBytesTxPerMinute {
+		uint64(
+			deviceCounters.bytesTransferredAvg1m,
+		) >= p.limits.FileTransfer.Counters.MaxBytesTxPerMinute {
 		belowLimit = false
 	}
 
@@ -251,7 +253,9 @@ func (p *Permit) BytesReceived(n uint64) (belowLimit bool) {
 		}
 	}
 	if p.limits.FileTransfer.Counters.MaxBytesRxPerMinute > 0 &&
-		uint64(deviceCounters.bytesReceivedAvg1m) >= p.limits.FileTransfer.Counters.MaxBytesRxPerMinute {
+		uint64(
+			deviceCounters.bytesReceivedAvg1m,
+		) >= p.limits.FileTransfer.Counters.MaxBytesRxPerMinute {
 		belowLimit = false
 	}
 
@@ -373,23 +377,21 @@ func updateCounters() {
 	tick := time.NewTicker(time.Duration(countersUpdateSleepTimeS) * time.Second)
 	defer tick.Stop()
 	for counterUpdateRunning {
-		select {
-		case <-tick.C:
-			txTot := deviceCounters.bytesTransferred
-			rxTot := deviceCounters.bytesReceived
-			rx := rxTot - lastRX
-			tx := txTot - lastTX
-			lastRX = rxTot
-			lastTX = txTot
-			// avg[n+1] = w * Y[n] + (1 - w) avg[n]
-			avgRX = w1*float64(rx) + _w1*avgRX
-			avgTX = w1*float64(tx) + _w1*avgTX
+		<-tick.C
+		txTot := deviceCounters.bytesTransferred
+		rxTot := deviceCounters.bytesReceived
+		rx := rxTot - lastRX
+		tx := txTot - lastTX
+		lastRX = rxTot
+		lastTX = txTot
+		// avg[n+1] = w * Y[n] + (1 - w) avg[n]
+		avgRX = w1*float64(rx) + _w1*avgRX
+		avgTX = w1*float64(tx) + _w1*avgTX
 
-			countersMutex.Lock()
-			deviceCounters.bytesTransferredAvg1m = avgTX
-			deviceCounters.bytesReceivedAvg1m = avgRX
-			countersMutex.Unlock()
-		}
+		countersMutex.Lock()
+		deviceCounters.bytesTransferredAvg1m = avgTX
+		deviceCounters.bytesReceivedAvg1m = avgRX
+		countersMutex.Unlock()
 	}
 }
 
