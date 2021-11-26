@@ -25,6 +25,7 @@ func doMain() int {
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
 	})
+
 	if err := cli.SetupCLI(os.Args); err != nil {
 		log.Errorln(err.Error())
 		return 1
