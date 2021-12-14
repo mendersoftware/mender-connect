@@ -214,6 +214,7 @@ func (d *MenderShellDaemon) messageLoop() (err error) {
 			d.reconnectChan <- e
 			response := <-d.connectionEstChan
 			log.Tracef("messageLoop: got response: %+v", response)
+			log.Info("messageLoop: reconnected, continuing.")
 			continue
 		}
 
@@ -453,6 +454,7 @@ func (d *MenderShellDaemon) Run() error {
 			return err
 		}
 		d.authorized = true
+		log.Infof("got JWT token, len(JWT)=%d, continuing to main loop", len(jwtToken))
 	} else {
 		d.authorized = true
 	}
