@@ -38,7 +38,7 @@ var (
 
 	DefaultDebug = false
 
-	MaxReconnectAttempts             = uint(0) // 0 means to reconnect forever
+	MaxReconnectAttempts             = uint(10)
 	DefaultReconnectIntervalsSeconds = 5
 	MessageWriteTimeout              = 2 * time.Second
 	MaxShellsSpawned                 = uint(16)
