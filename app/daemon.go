@@ -277,7 +277,7 @@ func (d *MenderShellDaemon) gotAuthToken(p []dbus.SignalParams, needsReconnect b
 			shellsCount, sessionsCount, err := session.MenderSessionTerminateAll()
 			if err == nil {
 				log.Infof("dbusEventLoop terminated %d sessions, %d shells",
-					shellsCount, sessionsCount)
+					sessionsCount, shellsCount)
 			} else {
 				log.Errorf("dbusEventLoop error terminating all sessions: %s",
 					err.Error())
