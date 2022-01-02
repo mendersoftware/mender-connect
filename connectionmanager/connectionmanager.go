@@ -124,7 +124,13 @@ func connect(proto ws.ProtoType, serverUrl, connectUrl, token string, skipVerify
 		mutex:      &sync.Mutex{},
 	}
 
-	log.Tracef("connectionmanager connect returning")
+	// There could be a pending cancelReconnectChan request from CancelReconnection unprocessed
+	select {
+	case <-cancelReconnectChan[proto]:
+		log.Trace("connectionmanager drained cancelReconnectChan")
+	default:
+	}
+
 	return nil
 }
 
@@ -193,9 +199,11 @@ func setReconnecting(proto ws.ProtoType, v bool) bool {
 	return v
 }
 
-func CancelReconnection(proto ws.ProtoType) {
+func CancelReconnection(proto ws.ProtoType) bool {
 	maxWaitSeconds := 8
-	cancelReconnectChan[proto] <- true
+	go func() {
+		cancelReconnectChan[proto] <- true
+	}()
 	for maxWaitSeconds > 0 {
 		time.Sleep(time.Second)
 		if !IsReconnecting(proto) {
@@ -205,12 +213,16 @@ func CancelReconnection(proto ws.ProtoType) {
 	}
 	if IsReconnecting(proto) {
 		log.Error("failed to cancel reconnection")
+		return false
 	}
+	return true
 }
 
 func Close(proto ws.ProtoType) error {
 	if IsReconnecting(proto) {
-		CancelReconnection(proto)
+		if !CancelReconnection(proto) {
+			return errors.New("failed to cancel ongoing reconnection")
+		}
 	}
 
 	handlersByTypeMutex.Lock()
