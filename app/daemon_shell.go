@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2022 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -133,7 +133,7 @@ func (d *MenderShellDaemon) routeMessageStopShell(message *ws.ProtoMsg) error {
 				return err
 			} else {
 				log.Debugf("StopByUserId: stopped %d shells.", shellsStoppedCount)
-				d.shellsSpawned -= shellsStoppedCount
+				d.DecreaseSpawnedShellsCount(shellsStoppedCount)
 			}
 		}
 		d.routeMessageResponse(response, err)
