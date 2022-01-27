@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2022 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -53,6 +53,7 @@ type MenderShellDaemon struct {
 	ctx                     context.Context
 	ctxCancel               context.CancelFunc
 	writeMutex              *sync.Mutex
+	spawnedShellsMutex      *sync.Mutex
 	eventChan               chan MenderShellDaemonEvent
 	connectionEstChan       chan MenderShellDaemonEvent
 	reconnectChan           chan MenderShellDaemonEvent
@@ -111,6 +112,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		ctx:                     ctx,
 		ctxCancel:               ctxCancel,
 		writeMutex:              &sync.Mutex{},
+		spawnedShellsMutex:      &sync.Mutex{},
 		eventChan:               make(chan MenderShellDaemonEvent),
 		connectionEstChan:       make(chan MenderShellDaemonEvent),
 		reconnectChan:           make(chan MenderShellDaemonEvent),
@@ -192,6 +194,9 @@ func (d *MenderShellDaemon) wsReconnect(token string) (err error) {
 func (d *MenderShellDaemon) outputStatus() {
 	log.Infof("mender-connect daemon v%s", config.VersionString())
 	log.Info(" status: ")
+	d.spawnedShellsMutex.Lock()
+	log.Infof("  shells: %d/%d", d.shellsSpawned, config.MaxShellsSpawned)
+	d.spawnedShellsMutex.Unlock()
 	log.Infof("  sessions: %d", session.MenderShellSessionGetCount())
 	sessionIds := session.MenderShellSessionGetSessionIds()
 	for _, id := range sessionIds {
@@ -288,6 +293,9 @@ func (d *MenderShellDaemon) gotAuthToken(p []dbus.SignalParams, needsReconnect b
 			} else {
 				log.Errorf("dbusEventLoop error terminating all sessions: %s",
 					err.Error())
+			}
+			if shellsCount > 0 {
+				d.DecreaseSpawnedShellsCount(uint(shellsCount))
 			}
 		}
 		connectionmanager.Close(ws.ProtoTypeShell)
@@ -387,6 +395,20 @@ func (d *MenderShellDaemon) setupLogging() {
 		log.SetLevel(log.TraceLevel)
 	} else if d.debug {
 		log.SetLevel(log.DebugLevel)
+	}
+}
+
+func (d *MenderShellDaemon) DecreaseSpawnedShellsCount(shellStoppedCount uint) {
+	d.spawnedShellsMutex.Lock()
+	defer d.spawnedShellsMutex.Unlock()
+	if d.shellsSpawned == 0 {
+		log.Warn("can't decrement shellsSpawned count: it is 0.")
+	} else {
+		if shellStoppedCount >= d.shellsSpawned {
+			d.shellsSpawned = 0
+		} else {
+			d.shellsSpawned -= shellStoppedCount
+		}
 	}
 }
 
@@ -499,7 +521,8 @@ func (d *MenderShellDaemon) Run() error {
 			if err != nil {
 				log.Errorf("main-loop: failed to terminate some expired sessions, left: %d",
 					totalExpiredLeft)
-			} else if sessionStoppedCount != 0 {
+			} else if sessionStoppedCount > 0 {
+				d.DecreaseSpawnedShellsCount(uint(sessionStoppedCount))
 				log.Infof("main-loop: stopped %d sessions, %d shells, expired sessions left: %d",
 					shellStoppedCount, sessionStoppedCount, totalExpiredLeft)
 			}
