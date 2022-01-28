@@ -1381,41 +1381,41 @@ func TestDecreaseSpawnedShellsCount(t *testing.T) {
 	testCases := []struct {
 		Name string
 
-		CurrentCount uint
-		DecreaseBy uint
+		CurrentCount  uint
+		DecreaseBy    uint
 		ExpectedCount uint
 	}{
 		{
 			Name: "decrease by 1 with 1",
 
 			CurrentCount: 1,
-			DecreaseBy: 1,
+			DecreaseBy:   1,
 		},
 		{
 			Name: "decrease by 1 with many",
 
-			CurrentCount: 3,
-			DecreaseBy: 1,
+			CurrentCount:  3,
+			DecreaseBy:    1,
 			ExpectedCount: 2,
 		},
 		{
 			Name: "decrease by many with many",
 
 			CurrentCount: 3,
-			DecreaseBy: 3,
+			DecreaseBy:   3,
 		},
 		{
 			Name: "decrease by many with some",
 
-			CurrentCount: 255,
-			DecreaseBy: 3,
+			CurrentCount:  255,
+			DecreaseBy:    3,
 			ExpectedCount: 252,
 		},
 		{
 			Name: "decrease by some with many",
 
-			CurrentCount: 3,
-			DecreaseBy: 255,
+			CurrentCount:  3,
+			DecreaseBy:    255,
 			ExpectedCount: 0,
 		},
 		{
@@ -1440,7 +1440,7 @@ func TestDecreaseSpawnedShellsCount(t *testing.T) {
 				},
 			})
 
-			daemon.shellsSpawned=tc.CurrentCount
+			daemon.shellsSpawned = tc.CurrentCount
 			daemon.DecreaseSpawnedShellsCount(tc.DecreaseBy)
 
 			assert.Equal(t, tc.ExpectedCount, daemon.shellsSpawned)
