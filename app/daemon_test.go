@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2022 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -1095,6 +1095,78 @@ func TestRouteMessage(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestDecreaseSpawnedShellsCount(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		Name string
+
+		CurrentCount uint
+		DecreaseBy uint
+		ExpectedCount uint
+	}{
+		{
+			Name: "decrease by 1 with 1",
+
+			CurrentCount: 1,
+			DecreaseBy: 1,
+		},
+		{
+			Name: "decrease by 1 with many",
+
+			CurrentCount: 3,
+			DecreaseBy: 1,
+			ExpectedCount: 2,
+		},
+		{
+			Name: "decrease by many with many",
+
+			CurrentCount: 3,
+			DecreaseBy: 3,
+		},
+		{
+			Name: "decrease by many with some",
+
+			CurrentCount: 255,
+			DecreaseBy: 3,
+			ExpectedCount: 252,
+		},
+		{
+			Name: "decrease by some with many",
+
+			CurrentCount: 3,
+			DecreaseBy: 255,
+			ExpectedCount: 0,
+		},
+		{
+			Name: "decrease by many with 0",
+
+			DecreaseBy: 3,
+		},
+		{
+			Name: "decrease by 0 with 0",
+		},
+	}
+	for i := range testCases {
+		tc := testCases[i]
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+
+			daemon := NewDaemon(&config.MenderShellConfig{
+				MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+					FileTransfer: config.FileTransferConfig{
+						Disable: false,
+					},
+				},
+			})
+
+			daemon.shellsSpawned=tc.CurrentCount
+			daemon.DecreaseSpawnedShellsCount(tc.DecreaseBy)
+
+			assert.Equal(t, tc.ExpectedCount, daemon.shellsSpawned)
 		})
 	}
 }
