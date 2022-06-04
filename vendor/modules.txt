@@ -1,4 +1,4 @@
-# github.com/creack/pty v1.1.11
+# github.com/creack/pty v1.1.18
 ## explicit
 github.com/creack/pty
 # github.com/davecgh/go-spew v1.1.1
