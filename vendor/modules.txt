@@ -6,7 +6,7 @@ github.com/davecgh/go-spew/spew
 # github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 ## explicit
 github.com/go-ozzo/ozzo-validation/v4
-# github.com/gorilla/websocket v1.4.2
+# github.com/gorilla/websocket v1.5.0
 ## explicit
 github.com/gorilla/websocket
 # github.com/mendersoftware/go-lib-micro v0.0.0-20210407130414-8df169b86c91
