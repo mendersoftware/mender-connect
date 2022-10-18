@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2022 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@ type Connection struct {
 	done chan bool
 }
 
-//Websocket connection routine. setup the ping-pong and connection settings
+// Websocket connection routine. setup the ping-pong and connection settings
 func NewConnection(u url.URL,
 	token string,
 	writeWait time.Duration,
