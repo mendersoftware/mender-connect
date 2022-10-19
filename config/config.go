@@ -60,7 +60,7 @@ type SessionsConfig struct {
 }
 
 // Counter for the limits  and restrictions for the File Transfer
-//on and off the device(MEN-4325)
+// on and off the device(MEN-4325)
 type RateLimits struct {
 	// Maximum bytes count allowed to transfer per minute
 	// this is per device global limit, which is consulted

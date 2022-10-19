@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2022 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -27,9 +27,9 @@ var (
 	ErrUnsupported = errors.New("unsupported platform")
 )
 
-//Returns ture if the path points to a directory or file inside chroot
-//in case chroot is an empty string it is treated as root directory, i.e.:
-//all paths are in that chroot
+// Returns ture if the path points to a directory or file inside chroot
+// in case chroot is an empty string it is treated as root directory, i.e.:
+// all paths are in that chroot
 func IsInChroot(path string, chroot string) bool {
 	if chroot == "" {
 		return true
