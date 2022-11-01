@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,6 +106,10 @@ func connect(
 				log.Errorf("connection manager failed to connect to %s%s: %s; "+
 					"reconnecting in %ds (try %d/%d); len(token)=%d", serverUrl, connectUrl,
 					err.Error(), reconnectIntervalSeconds, i, retries, len(token))
+				if strings.Contains(err.Error(), "malformed ws or wss URL") {
+					// If the given serverUrl is malformed, exit so that the caller can update it
+					return err
+				}
 				select {
 				case cancelFlag := <-cancelReconnectChan[proto]:
 					log.Tracef("connectionmanager connect got cancelFlag=%+v", cancelFlag)
