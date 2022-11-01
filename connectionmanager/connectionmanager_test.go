@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2022 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -95,7 +95,7 @@ func TestConnect(t *testing.T) {
 	_ = Close(ws.ProtoTypeShell)
 
 	ctx := context.Background()
-	err := Connect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 1, ctx)
+	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 1, ctx)
 	assert.Nil(t, err)
 
 	msg, err := Read(ws.ProtoTypeShell)
@@ -137,7 +137,7 @@ func TestConnectFailed(t *testing.T) {
 	_ = Close(ws.ProtoTypeShell)
 
 	ctx := context.Background()
-	err := Connect(ws.ProtoTypeShell, "wrong-url", "/ws", "token", 1, ctx)
+	err := Reconnect(ws.ProtoTypeShell, "wrong-url", "/ws", "token", 1, ctx)
 	assert.NotNil(t, err)
 }
 

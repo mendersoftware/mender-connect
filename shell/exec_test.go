@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2022 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -114,7 +114,7 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	err = connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
+	err = connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
 	assert.NoError(t, err)
 
 	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second)

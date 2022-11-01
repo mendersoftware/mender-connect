@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2022 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -140,22 +140,6 @@ func connect(
 	}
 
 	return nil
-}
-
-func Connect(
-	proto ws.ProtoType,
-	serverUrl, connectUrl, token string,
-	retries uint,
-	ctx context.Context,
-) error {
-	handlersByTypeMutex.Lock()
-	defer handlersByTypeMutex.Unlock()
-
-	if _, exists := handlersByType[proto]; exists {
-		return ErrHandlerAlreadyRegistered
-	}
-
-	return connect(proto, serverUrl, connectUrl, token, retries, ctx)
 }
 
 func Reconnect(
