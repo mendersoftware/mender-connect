@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2022 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -11,6 +11,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
+//go:build !nodbus && cgo
 // +build !nodbus,cgo
 
 package dbus
@@ -66,7 +67,12 @@ func (d *dbusAPILibGio) BusGet(busType uint) (Handle, error) {
 
 // BusProxyNew creates a proxy for accessing an interface over DBus
 // https://developer.gnome.org/gio/stable/GDBusProxy.html#g-dbus-proxy-new-sync
-func (d *dbusAPILibGio) BusProxyNew(conn Handle, name string, objectPath string, interfaceName string) (Handle, error) {
+func (d *dbusAPILibGio) BusProxyNew(
+	conn Handle,
+	name string,
+	objectPath string,
+	interfaceName string,
+) (Handle, error) {
 	var gerror *C.GError
 	gconn := C.to_gdbusconnection(unsafe.Pointer(conn))
 	flags := C.GDBusProxyFlags(GDbusProxyFlagsDoNotLoadProperties)
@@ -76,7 +82,16 @@ func (d *dbusAPILibGio) BusProxyNew(conn Handle, name string, objectPath string,
 	defer C.free(unsafe.Pointer(cobjectPath))
 	cinterfaceName := C.CString(interfaceName)
 	defer C.free(unsafe.Pointer(cinterfaceName))
-	proxy := C.g_dbus_proxy_new_sync(gconn, flags, nil, cname, cobjectPath, cinterfaceName, nil, &gerror)
+	proxy := C.g_dbus_proxy_new_sync(
+		gconn,
+		flags,
+		nil,
+		cname,
+		cobjectPath,
+		cinterfaceName,
+		nil,
+		&gerror,
+	)
 	if Handle(gerror) != nil {
 		return Handle(nil), ErrorFromNative(Handle(gerror))
 	} else if proxy == nil {
@@ -88,13 +103,26 @@ func (d *dbusAPILibGio) BusProxyNew(conn Handle, name string, objectPath string,
 
 // BusProxyCall synchronously invokes a method method on a proxy
 // https://developer.gnome.org/gio/stable/GDBusProxy.html#g-dbus-proxy-call-sync
-func (d *dbusAPILibGio) BusProxyCall(proxy Handle, methodName string, params interface{}, timeout int) (DBusCallResponse, error) {
+func (d *dbusAPILibGio) BusProxyCall(
+	proxy Handle,
+	methodName string,
+	params interface{},
+	timeout int,
+) (DBusCallResponse, error) {
 	var gerror *C.GError
 	gproxy := C.to_gdbusproxy(unsafe.Pointer(proxy))
 	cmethodName := C.CString(methodName)
 	defer C.free(unsafe.Pointer(cmethodName))
 	flags := C.GDBusCallFlags(GDBusCallFlagsNone)
-	result := C.g_dbus_proxy_call_sync(gproxy, cmethodName, nil, flags, C.gint(timeout), nil, &gerror)
+	result := C.g_dbus_proxy_call_sync(
+		gproxy,
+		cmethodName,
+		nil,
+		flags,
+		C.gint(timeout),
+		nil,
+		&gerror,
+	)
 	if Handle(gerror) != nil {
 		return nil, ErrorFromNative(Handle(gerror))
 	}
@@ -155,7 +183,10 @@ func (d *dbusAPILibGio) HandleSignal(signalName string, params []SignalParams) {
 }
 
 // WaitForSignal waits for a DBus signal
-func (d *dbusAPILibGio) WaitForSignal(signalName string, timeout time.Duration) ([]SignalParams, error) {
+func (d *dbusAPILibGio) WaitForSignal(
+	signalName string,
+	timeout time.Duration,
+) ([]SignalParams, error) {
 	channel := d.GetChannelForSignal(signalName)
 	select {
 	case p := <-channel:
@@ -166,7 +197,13 @@ func (d *dbusAPILibGio) WaitForSignal(signalName string, timeout time.Duration) 
 }
 
 //export handle_on_signal_callback
-func handle_on_signal_callback(proxy *C.GDBusProxy, senderName *C.gchar, signalName *C.gchar, params *C.GVariant, userData C.gpointer) {
+func handle_on_signal_callback(
+	proxy *C.GDBusProxy,
+	senderName *C.gchar,
+	signalName *C.gchar,
+	params *C.GVariant,
+	userData C.gpointer,
+) {
 	goSignalName := C.GoString(signalName)
 	api, _ := GetDBusAPI()
 	var goParams []SignalParams
