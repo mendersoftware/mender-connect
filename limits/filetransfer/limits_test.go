@@ -388,7 +388,7 @@ func TestPermit_DownloadFile(t *testing.T) {
 	if u == nil {
 		t.Fatal("cant get current user")
 	}
-	currentUser := u.Name
+	currentUser := u.Username
 	currentGroup, _ := user.LookupGroupId(u.Gid)
 	if currentGroup == nil {
 		t.Fatal("cant get current group")
@@ -513,7 +513,7 @@ func TestPermit_UploadFile(t *testing.T) {
 	if u == nil {
 		t.Fatal("cant get current user")
 	}
-	currentUser := u.Name
+	currentUser := u.Username
 	currentGroup, _ := user.LookupGroupId(u.Gid)
 	if currentGroup == nil {
 		t.Fatal("cant get current group")
