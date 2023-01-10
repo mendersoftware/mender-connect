@@ -218,6 +218,8 @@ func TestPortForwardHandlerSuccessfulConnection(t *testing.T) {
 		}
 	}(tcpPort)
 
+	time.Sleep(2000 * time.Millisecond)
+
 	// c1: new
 	protocol := wspf.PortForwardProtocol(wspf.PortForwardProtocolTCP)
 	remoteHost := "localhost"

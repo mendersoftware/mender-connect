@@ -123,6 +123,8 @@ func TestReconnect(t *testing.T) {
 		_ = srv.Shutdown(context.Background())
 	}()
 
+	time.Sleep(2000 * time.Millisecond)
+
 	_ = Close(ws.ProtoTypeShell)
 
 	ctx := context.Background()
