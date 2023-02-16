@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2023 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -26,6 +26,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
 )
+
+const waitForWebsocketServer = 2 * time.Second
 
 func init() {
 	DefaultPingWait = 10 * time.Second
@@ -94,6 +96,8 @@ func TestConnect(t *testing.T) {
 
 	_ = Close(ws.ProtoTypeShell)
 
+	time.Sleep(waitForWebsocketServer)
+
 	ctx := context.Background()
 	err := Connect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 1, ctx)
 	assert.Nil(t, err)
@@ -122,6 +126,8 @@ func TestReconnect(t *testing.T) {
 	defer func() {
 		_ = srv.Shutdown(context.Background())
 	}()
+
+	time.Sleep(waitForWebsocketServer)
 
 	_ = Close(ws.ProtoTypeShell)
 
