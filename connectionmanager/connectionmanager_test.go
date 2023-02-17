@@ -27,6 +27,8 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
+const waitForWebsocketServer = 2 * time.Second
+
 func init() {
 	DefaultPingWait = 10 * time.Second
 }
@@ -94,6 +96,8 @@ func TestConnect(t *testing.T) {
 
 	_ = Close(ws.ProtoTypeShell)
 
+	time.Sleep(waitForWebsocketServer)
+
 	ctx := context.Background()
 	err := Connect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 1, ctx)
 	assert.Nil(t, err)
@@ -123,7 +127,7 @@ func TestReconnect(t *testing.T) {
 		_ = srv.Shutdown(context.Background())
 	}()
 
-	time.Sleep(2000 * time.Millisecond)
+	time.Sleep(waitForWebsocketServer)
 
 	_ = Close(ws.ProtoTypeShell)
 
