@@ -1,16 +1,16 @@
 // Copyright 2022 Northern.tech AS
 //
-//    Licensed under the Apache License, Version 2.0 (the "License");
-//    you may not use this file except in compliance with the License.
-//    You may obtain a copy of the License at
+//	Licensed under the Apache License, Version 2.0 (the "License");
+//	you may not use this file except in compliance with the License.
+//	You may obtain a copy of the License at
 //
-//        http://www.apache.org/licenses/LICENSE-2.0
+//	    http://www.apache.org/licenses/LICENSE-2.0
 //
-//    Unless required by applicable law or agreed to in writing, software
-//    distributed under the License is distributed on an "AS IS" BASIS,
-//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-//    See the License for the specific language governing permissions and
-//    limitations under the License.
+//	Unless required by applicable law or agreed to in writing, software
+//	distributed under the License is distributed on an "AS IS" BASIS,
+//	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//	See the License for the specific language governing permissions and
+//	limitations under the License.
 package app
 
 import (
@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/mendersoftware/mender-connect/client/dbus"
 	"github.com/mendersoftware/mender-connect/client/mender"
+	mbus "github.com/mendersoftware/mender-connect/client/mender/dbus"
 	"github.com/mendersoftware/mender-connect/config"
 	"github.com/mendersoftware/mender-connect/connectionmanager"
 	"github.com/mendersoftware/mender-connect/limits/filetransfer"
@@ -79,10 +81,12 @@ type MenderShellDaemon struct {
 	debug                   bool
 	trace                   bool
 	router                  session.Router
+	config.AuthConfig
 	config.TerminalConfig
 	config.FileTransferConfig
 	config.PortForwardConfig
 	config.MenderClientConfig
+	Chroot string
 }
 
 func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
@@ -115,15 +119,15 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		ctxCancel:               ctxCancel,
 		writeMutex:              &sync.Mutex{},
 		spawnedShellsMutex:      &sync.Mutex{},
-		eventChan:               make(chan MenderShellDaemonEvent),
-		connectionEstChan:       make(chan MenderShellDaemonEvent),
-		reconnectChan:           make(chan MenderShellDaemonEvent),
+		eventChan:               make(chan MenderShellDaemonEvent, 1),
+		connectionEstChan:       make(chan MenderShellDaemonEvent, 1),
+		reconnectChan:           make(chan MenderShellDaemonEvent, 1),
 		stop:                    false,
 		authorized:              false,
 		username:                conf.User,
 		shell:                   conf.ShellCommand,
 		shellArguments:          conf.ShellArguments,
-		serverUrl:               "",
+		serverUrl:               conf.AuthConfig.ServerURL,
 		expireSessionsAfter:     time.Second * time.Duration(conf.Sessions.ExpireAfter),
 		expireSessionsAfterIdle: time.Second * time.Duration(conf.Sessions.ExpireAfterIdle),
 		deviceConnectUrl:        config.DefaultDeviceConnectPath,
@@ -132,6 +136,8 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		FileTransferConfig:      conf.FileTransfer,
 		PortForwardConfig:       conf.PortForward,
 		MenderClientConfig:      conf.MenderClient,
+		AuthConfig:              conf.AuthConfig,
+		Chroot:                  conf.Chroot,
 		shellsSpawned:           0,
 		debug:                   conf.Debug,
 		trace:                   conf.Trace,
@@ -430,14 +436,14 @@ func (d *MenderShellDaemon) DecreaseSpawnedShellsCount(shellStoppedCount uint) {
 	}
 }
 
-//starts all needed elements of the mender-connect daemon
-// * executes given shell (shell.ExecuteShell)
-// * get dbus API and starts the dbus main loop (dbus.GetDBusAPI(), go dbusAPI.MainLoopRun(loop))
-// * creates a new dbus client and connects to dbus (mender.NewAuthClient(dbusAPI),
-//   client.Connect(...))
-// * gets the JWT token from the mender-client via dbus (client.GetJWTToken())
-// * connects to the backend and returns a new websocket (deviceconnect.Connect(...))
-// * starts the message flow between the shell and websocket (shell.NewMenderShell(...))
+// starts all needed elements of the mender-connect daemon
+//   - executes given shell (shell.ExecuteShell)
+//   - get dbus API and starts the dbus main loop (dbus.GetDBusAPI(), go dbusAPI.MainLoopRun(loop))
+//   - creates a new dbus client and connects to dbus (mender.NewAuthClient(dbusAPI),
+//     client.Connect(...))
+//   - gets the JWT token from the mender-client via dbus (client.GetJWTToken())
+//   - connects to the backend and returns a new websocket (deviceconnect.Connect(...))
+//   - starts the message flow between the shell and websocket (shell.NewMenderShell(...))
 func (d *MenderShellDaemon) Run() error {
 	d.setupLogging()
 
@@ -464,25 +470,35 @@ func (d *MenderShellDaemon) Run() error {
 
 	log.Trace("mender-connect connecting to dbus")
 
-	dbusAPI, err := dbus.GetDBusAPI()
-	if err != nil {
-		return err
-	}
+	var client mender.AuthClient
+	if d.serverUrl != "" {
+		client, err = mender.NewAuthClient(
+			d.AuthConfig,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to initialize auth client: %w", err)
+		}
+	} else {
+		dbusAPI, err := dbus.GetDBusAPI()
+		if err != nil {
+			return err
+		}
 
-	//dbus main loop, required.
-	loop := dbusAPI.MainLoopNew()
-	go dbusAPI.MainLoopRun(loop)
-	defer dbusAPI.MainLoopQuit(loop)
+		//dbus main loop, required.
+		loop := dbusAPI.MainLoopNew()
+		go dbusAPI.MainLoopRun(loop)
+		defer dbusAPI.MainLoopQuit(loop)
 
-	//new dbus client
-	client, err := mender.NewAuthClient(dbusAPI)
-	if err != nil {
-		log.Errorf("mender-connect dbus failed to create client, error: %s", err.Error())
-		return err
+		//new dbus client
+		client, err = mbus.NewAuthClient(dbusAPI)
+		if err != nil {
+			log.Errorf("mender-connect dbus failed to create client, error: %s", err.Error())
+			return err
+		}
 	}
 
 	//connection to dbus
-	err = client.Connect(mender.DBusObjectName, mender.DBusObjectPath, mender.DBusInterfaceName)
+	err = client.Connect(mbus.DBusObjectName, mbus.DBusObjectPath, mbus.DBusInterfaceName)
 	if err != nil {
 		log.Errorf("mender-connect dbus failed to connect, error: %s", err.Error())
 		return err
@@ -496,6 +512,13 @@ func (d *MenderShellDaemon) Run() error {
 	d.serverUrl = serverURL
 	if len(d.serverJwt) > 0 && len(d.serverUrl) > 0 {
 		d.authorized = true
+	}
+
+	if d.Chroot != "" {
+		err := syscall.Chroot(d.Chroot)
+		if err != nil {
+			return err
+		}
 	}
 
 	go func() {

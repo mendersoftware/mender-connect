@@ -16,12 +16,18 @@ package config
 
 import (
 	"bufio"
+	"bytes"
+	"crypto"
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
 
+	cryptoutils "github.com/mendersoftware/mender-connect/utils/crypto"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -132,7 +138,107 @@ type MenderShellConfigFromFile struct {
 	// PortForward config
 	PortForward PortForwardConfig
 	// MenderClient config
+	AuthConfig   AuthConfig `json:"Authentication"`
 	MenderClient MenderClientConfig
+	Chroot       string `json:"Chroot"`
+}
+
+type AuthType string
+
+const (
+	AuthTypeLocal = "local"
+	AuthTypeDBus  = "dbus"
+)
+
+func (t AuthType) Validate() error {
+	switch t {
+	case AuthTypeLocal, AuthTypeDBus:
+		return nil
+	default:
+	}
+	return fmt.Errorf("invalid auth type %q", t)
+}
+
+type AuthConfig struct {
+	AuthType     `json:"Type"`
+	ServerURL    string `json:"ServerURL"`
+	PrivateKey   string `json:"PrivateKey"`
+	IdentityData string `json:"IdentityData"`
+	TenantToken  string `json:"TenantToken"`
+	ExternalID   string `json:"ExternalID"`
+
+	privateKey   crypto.Signer
+	identityData map[string]string
+}
+
+func (cfg *AuthConfig) load() error {
+	const MaxFileSize = 512 * 1024
+
+	if cfg.AuthType != AuthTypeLocal {
+		return nil
+	}
+
+	fd, err := os.Open(cfg.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("failed to open private key file: %w", err)
+	}
+	r := io.LimitReader(fd, MaxFileSize)
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	_ = fd.Close()
+	if err != nil {
+		return fmt.Errorf("failed to read private key: %w", err)
+	}
+	pkey, err := cryptoutils.LoadPrivateKey(buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("failed to load private key: %w", err)
+	}
+	cfg.privateKey = pkey
+	buf.Reset()
+	fd, err = os.Open(cfg.IdentityData)
+	if err != nil {
+		return fmt.Errorf("failed to open identity data file: %w", err)
+	}
+	r = io.LimitReader(fd, MaxFileSize)
+	_, err = buf.ReadFrom(r)
+	_ = fd.Close()
+	if err != nil {
+		return fmt.Errorf("failed to read identity data file: %w", err)
+	}
+	err = json.Unmarshal(buf.Bytes(), &cfg.identityData)
+	if err != nil {
+		return fmt.Errorf("failed to deserialize identity data: %w", err)
+	}
+	return nil
+}
+
+func (cfg AuthConfig) Validate() error {
+	err := cfg.load()
+	if err != nil {
+		return err
+	}
+	if cfg.AuthType == AuthTypeLocal {
+		if cfg.ServerURL == "" {
+			err = fmt.Errorf("empty value")
+		} else {
+			_, err = url.Parse(cfg.ServerURL)
+		}
+		if err != nil {
+			return fmt.Errorf("invalid ServerURL: %w", err)
+		}
+		if cfg.TenantToken == "" {
+			log.Warn("TenantToken is empty: this device may not show up in your acount")
+		}
+	}
+	return nil
+}
+
+func (cfg *AuthConfig) GetPrivateKey() crypto.Signer {
+	return cfg.privateKey
+}
+
+func (cfg *AuthConfig) GetIdentityData() map[string]string {
+	return cfg.identityData
 }
 
 // MenderShellConfigDeprecated holds the deprecated configuration settings

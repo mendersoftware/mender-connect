@@ -15,6 +15,7 @@
 package connection
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -51,6 +52,9 @@ func NewConnection(u url.URL,
 
 	var ws *websocket.Conn
 	dialer := *websocket.DefaultDialer
+	dialer.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+token)

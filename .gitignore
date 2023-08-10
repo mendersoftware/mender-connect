@@ -1,4 +1,4 @@
 .*.sw?
 mender-connect
 coverage.txt
-
+.venv

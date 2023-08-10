@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2023 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -15,23 +15,25 @@
 package mender
 
 import (
+	"bytes"
+	"crypto"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mendersoftware/mender-connect/client/dbus"
+	"github.com/mendersoftware/mender-connect/config"
 )
 
-// DbBus constants for the Mender Authentication Manager
-const (
-	DBusObjectName                    = "io.mender.AuthenticationManager"
-	DBusObjectPath                    = "/io/mender/AuthenticationManager"
-	DBusInterfaceName                 = "io.mender.Authentication1"
-	DBusMethodNameGetJwtToken         = "GetJwtToken"
-	DBusMethodNameFetchJwtToken       = "FetchJwtToken"
-	DBusSignalNameJwtTokenStateChange = "JwtTokenStateChange"
-	DBusMethodTimeoutInMilliSeconds   = 5000
-)
-
-var timeout = 10 * time.Second
+const timeout = 10 * time.Second
 
 // AuthClient is the interface for the Mender Authentication Manager clilents
 type AuthClient interface {
@@ -47,76 +49,102 @@ type AuthClient interface {
 
 // AuthClientDBUS is the implementation of the client for the Mender
 // Authentication Manager which communicates using DBUS
-type AuthClientDBUS struct {
-	dbusAPI          dbus.DBusAPI
-	dbusConnection   dbus.Handle
-	authManagerProxy dbus.Handle
+type LocalAuthClient struct {
+	ServerURL  string        `json:"-"`
+	PrivateKey crypto.Signer `json:"-"`
+
+	IDData      string `json:"id_data"`
+	TenantToken string `json:"tenant_token,omitempty"`
+	ExternalID  string `json:"external_id"`
+	PublicKey   string `json:"pubkey"`
+
+	jwt         string
+	client      *http.Client
+	tokenChange chan struct{}
 }
 
 // NewAuthClient returns a new AuthClient
-func NewAuthClient(dbusAPI dbus.DBusAPI) (AuthClient, error) {
-	if dbusAPI == nil {
-		var err error
-		dbusAPI, err = dbus.GetDBusAPI()
-		if err != nil {
-			return nil, err
-		}
+func NewAuthClient(
+	cfg config.AuthConfig,
+) (*LocalAuthClient, error) {
+	if cfg.GetPrivateKey() == nil {
+		return nil, fmt.Errorf("invalid client config: empty private key")
+	} else if len(cfg.GetIdentityData()) == 0 {
+		return nil, fmt.Errorf("invalid client config: empty identity data")
 	}
-	return &AuthClientDBUS{
-		dbusAPI: dbusAPI,
-	}, nil
+	var localAuth = LocalAuthClient{
+		ServerURL:   cfg.ServerURL,
+		TenantToken: cfg.TenantToken,
+		ExternalID:  cfg.ExternalID,
+		PrivateKey:  cfg.GetPrivateKey(),
+		client:      &http.Client{},
+		tokenChange: make(chan struct{}, 1),
+	}
+	localAuth.tokenChange <- struct{}{}
+	identity, err := json.Marshal(cfg.GetIdentityData())
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize IDData: %w", err)
+	}
+	localAuth.IDData = string(identity)
+
+	pub, err := x509.MarshalPKIXPublicKey(localAuth.PrivateKey.Public())
+	if err != nil {
+		return nil, err
+	}
+	localAuth.PublicKey = strings.TrimRight(string(pem.EncodeToMemory(
+		&pem.Block{Type: "PUBLIC KEY", Bytes: pub},
+	)), "\r\n")
+	return &localAuth, nil
 }
 
 // Connect to the Mender client interface
-func (a *AuthClientDBUS) Connect(objectName, objectPath, interfaceName string) error {
-	dbusConnection, err := a.dbusAPI.BusGet(dbus.GBusTypeSystem)
-	if err != nil {
-		return err
-	}
-	authManagerProxy, err := a.dbusAPI.BusProxyNew(
-		dbusConnection,
-		objectName,
-		objectPath,
-		interfaceName,
-	)
-	if err != nil {
-		return err
-	}
-	a.dbusConnection = dbusConnection
-	a.authManagerProxy = authManagerProxy
-	return nil
+func (a *LocalAuthClient) Connect(objectName, objectPath, interfaceName string) error {
+	_, err := a.FetchJWTToken()
+	return err
 }
 
 // GetJWTToken returns a device JWT token and server URL
-func (a *AuthClientDBUS) GetJWTToken() (string, string, error) {
-	response, err := a.dbusAPI.BusProxyCall(
-		a.authManagerProxy,
-		DBusMethodNameGetJwtToken,
-		nil,
-		DBusMethodTimeoutInMilliSeconds,
-	)
-	if err != nil {
-		return "", "", err
-	}
-	token, serverURL := response.GetTwoStrings()
-	return token, serverURL, nil
+func (a *LocalAuthClient) GetJWTToken() (string, string, error) {
+	return a.jwt, a.ServerURL, nil
 }
 
 // FetchJWTToken schedules the fetching of a new device JWT token
-func (a *AuthClientDBUS) FetchJWTToken() (bool, error) {
-	response, err := a.dbusAPI.BusProxyCall(
-		a.authManagerProxy,
-		DBusMethodNameFetchJwtToken,
-		nil,
-		DBusMethodTimeoutInMilliSeconds,
-	)
+func (a *LocalAuthClient) FetchJWTToken() (bool, error) {
+	const APIURLAuth = "/api/devices/v1/authentication/auth_requests"
+	bodyBytes, _ := json.Marshal(a)
+
+	dgst := sha256.Sum256(bodyBytes)
+	sig, err := a.PrivateKey.Sign(rand.Reader, dgst[:], crypto.SHA256)
 	if err != nil {
 		return false, err
 	}
-	return response.GetBoolean(), nil
+	sig64 := base64.StdEncoding.EncodeToString(sig)
+
+	url := strings.TrimRight(a.ServerURL, "/") + APIURLAuth
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Men-Signature", sig64)
+	rsp, err := a.client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode >= 300 {
+		return false, fmt.Errorf("unexpected status code: %d", rsp.StatusCode)
+	}
+	b, err := io.ReadAll(rsp.Body)
+	if err != nil {
+		return false, err
+	}
+	a.jwt = string(b)
+	return true, nil
 }
 
 // WaitForJwtTokenStateChange synchronously waits for the JwtTokenStateChange signal
-func (a *AuthClientDBUS) WaitForJwtTokenStateChange() ([]dbus.SignalParams, error) {
-	return a.dbusAPI.WaitForSignal(DBusSignalNameJwtTokenStateChange, timeout)
+func (a *LocalAuthClient) WaitForJwtTokenStateChange() ([]dbus.SignalParams, error) {
+	<-a.tokenChange
+	return nil, nil
 }
