@@ -11,6 +11,7 @@
 //	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //	See the License for the specific language governing permissions and
 //	limitations under the License.
+
 package cli
 
 import (
@@ -31,6 +32,27 @@ func SetupCLI(args []string) error {
 				Name:   "daemon",
 				Usage:  "Start the client as a background service.",
 				Action: runOptions.handleCLIOptions,
+			},
+			{
+				Name:   "bootstrap",
+				Usage:  "Bootstrap the device's identity.",
+				Action: runOptions.handleCLIOptions,
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "force",
+						Value: false,
+					},
+					&cli.StringFlag{
+						Name:  "key-type",
+						Value: "secp384r1",
+						Usage: "Key type (choices: rsa2048|rsa3072|rsa4096|secp256r1|secp384r1|secp521r1|ed25519)",
+					},
+					&cli.StringSliceFlag{
+						Name: "extra-identity",
+						Usage: "Extra identity values " +
+							"(--extra-identity key=value [--extra-identity key2=value])",
+					},
+				},
 			},
 			{
 				Name:   "version",
@@ -94,6 +116,8 @@ func (runOptions *runOptionsType) handleCLIOptions(ctx *cli.Context) error {
 			return err
 		}
 		return runDaemon(d)
+	case "bootstrap":
+		return bootstrap(ctx, cfg)
 	default:
 		cli.ShowAppHelpAndExit(ctx, 1)
 	}
