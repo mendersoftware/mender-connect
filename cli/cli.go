@@ -24,7 +24,7 @@ func SetupCLI(args []string) error {
 	runOptions := &runOptionsType{}
 	app := &cli.App{
 		Description: "",
-		Name:        "mender-connect",
+		Name:        "nt-connect",
 		Usage:       "manage and start the Mender Connect service.",
 		Version:     config.ShowVersion(),
 		Commands: []*cli.Command{

@@ -21,9 +21,9 @@ import (
 
 // default configuration paths
 var (
-	DefaultConfDir     = "/etc/mender"
-	DefaultPathDataDir = "/usr/share/mender"
-	DefaultDataStore   = "/var/lib/mender"
+	DefaultConfDir     = "/etc/nt-connect"
+	DefaultPathDataDir = "/usr/share/nt-connect"
+	DefaultDataStore   = "/var/lib/nt-connect"
 
 	DefaultShellCommand      = "/bin/sh"
 	DefaultShellArguments    = []string{"--login"}
@@ -33,8 +33,8 @@ var (
 	DefaultTerminalHeight = uint16(40)
 	DefaultTerminalWidth  = uint16(80)
 
-	DefaultConfFile         = path.Join(GetConfDirPath(), "mender-connect.conf")
-	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "mender-connect.conf")
+	DefaultConfFile         = path.Join(GetConfDirPath(), "nt-connect.conf")
+	DefaultFallbackConfFile = path.Join(GetStateDirPath(), "nt-connect.conf")
 
 	DefaultDebug = false
 	DefaultTrace = false
