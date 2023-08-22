@@ -29,13 +29,13 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 
-	"github.com/mendersoftware/mender-connect/client/dbus"
-	"github.com/mendersoftware/mender-connect/client/mender"
-	mbus "github.com/mendersoftware/mender-connect/client/mender/dbus"
-	"github.com/mendersoftware/mender-connect/config"
-	"github.com/mendersoftware/mender-connect/connectionmanager"
-	"github.com/mendersoftware/mender-connect/limits/filetransfer"
-	"github.com/mendersoftware/mender-connect/session"
+	"github.com/northerntechhq/nt-connect/client/dbus"
+	"github.com/northerntechhq/nt-connect/client/mender"
+	mbus "github.com/northerntechhq/nt-connect/client/mender/dbus"
+	"github.com/northerntechhq/nt-connect/config"
+	"github.com/northerntechhq/nt-connect/connectionmanager"
+	"github.com/northerntechhq/nt-connect/limits/filetransfer"
+	"github.com/northerntechhq/nt-connect/session"
 )
 
 var lastExpiredSessionSweep = time.Now()

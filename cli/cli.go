@@ -17,7 +17,7 @@ package cli
 import (
 	"github.com/urfave/cli/v2"
 
-	"github.com/mendersoftware/mender-connect/config"
+	"github.com/northerntechhq/nt-connect/config"
 )
 
 func SetupCLI(args []string) error {

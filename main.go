@@ -18,7 +18,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/mendersoftware/mender-connect/cli"
+	"github.com/northerntechhq/nt-connect/cli"
 )
 
 func doMain() int {

@@ -17,7 +17,7 @@
 package mocks
 
 import (
-	dbus "github.com/mendersoftware/mender-connect/client/dbus"
+	dbus "github.com/northerntechhq/nt-connect/client/dbus"
 	mock "github.com/stretchr/testify/mock"
 
 	time "time"

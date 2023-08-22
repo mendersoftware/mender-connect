@@ -20,8 +20,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mendersoftware/mender-connect/client/dbus"
-	dbus_mocks "github.com/mendersoftware/mender-connect/client/dbus/mocks"
+	"github.com/northerntechhq/nt-connect/client/dbus"
+	dbus_mocks "github.com/northerntechhq/nt-connect/client/dbus/mocks"
 )
 
 func TestNewAuthClientDefaultDBusAPI(t *testing.T) {

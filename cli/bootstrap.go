@@ -23,8 +23,8 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/mendersoftware/mender-connect/config"
-	cryptoutil "github.com/mendersoftware/mender-connect/utils/crypto"
+	"github.com/northerntechhq/nt-connect/config"
+	cryptoutil "github.com/northerntechhq/nt-connect/utils/crypto"
 	log "github.com/sirupsen/logrus"
 )
 

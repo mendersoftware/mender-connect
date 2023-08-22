@@ -17,8 +17,8 @@ package dbus
 import (
 	"time"
 
-	"github.com/mendersoftware/mender-connect/client/dbus"
-	"github.com/mendersoftware/mender-connect/client/mender"
+	"github.com/northerntechhq/nt-connect/client/dbus"
+	"github.com/northerntechhq/nt-connect/client/mender"
 )
 
 // DbBus constants for the Mender Authentication Manager

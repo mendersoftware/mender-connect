@@ -28,8 +28,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mendersoftware/mender-connect/config"
-	"github.com/mendersoftware/mender-connect/session/model"
+	"github.com/northerntechhq/nt-connect/config"
+	"github.com/northerntechhq/nt-connect/session/model"
 )
 
 func TestGetCounters(t *testing.T) {

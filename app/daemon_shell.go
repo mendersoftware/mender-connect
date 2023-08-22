@@ -21,10 +21,10 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/mendersoftware/mender-connect/config"
-	"github.com/mendersoftware/mender-connect/procps"
-	"github.com/mendersoftware/mender-connect/session"
-	"github.com/mendersoftware/mender-connect/utils"
+	"github.com/northerntechhq/nt-connect/config"
+	"github.com/northerntechhq/nt-connect/procps"
+	"github.com/northerntechhq/nt-connect/session"
+	"github.com/northerntechhq/nt-connect/utils"
 )
 
 const (

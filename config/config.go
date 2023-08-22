@@ -27,7 +27,7 @@ import (
 	"os/user"
 	"path/filepath"
 
-	cryptoutils "github.com/mendersoftware/mender-connect/utils/crypto"
+	cryptoutils "github.com/northerntechhq/nt-connect/utils/crypto"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )

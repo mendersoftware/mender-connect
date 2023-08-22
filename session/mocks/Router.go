@@ -18,7 +18,7 @@ package mocks
 
 import (
 	ws "github.com/mendersoftware/go-lib-micro/ws"
-	session "github.com/mendersoftware/mender-connect/session"
+	session "github.com/northerntechhq/nt-connect/session"
 	mock "github.com/stretchr/testify/mock"
 )
 

@@ -31,9 +31,9 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsft "github.com/mendersoftware/go-lib-micro/ws/filetransfer"
 
-	"github.com/mendersoftware/mender-connect/config"
-	"github.com/mendersoftware/mender-connect/limits/filetransfer"
-	"github.com/mendersoftware/mender-connect/session/model"
+	"github.com/northerntechhq/nt-connect/config"
+	"github.com/northerntechhq/nt-connect/limits/filetransfer"
+	"github.com/northerntechhq/nt-connect/session/model"
 )
 
 const (

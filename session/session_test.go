@@ -35,9 +35,9 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 
-	"github.com/mendersoftware/mender-connect/connection"
-	"github.com/mendersoftware/mender-connect/connectionmanager"
-	"github.com/mendersoftware/mender-connect/procps"
+	"github.com/northerntechhq/nt-connect/connection"
+	"github.com/northerntechhq/nt-connect/connectionmanager"
+	"github.com/northerntechhq/nt-connect/procps"
 )
 
 type echoHandler struct{}

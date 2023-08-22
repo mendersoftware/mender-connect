@@ -37,15 +37,15 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 
-	dbusmocks "github.com/mendersoftware/mender-connect/client/dbus/mocks"
-	authmocks "github.com/mendersoftware/mender-connect/client/mender/mocks"
-	sessmocks "github.com/mendersoftware/mender-connect/session/mocks"
+	dbusmocks "github.com/northerntechhq/nt-connect/client/dbus/mocks"
+	authmocks "github.com/northerntechhq/nt-connect/client/mender/mocks"
+	sessmocks "github.com/northerntechhq/nt-connect/session/mocks"
 
-	"github.com/mendersoftware/mender-connect/client/dbus"
-	"github.com/mendersoftware/mender-connect/config"
-	"github.com/mendersoftware/mender-connect/connection"
-	"github.com/mendersoftware/mender-connect/connectionmanager"
-	"github.com/mendersoftware/mender-connect/session"
+	"github.com/northerntechhq/nt-connect/client/dbus"
+	"github.com/northerntechhq/nt-connect/config"
+	"github.com/northerntechhq/nt-connect/connection"
+	"github.com/northerntechhq/nt-connect/connectionmanager"
+	"github.com/northerntechhq/nt-connect/session"
 )
 
 var (

@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mendersoftware/mender-connect/client/dbus"
-	"github.com/mendersoftware/mender-connect/config"
+	"github.com/northerntechhq/nt-connect/client/dbus"
+	"github.com/northerntechhq/nt-connect/config"
 )
 
 const timeout = 10 * time.Second

@@ -27,9 +27,9 @@ import (
 	"github.com/mendersoftware/go-lib-micro/ws"
 	wsshell "github.com/mendersoftware/go-lib-micro/ws/shell"
 
-	"github.com/mendersoftware/mender-connect/connectionmanager"
-	"github.com/mendersoftware/mender-connect/procps"
-	"github.com/mendersoftware/mender-connect/shell"
+	"github.com/northerntechhq/nt-connect/connectionmanager"
+	"github.com/northerntechhq/nt-connect/procps"
+	"github.com/northerntechhq/nt-connect/shell"
 )
 
 type MenderSessionType int

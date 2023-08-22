@@ -33,8 +33,8 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
-	"github.com/mendersoftware/mender-connect/connection"
-	"github.com/mendersoftware/mender-connect/connectionmanager"
+	"github.com/northerntechhq/nt-connect/connection"
+	"github.com/northerntechhq/nt-connect/connectionmanager"
 )
 
 var messages []string

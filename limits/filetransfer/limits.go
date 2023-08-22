@@ -26,9 +26,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mendersoftware/mender-connect/config"
-	"github.com/mendersoftware/mender-connect/session/model"
-	"github.com/mendersoftware/mender-connect/utils"
+	"github.com/northerntechhq/nt-connect/config"
+	"github.com/northerntechhq/nt-connect/session/model"
+	"github.com/northerntechhq/nt-connect/utils"
 )
 
 var (

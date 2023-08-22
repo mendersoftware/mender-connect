@@ -21,7 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mendersoftware/mender-connect/client/dbus/test"
+	"github.com/northerntechhq/nt-connect/client/dbus/test"
 )
 
 func TestError(t *testing.T) {
