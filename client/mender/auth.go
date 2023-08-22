@@ -65,7 +65,7 @@ type LocalAuthClient struct {
 
 // NewAuthClient returns a new AuthClient
 func NewAuthClient(
-	cfg config.AuthConfig,
+	cfg config.APIConfig,
 ) (*LocalAuthClient, error) {
 	if cfg.GetPrivateKey() == nil {
 		return nil, fmt.Errorf("invalid client config: empty private key")

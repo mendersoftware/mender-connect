@@ -138,29 +138,29 @@ type MenderShellConfigFromFile struct {
 	// PortForward config
 	PortForward PortForwardConfig
 	// MenderClient config
-	AuthConfig   AuthConfig `json:"Authentication"`
+	APIConfig    APIConfig `json:"API"`
 	MenderClient MenderClientConfig
 	Chroot       string `json:"Chroot"`
 }
 
-type AuthType string
+type APIType string
 
 const (
-	AuthTypeLocal = "local"
-	AuthTypeDBus  = "dbus"
+	APITypeHTTP = "http"
+	APITypeDBus = "dbus"
 )
 
-func (t AuthType) Validate() error {
+func (t APIType) Validate() error {
 	switch t {
-	case AuthTypeLocal, AuthTypeDBus:
+	case APITypeHTTP, APITypeDBus:
 		return nil
 	default:
 	}
 	return fmt.Errorf("invalid auth type %q", t)
 }
 
-type AuthConfig struct {
-	AuthType     `json:"Type"`
+type APIConfig struct {
+	APIType      `json:"Type"`
 	ServerURL    string `json:"ServerURL"`
 	PrivateKey   string `json:"PrivateKey"`
 	IdentityData string `json:"IdentityData"`
@@ -171,10 +171,10 @@ type AuthConfig struct {
 	identityData map[string]string
 }
 
-func (cfg *AuthConfig) load() error {
+func (cfg *APIConfig) load() error {
 	const MaxFileSize = 512 * 1024
 
-	if cfg.AuthType != AuthTypeLocal {
+	if cfg.APIType != APITypeHTTP {
 		return nil
 	}
 
@@ -212,12 +212,12 @@ func (cfg *AuthConfig) load() error {
 	return nil
 }
 
-func (cfg AuthConfig) Validate() error {
+func (cfg APIConfig) Validate() error {
 	err := cfg.load()
 	if err != nil {
 		return err
 	}
-	if cfg.AuthType == AuthTypeLocal {
+	if cfg.APIType == APITypeHTTP {
 		if cfg.ServerURL == "" {
 			err = fmt.Errorf("empty value")
 		} else {
@@ -233,11 +233,11 @@ func (cfg AuthConfig) Validate() error {
 	return nil
 }
 
-func (cfg *AuthConfig) GetPrivateKey() crypto.Signer {
+func (cfg *APIConfig) GetPrivateKey() crypto.Signer {
 	return cfg.privateKey
 }
 
-func (cfg *AuthConfig) GetIdentityData() map[string]string {
+func (cfg *APIConfig) GetIdentityData() map[string]string {
 	return cfg.identityData
 }
 

@@ -30,9 +30,9 @@ import (
 
 func bootstrap(c *cli.Context, cfg *config.MenderShellConfig) error {
 	var err error
-	switch cfg.AuthConfig.AuthType {
-	case config.AuthTypeLocal:
-		if _, err = os.Stat(cfg.AuthConfig.PrivateKey); err != nil && !os.IsNotExist(err) {
+	switch cfg.APIConfig.APIType {
+	case config.APITypeHTTP:
+		if _, err = os.Stat(cfg.APIConfig.PrivateKey); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("unexpected error checking file existance: %w", err)
 		}
 		if os.IsNotExist(err) || c.Bool("force") {
@@ -40,31 +40,31 @@ func bootstrap(c *cli.Context, cfg *config.MenderShellConfig) error {
 			if err != nil {
 				return err
 			}
-			err = cryptoutil.GeneratePrivateKeyFile(kt, cfg.AuthConfig.PrivateKey)
+			err = cryptoutil.GeneratePrivateKeyFile(kt, cfg.APIConfig.PrivateKey)
 			if err != nil {
 				return fmt.Errorf("failed to generate private key: %w", err)
 			}
 		}
-		if _, err = os.Stat(cfg.AuthConfig.IdentityData); err != nil &&
+		if _, err = os.Stat(cfg.APIConfig.IdentityData); err != nil &&
 			!os.IsNotExist(err) {
 			return fmt.Errorf("unexpected error checking file existance: %w", err)
 		}
 		if os.IsNotExist(err) || c.Bool("force") {
 			err = generateIdentityData(
-				cfg.AuthConfig.IdentityData,
+				cfg.APIConfig.IdentityData,
 				c.StringSlice("extra-identity"),
 			)
 			if err != nil {
 				return fmt.Errorf("failed to generate private key: %w", err)
 			}
 		}
-	case config.AuthTypeDBus:
+	case config.APITypeDBus:
 		log.Info("Authentication configured for DBus: skipping bootstrap")
 
 	default:
 		err = fmt.Errorf(
 			"unknown auth type %q: skipping bootstrap",
-			cfg.AuthConfig.AuthType,
+			cfg.APIConfig.APIType,
 		)
 	}
 	return err

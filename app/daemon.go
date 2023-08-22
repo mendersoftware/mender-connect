@@ -81,7 +81,7 @@ type MenderShellDaemon struct {
 	debug                   bool
 	trace                   bool
 	router                  session.Router
-	config.AuthConfig
+	config.APIConfig
 	config.TerminalConfig
 	config.FileTransferConfig
 	config.PortForwardConfig
@@ -127,7 +127,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		username:                conf.User,
 		shell:                   conf.ShellCommand,
 		shellArguments:          conf.ShellArguments,
-		serverUrl:               conf.AuthConfig.ServerURL,
+		serverUrl:               conf.APIConfig.ServerURL,
 		expireSessionsAfter:     time.Second * time.Duration(conf.Sessions.ExpireAfter),
 		expireSessionsAfterIdle: time.Second * time.Duration(conf.Sessions.ExpireAfterIdle),
 		deviceConnectUrl:        config.DefaultDeviceConnectPath,
@@ -136,7 +136,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		FileTransferConfig:      conf.FileTransfer,
 		PortForwardConfig:       conf.PortForward,
 		MenderClientConfig:      conf.MenderClient,
-		AuthConfig:              conf.AuthConfig,
+		APIConfig:               conf.APIConfig,
 		Chroot:                  conf.Chroot,
 		shellsSpawned:           0,
 		debug:                   conf.Debug,
@@ -473,7 +473,7 @@ func (d *MenderShellDaemon) Run() error {
 	var client mender.AuthClient
 	if d.serverUrl != "" {
 		client, err = mender.NewAuthClient(
-			d.AuthConfig,
+			d.APIConfig,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to initialize auth client: %w", err)
