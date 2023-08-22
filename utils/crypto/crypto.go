@@ -20,6 +20,10 @@ func (p ED25519Signer) Sign(rand io.Reader, message []byte, _ crypto.SignerOpts)
 	return ed25519.Sign(ed25519.PrivateKey(p), message), nil
 }
 
+func (p ED25519Signer) Public() crypto.PublicKey {
+	return ed25519.PrivateKey(p).Public()
+}
+
 func LoadPrivateKey(pkeyPEM []byte) (crypto.Signer, error) {
 	var err error
 	block, _ := pem.Decode(pkeyPEM)
@@ -74,9 +78,9 @@ func ParseKeyType(s string) (KeyType, error) {
 	return ret, nil
 }
 
-func GeneratePrivateKeyFile(keyType KeyType, path string) error {
+func GeneratePrivateKey(keyType KeyType) (crypto.Signer, error) {
 	var (
-		pkey crypto.PrivateKey
+		pkey crypto.Signer
 		err  error
 	)
 	switch keyType {
@@ -94,12 +98,18 @@ func GeneratePrivateKeyFile(keyType KeyType, path string) error {
 		pkey, err = ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 	case KeyTypeED25519:
 		_, pkey, err = ed25519.GenerateKey(rand.Reader)
+
+		pkey = ED25519Signer(pkey.(ed25519.PrivateKey))
 	default:
 		err = fmt.Errorf("invalid key type: %s", keyType)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
+	return pkey, nil
+}
+
+func SavePrivateKey(pkey crypto.Signer, path string) error {
 	der, err := x509.MarshalPKCS8PrivateKey(pkey)
 	if err != nil {
 		return fmt.Errorf("failed to serialize private key: %w", err)
