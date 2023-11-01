@@ -1,8 +1,8 @@
 [Unit]
 Description=Mender Connect service
 Wants=network-online.target
-After=systemd-resolved.service network-online.target mender-client.service
-Requires=mender-client.service
+After=systemd-resolved.service network-online.target mender-authd.service
+Requires=mender-authd.service
 
 [Service]
 Type=idle
