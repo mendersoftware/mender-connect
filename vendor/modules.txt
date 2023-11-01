@@ -1,4 +1,4 @@
-# github.com/creack/pty v1.1.18
+# github.com/creack/pty v1.1.20
 ## explicit; go 1.13
 github.com/creack/pty
 # github.com/davecgh/go-spew v1.1.1
@@ -43,8 +43,8 @@ github.com/stretchr/testify/mock
 # github.com/urfave/cli/v2 v2.25.0 => github.com/mendersoftware/cli/v2 v2.1.1-minimal
 ## explicit; go 1.11
 github.com/urfave/cli/v2
-# github.com/vmihailenco/msgpack/v5 v5.3.5
-## explicit; go 1.11
+# github.com/vmihailenco/msgpack/v5 v5.4.1
+## explicit; go 1.19
 github.com/vmihailenco/msgpack/v5
 github.com/vmihailenco/msgpack/v5/msgpcode
 # github.com/vmihailenco/tagparser/v2 v2.0.0
