@@ -1,16 +1,16 @@
 // Copyright 2022 Northern.tech AS
 //
-//    Licensed under the Apache License, Version 2.0 (the "License");
-//    you may not use this file except in compliance with the License.
-//    You may obtain a copy of the License at
+//	Licensed under the Apache License, Version 2.0 (the "License");
+//	you may not use this file except in compliance with the License.
+//	You may obtain a copy of the License at
 //
-//        http://www.apache.org/licenses/LICENSE-2.0
+//	    http://www.apache.org/licenses/LICENSE-2.0
 //
-//    Unless required by applicable law or agreed to in writing, software
-//    distributed under the License is distributed on an "AS IS" BASIS,
-//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-//    See the License for the specific language governing permissions and
-//    limitations under the License.
+//	Unless required by applicable law or agreed to in writing, software
+//	distributed under the License is distributed on an "AS IS" BASIS,
+//	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//	See the License for the specific language governing permissions and
+//	limitations under the License.
 package app
 
 import (
@@ -430,14 +430,14 @@ func (d *MenderShellDaemon) DecreaseSpawnedShellsCount(shellStoppedCount uint) {
 	}
 }
 
-//starts all needed elements of the mender-connect daemon
-// * executes given shell (shell.ExecuteShell)
-// * get dbus API and starts the dbus main loop (dbus.GetDBusAPI(), go dbusAPI.MainLoopRun(loop))
-// * creates a new dbus client and connects to dbus (mender.NewAuthClient(dbusAPI),
-//   client.Connect(...))
-// * gets the JWT token from the mender-client via dbus (client.GetJWTToken())
-// * connects to the backend and returns a new websocket (deviceconnect.Connect(...))
-// * starts the message flow between the shell and websocket (shell.NewMenderShell(...))
+// starts all needed elements of the mender-connect daemon
+//   - executes given shell (shell.ExecuteShell)
+//   - get dbus API and starts the dbus main loop (dbus.GetDBusAPI(), go dbusAPI.MainLoopRun(loop))
+//   - creates a new dbus client and connects to dbus (mender.NewAuthClient(dbusAPI),
+//     client.Connect(...))
+//   - gets the JWT token from the mender-client via dbus (client.GetJWTToken())
+//   - connects to the backend and returns a new websocket (deviceconnect.Connect(...))
+//   - starts the message flow between the shell and websocket (shell.NewMenderShell(...))
 func (d *MenderShellDaemon) Run() error {
 	d.setupLogging()
 
