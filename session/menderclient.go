@@ -15,6 +15,7 @@
 package session
 
 import (
+	"os"
 	"os/exec"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
@@ -35,6 +36,18 @@ func MenderClient() Constructor {
 	return func() SessionHandler { return f }
 }
 
+func getMenderClientBinaryPath() (string, error) {
+	candidates := []string{"/usr/bin/mender-update", "/usr/bin/mender"}
+
+	for _, candidate := range candidates {
+		if info, _ := os.Stat(candidate); info != nil {
+			log.Debugf("Found Mender client binary %s\n", candidate)
+			return candidate, nil
+		}
+	}
+	return "", errors.Errorf("Cannot find Mender client binary, tried %v", candidates)
+}
+
 var runCommand = func(command []string) error {
 	if len(command) > 0 {
 		cmd := exec.Command(command[0], command[1:]...)
@@ -51,9 +64,16 @@ func menderClientHandler(message *ws.ProtoMsg, w ResponseWriter) {
 	case menderclient.MessageTypeMenderClientSendInventory:
 		command = "send-inventory"
 	}
+
 	var err error
 	if command != "" {
-		err = runCommand([]string{"mender", command})
+		var binary string
+		binary, err = getMenderClientBinaryPath()
+		if err == nil {
+			args := []string{binary, command}
+			log.Debugf("Running command %v", args)
+			err = runCommand(args)
+		}
 	} else {
 		err = errors.New("unknown message type")
 	}
