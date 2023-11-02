@@ -27,8 +27,9 @@
 // handler. If the SessionHandler requires persisting resources, Close MUST
 // free these resources when the session shuts down.
 // NOTE: ProtoRoutes that are used to map ProtoTypes to SessionHandlers maps
-//       ProtoTypes to Constructors, since the Router must be able to regenerate
-//       new Sessions with independent sets of SessionHandlers.
+//
+//	ProtoTypes to Constructors, since the Router must be able to regenerate
+//	new Sessions with independent sets of SessionHandlers.
 package session
 
 //             +--------+ #sid +---------+ #proto +----------------+
