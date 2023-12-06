@@ -20,6 +20,8 @@ include:
 
 test:unit:
   stage: test
+  # Keep golang version aligned with latest yocto release
+  image: golang:1.17
   script:
     # start the dbus service
     - service dbus start
@@ -31,6 +33,7 @@ test:unit:
 build:make:
   stage: build
   needs: []
+  # Keep golang version aligned with latest yocto release
   image: golang:1.17-alpine3.14
   before_script:
     - apk add --update git make gcc pkgconfig libc-dev glib-dev
