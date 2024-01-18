@@ -70,6 +70,13 @@ func SetupCLI(args []string) error {
 		},
 	}
 
+	cli.VersionPrinter = func(c *cli.Context) {
+		err := config.ShowVersionCLI(c)
+		if err != nil {
+			return
+		}
+	}
+
 	return app.Run(args)
 }
 
