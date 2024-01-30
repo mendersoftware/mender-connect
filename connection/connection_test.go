@@ -15,6 +15,7 @@
 package connection
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -105,7 +106,8 @@ func TestNewConnection(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait)
+	c, err := NewConnection(context.Background(), u, "some-token",
+		writeWait, maxMessageSize, defaultPingWait)
 	assert.NoError(t, err)
 	assert.NotNil(t, c)
 }
@@ -134,7 +136,8 @@ func TestConnection_ReadMessage(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait)
+	c, err := NewConnection(context.Background(), u, "some-token",
+		writeWait, maxMessageSize, defaultPingWait)
 	assert.NoError(t, err)
 	time.Sleep(time.Second)
 	m, err := c.ReadMessage()
@@ -157,7 +160,8 @@ func TestConnection_WriteMessage(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait)
+	c, err := NewConnection(context.Background(), u, "some-token",
+		writeWait, maxMessageSize, defaultPingWait)
 	assert.NoError(t, err)
 	time.Sleep(time.Second)
 	m, err := c.ReadMessage()
@@ -182,7 +186,8 @@ func TestConnection_Close(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait)
+	c, err := NewConnection(context.Background(), u, "some-token",
+		writeWait, maxMessageSize, defaultPingWait)
 	assert.NoError(t, err)
 	assert.NotNil(t, c)
 

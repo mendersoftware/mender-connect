@@ -1,19 +1,20 @@
 // Copyright 2022 Northern.tech AS
 //
-//    Licensed under the Apache License, Version 2.0 (the "License");
-//    you may not use this file except in compliance with the License.
-//    You may obtain a copy of the License at
+//	Licensed under the Apache License, Version 2.0 (the "License");
+//	you may not use this file except in compliance with the License.
+//	You may obtain a copy of the License at
 //
-//        http://www.apache.org/licenses/LICENSE-2.0
+//	    http://www.apache.org/licenses/LICENSE-2.0
 //
-//    Unless required by applicable law or agreed to in writing, software
-//    distributed under the License is distributed on an "AS IS" BASIS,
-//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-//    See the License for the specific language governing permissions and
-//    limitations under the License.
+//	Unless required by applicable law or agreed to in writing, software
+//	distributed under the License is distributed on an "AS IS" BASIS,
+//	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//	See the License for the specific language governing permissions and
+//	limitations under the License.
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -151,7 +152,7 @@ func TestMenderShellSessionStart(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, context.Background())
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -262,7 +263,7 @@ func TestMenderShellStopByUserId(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, context.Background())
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -342,7 +343,7 @@ func TestMenderShellUnknownMessage(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	_ = connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
+	_ = connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, context.Background())
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -382,7 +383,7 @@ func newShellMulti(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//maxUserSessions controls how many sessions user can have.
+// maxUserSessions controls how many sessions user can have.
 func TestMenderShellSessionLimitPerUser(t *testing.T) {
 	session.MaxUserSessions = 2
 	currentUser, err := user.Current()
@@ -402,7 +403,7 @@ func TestMenderShellSessionLimitPerUser(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, context.Background())
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -514,7 +515,7 @@ func TestMenderShellReadMessage(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, context.Background())
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -559,9 +560,10 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, context.Background())
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second)
+	ws, err := connection.NewConnection(context.Background(), *urlString, "token",
+		16*time.Second, 526, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -939,9 +941,10 @@ func TestMessageMainLoop(t *testing.T) {
 
 	connectionmanager.Close(ws.ProtoTypeShell)
 	connectionmanager.SetReconnectIntervalSeconds(1)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", 8, context.Background())
 
-	webSock, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second)
+	webSock, err := connection.NewConnection(context.Background(), *urlString, "token",
+		8*time.Second, 526, 8*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 

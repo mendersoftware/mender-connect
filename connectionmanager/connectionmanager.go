@@ -93,7 +93,8 @@ func connect(
 	setReconnecting(proto, true)
 	for IsReconnecting(proto) {
 		i++
-		c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, DefaultPingWait)
+		c, err = connection.NewConnection(ctx, u, token,
+			writeWait, maxMessageSize, DefaultPingWait)
 		if err != nil || c == nil {
 			if retries == 0 || i < retries {
 				if err == nil {

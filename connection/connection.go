@@ -15,6 +15,8 @@
 package connection
 
 import (
+	"context"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -42,24 +44,93 @@ type Connection struct {
 	done chan bool
 }
 
+type ConnectionFactory interface {
+	NewConnection(
+		ctx context.Context,
+		u url.URL,
+		token string,
+		writeWait time.Duration,
+		maxMessageSize int64,
+		defaultPingWait time.Duration) (*Connection, error)
+}
+
+type backoffFactory struct {
+	backoffTimer *time.Timer
+	nextBackoff  time.Duration
+
+	dialer WebsocketDialer
+}
+
+const backoffMin = time.Second
+
+type WebsocketDialer interface {
+	DialContext(
+		ctx context.Context,
+		url string,
+		requestHeader http.Header,
+	) (*websocket.Conn, *http.Response, error)
+}
+
+func NewConnectionFactory(dialer WebsocketDialer) ConnectionFactory {
+	if dialer == nil {
+		dialer = websocket.DefaultDialer
+	}
+	factory := &backoffFactory{
+		backoffTimer: time.NewTimer(0),
+		nextBackoff:  backoffMin,
+
+		dialer: dialer,
+	}
+	return factory
+}
+
+func (bf *backoffFactory) incrementTimer() {
+	jitter := time.Duration(rand.Int63n(backoffMin.Nanoseconds())) -
+		backoffMin/2
+	bf.nextBackoff *= 2 + jitter
+	bf.resetTimer(bf.nextBackoff)
+}
+
+func (bf *backoffFactory) resetTimer(d time.Duration) {
+	if bf.backoffTimer.Stop() {
+		select {
+		case <-bf.backoffTimer.C:
+		default:
+		}
+	}
+	bf.backoffTimer.Reset(d)
+}
+
+func (bf *backoffFactory) Wait(ctx context.Context) error {
+	select {
+	case <-bf.backoffTimer.C:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
+}
+
 // Websocket connection routine. setup the ping-pong and connection settings
-func NewConnection(u url.URL,
+func (bf *backoffFactory) NewConnection(
+	ctx context.Context,
+	u url.URL,
 	token string,
 	writeWait time.Duration,
 	maxMessageSize int64,
 	defaultPingWait time.Duration) (*Connection, error) {
 
 	var ws *websocket.Conn
-	dialer := *websocket.DefaultDialer
-
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+token)
-	ws, rsp, err := dialer.Dial(u.String(), headers)
+
+	// nolint:bodyclose
+	ws, _, err := bf.dialer.DialContext(ctx, u.String(), headers)
 	if err != nil {
+		bf.incrementTimer()
 		return nil, err
 	}
-	defer rsp.Body.Close()
-
+	bf.resetTimer(0)
+	bf.nextBackoff = backoffMin
 	c := &Connection{
 		connection:      ws,
 		writeWait:       writeWait,
@@ -72,6 +143,19 @@ func NewConnection(u url.URL,
 	go c.pingPongHandler()
 
 	return c, nil
+}
+
+var defaultFactory = NewConnectionFactory(websocket.DefaultDialer)
+
+func NewConnection(
+	ctx context.Context,
+	u url.URL,
+	token string,
+	writeWait time.Duration,
+	maxMessageSize int64,
+	defaultPingWait time.Duration) (*Connection, error) {
+	return defaultFactory.NewConnection(ctx, u, token,
+		writeWait, maxMessageSize, defaultPingWait)
 }
 
 func (c *Connection) pingPongHandler() {
