@@ -212,6 +212,18 @@ func MenderShellSessionsGetByUserId(userId string) []*MenderShellSession {
 	}
 }
 
+func MenderShellStopById(sessionId string) error {
+	s := MenderShellSessionGetById(sessionId)
+	if s.shell == nil {
+		return ErrSessionNotFound
+	}
+	e := s.StopShell()
+	if e != nil && procps.ProcessExists(s.shellPid) {
+		return e
+	}
+	return MenderShellDeleteById(sessionId)
+}
+
 func MenderShellStopByUserId(userId string) (count uint, err error) {
 	a := sessionsByUserIdMap[userId]
 	log.Debugf("stopping all shells of user %s.", userId)
@@ -396,6 +408,12 @@ func (s *MenderShellSession) healthcheck() {
 			if s.healthcheckTimeout.Before(time.Now()) {
 				log.Errorf("session %s, health check failed, connection with the client lost", s.id)
 				s.expiresAt = time.Now()
+				err := MenderShellStopById(s.id)
+				if err != nil {
+					log.Errorf("session %s, error stopping shell %s", s.id, err.Error())
+				} else {
+					log.Infof("session %s successfully stopped", s.id)
+				}
 				return
 			}
 		case <-time.After(time.Until(nextHealthcheckPing)):
