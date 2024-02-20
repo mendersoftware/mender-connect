@@ -68,11 +68,6 @@ func newWebsocketServer() *http.Server {
 	return &s
 }
 
-func TestSetReconnectIntervalSeconds(t *testing.T) {
-	SetReconnectIntervalSeconds(15)
-	assert.Equal(t, 15, reconnectIntervalSeconds)
-}
-
 func TestGetWriteTimeout(t *testing.T) {
 	timeOut := GetWriteTimeout()
 	assert.Equal(t, writeWait, timeOut)
@@ -99,7 +94,7 @@ func TestConnect(t *testing.T) {
 	time.Sleep(waitForWebsocketServer)
 
 	ctx := context.Background()
-	err := Connect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 1, ctx)
+	err := Connect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", ctx)
 	assert.Nil(t, err)
 
 	msg, err := Read(ws.ProtoTypeShell)
@@ -132,7 +127,7 @@ func TestReconnect(t *testing.T) {
 	_ = Close(ws.ProtoTypeShell)
 
 	ctx := context.Background()
-	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 1, ctx)
+	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", ctx)
 	assert.Nil(t, err)
 
 	err = Close(ws.ProtoTypeShell)
@@ -140,25 +135,20 @@ func TestReconnect(t *testing.T) {
 }
 
 func TestConnectFailed(t *testing.T) {
+	old := a
+	a = &expBackoff{
+		attempts:     0,
+		maxInterval:  60 * time.Second,
+		exceededMax:  false,
+		maxBackoff:   120 * time.Second,
+		smallestUnit: time.Second,
+	}
 	_ = Close(ws.ProtoTypeShell)
 
 	ctx := context.Background()
-	err := Connect(ws.ProtoTypeShell, "wrong-url", "/ws", "token", 1, ctx)
+	err := Connect(ws.ProtoTypeShell, "wrong-url", "/ws", "token", ctx)
 	assert.NotNil(t, err)
-}
-
-func TestConnectRetries(t *testing.T) {
-	oldReconnectIntervalSeconds := reconnectIntervalSeconds
-	reconnectIntervalSeconds = 1
-	defer func() {
-		reconnectIntervalSeconds = oldReconnectIntervalSeconds
-	}()
-
-	_ = Close(ws.ProtoTypeShell)
-
-	ctx := context.Background()
-	err := Reconnect(ws.ProtoTypeShell, "ws://localhost:8999", "/ws", "token", 3, ctx)
-	assert.Equal(t, ErrConnectionRetriesExhausted, err)
+	a = old
 }
 
 func TestCloseFailed(t *testing.T) {
@@ -169,4 +159,65 @@ func TestCloseFailed(t *testing.T) {
 func TestWriteFailed(t *testing.T) {
 	err := Write(12345, nil)
 	assert.Error(t, err)
+}
+func TestExponentialBackoffTimeCalculation(t *testing.T) {
+	var b expBackoff = expBackoff{
+		attempts:     0,
+		maxInterval:  60 * time.Minute,
+		maxBackoff:   120 * time.Minute,
+		smallestUnit: time.Minute,
+	}
+	// Test with 1 minute interval
+	for i := 0; i < 3; i++ {
+		b.attempts = i
+		intvl := b.GetExponentialBackoffTime()
+		assert.Equal(t, intvl, 1*time.Minute)
+	}
+	// Test with 2 minute interval
+	for i := 3; i < 6; i++ {
+		b.attempts = i
+		intvl := b.GetExponentialBackoffTime()
+		assert.Equal(t, intvl, 2*time.Minute)
+	}
+	// Test with 32 minute interval
+	for i := 15; i < 18; i++ {
+		b.attempts = i
+		intvl := b.GetExponentialBackoffTime()
+		assert.Equal(t, intvl, 32*time.Minute)
+	}
+	// Test linear
+	b.attempts = 20
+	intvl := b.GetExponentialBackoffTime()
+	assert.Greater(t, intvl, 60*time.Minute)
+	assert.LessOrEqual(t, intvl, 63*time.Minute)
+}
+
+func TestResetBackoff(t *testing.T) {
+	var b expBackoff = expBackoff{
+		attempts:     21,
+		maxInterval:  60 * time.Minute,
+		exceededMax:  true,
+		smallestUnit: time.Minute,
+	}
+	assert.Equal(t, b.attempts, 21)
+	assert.Equal(t, b.exceededMax, true)
+	b.resetBackoff()
+	assert.Equal(t, b.attempts, 0)
+	assert.Equal(t, b.exceededMax, false)
+}
+
+func TestMaxBackoff(t *testing.T) {
+	var b expBackoff = expBackoff{
+		attempts:     21,
+		maxInterval:  60 * time.Minute,
+		exceededMax:  true,
+		maxBackoff:   120 * time.Minute,
+		smallestUnit: time.Minute,
+	}
+	for i := 0; i < 10; i++ {
+		intvl := b.GetExponentialBackoffTime()
+		assert.GreaterOrEqual(t, intvl, time.Duration(120*time.Minute))
+		assert.LessOrEqual(t, intvl, time.Duration(122*time.Minute))
+		b.attempts++
+	}
 }

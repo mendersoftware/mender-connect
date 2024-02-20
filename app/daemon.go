@@ -138,7 +138,6 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		router:                  router,
 	}
 
-	connectionmanager.SetReconnectIntervalSeconds(conf.ReconnectIntervalSeconds)
 	if conf.Sessions.MaxPerUser > 0 {
 		session.MaxUserSessions = int(conf.Sessions.MaxPerUser)
 	}
@@ -389,7 +388,7 @@ func (d *MenderShellDaemon) eventLoop() {
 			err = connectionmanager.Reconnect(
 				ws.ProtoTypeShell, d.serverUrl,
 				d.deviceConnectUrl, event.data,
-				config.MaxReconnectAttempts, d.ctx,
+				d.ctx,
 			)
 			var event string
 			if err != nil {
