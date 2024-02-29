@@ -114,7 +114,7 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	err = connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", 8, nil)
+	err = connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
 	assert.NoError(t, err)
 
 	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second)

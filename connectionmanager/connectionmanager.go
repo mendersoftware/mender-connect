@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2023 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -59,72 +59,58 @@ type ProtocolHandler struct {
 
 var handlersByTypeMutex = &sync.Mutex{}
 var handlersByType = map[ws.ProtoType]*ProtocolHandler{}
-var reconnectIntervalSeconds = 5
 var DefaultPingWait = time.Minute
 
 func GetWriteTimeout() time.Duration {
 	return writeWait
 }
 
-func SetReconnectIntervalSeconds(i int) {
-	reconnectIntervalSeconds = i
+var a *expBackoff = &expBackoff{
+	maxInterval:  60 * time.Minute,
+	attempts:     0,
+	exceededMax:  false,
+	maxBackoff:   120 * time.Minute,
+	smallestUnit: time.Minute,
 }
 
 func connect(
 	proto ws.ProtoType,
 	serverUrl, connectUrl, token string,
-	retries uint,
 	ctx context.Context,
 ) error {
 	parsedUrl, err := url.Parse(serverUrl)
 	if err != nil {
 		return err
 	}
-
 	scheme := getWebSocketScheme(parsedUrl.Scheme)
 	u := url.URL{Scheme: scheme, Host: parsedUrl.Host, Path: connectUrl}
 
 	cancelReconnectChan[proto] = make(chan bool)
 	var c *connection.Connection
-	var i uint = 0
 	defer func() {
 		setReconnecting(proto, false)
 	}()
+
 	setReconnecting(proto, true)
-	for IsReconnecting(proto) {
-		i++
-		c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, DefaultPingWait)
-		if err != nil || c == nil {
-			if retries == 0 || i < retries {
-				if err == nil {
-					err = errors.New(
-						"unknown error: connection was nil but no error provided by" +
-							" connection.NewConnection",
-					)
-				}
-				log.Errorf("connection manager failed to connect to %s%s: %s; "+
-					"reconnecting in %ds (try %d/%d); len(token)=%d", serverUrl, connectUrl,
-					err.Error(), reconnectIntervalSeconds, i, retries, len(token))
-				select {
-				case cancelFlag := <-cancelReconnectChan[proto]:
-					log.Tracef("connectionmanager connect got cancelFlag=%+v", cancelFlag)
-					if cancelFlag {
-						return nil
-					}
-				case <-ctx.Done():
-					return nil
-				case <-time.After(time.Second * time.Duration(reconnectIntervalSeconds)):
-					break
-				}
-				continue
-			} else if i >= retries {
-				return ErrConnectionRetriesExhausted
-			}
-			return err
-		} else {
-			break
-		}
+	if err := a.WaitForBackoff(ctx, proto); err != nil {
+		log.Errorf("error in WaitForBackoff: %s", err)
+		return err
 	}
+	c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, DefaultPingWait)
+	if err != nil || c == nil {
+		if err == nil {
+			err = errors.New(
+				"unknown error: connection was nil but no error provided by" +
+					" connection.NewConnection",
+			)
+		}
+		log.Errorf("connection manager failed to connect to %s%s: %s; "+
+			"len(token)=%d", serverUrl, connectUrl,
+			err.Error(), len(token))
+		return err
+	}
+
+	a.resetBackoff()
 
 	handlersByType[proto] = &ProtocolHandler{
 		proto:      proto,
@@ -145,7 +131,6 @@ func connect(
 func Connect(
 	proto ws.ProtoType,
 	serverUrl, connectUrl, token string,
-	retries uint,
 	ctx context.Context,
 ) error {
 	handlersByTypeMutex.Lock()
@@ -155,13 +140,12 @@ func Connect(
 		return ErrHandlerAlreadyRegistered
 	}
 
-	return connect(proto, serverUrl, connectUrl, token, retries, ctx)
+	return connect(proto, serverUrl, connectUrl, token, ctx)
 }
 
 func Reconnect(
 	proto ws.ProtoType,
 	serverUrl, connectUrl, token string,
-	retries uint,
 	ctx context.Context,
 ) error {
 	handlersByTypeMutex.Lock()
@@ -174,7 +158,7 @@ func Reconnect(
 	}
 
 	delete(handlersByType, proto)
-	return connect(proto, serverUrl, connectUrl, token, retries, ctx)
+	return connect(proto, serverUrl, connectUrl, token, ctx)
 }
 
 func Read(proto ws.ProtoType) (*ws.ProtoMsg, error) {
