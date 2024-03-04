@@ -739,94 +739,113 @@ func TestTimeToSweepSessions(t *testing.T) {
 func TestDBusEventLoop(t *testing.T) {
 	currentUser, err := user.Current()
 	if err != nil {
-		t.Errorf("cant get current user: %s", err.Error())
-		return
+		t.Fatalf("cant get current user: %s", err)
 	}
 
 	testCases := []struct {
 		name    string
-		err     error
 		token   string
+		err     error
 		timeout time.Duration
 	}{
 		{
-			name:  "stopped-gracefully",
-			token: "the-token",
+			name:    "stopped-gracefully",
+			token:   "the-token",
+			timeout: 4 * time.Second,
 		},
 		{
 			name:    "token_not_returned_wait_forever",
 			token:   "",
 			timeout: 15 * time.Second,
 		},
+		{
+			name:    "token_not_returned_try_reconnection",
+			token:   "",
+			timeout: 2 * time.Second,
+		},
 	}
 
 	for _, tc := range testCases {
-		if tc.name == "token_not_returned_wait_forever" {
-			timeout := time.After(tc.timeout)
-			done := make(chan bool)
-			go func() {
-				t.Run(tc.name, func(t *testing.T) {
-					d := NewDaemon(&config.MenderShellConfig{
-						MenderShellConfigFromFile: config.MenderShellConfigFromFile{
-							ShellCommand: "/bin/sh",
-							User:         currentUser.Name,
-							Terminal: config.TerminalConfig{
-								Width:  24,
-								Height: 80,
-							},
-						},
-					})
+		d := NewDaemon(&config.MenderShellConfig{
+			MenderShellConfigFromFile: config.MenderShellConfigFromFile{
+				ShellCommand: "/bin/sh",
+				User:         currentUser.Name,
+				Terminal: config.TerminalConfig{
+					Width:  24,
+					Height: 80,
+				},
+			},
+		})
 
-					dbusAPI := &dbusmocks.DBusAPI{}
-					defer dbusAPI.AssertExpectations(t)
-					client := &authmocks.AuthClient{}
-					client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
-						{
-							ParamType: "s",
-							ParamData: tc.token,
-						},
-					}, tc.err)
-					client.On("GetJWTToken").Return(tc.token, "", tc.err)
-					d.dbusEventLoop(client)
-				})
-				done <- true
-			}()
+		dbusAPI := &dbusmocks.DBusAPI{}
+		defer dbusAPI.AssertExpectations(t)
+		client := &authmocks.AuthClient{}
 
-			select {
-			case <-timeout:
-				t.Logf("ok: expected to run forever")
-			case <-done:
-			}
-		} else {
-			t.Run(tc.name, func(t *testing.T) {
-				d := NewDaemon(&config.MenderShellConfig{
-					MenderShellConfigFromFile: config.MenderShellConfigFromFile{
-						ShellCommand: "/bin/sh",
-						User:         currentUser.Name,
-						Terminal: config.TerminalConfig{
-							Width:  24,
-							Height: 80,
-						},
+		t.Run(tc.name, func(t *testing.T) {
+			switch tc.name {
+			case "token_not_returned_wait_forever":
+				timeout := time.After(tc.timeout)
+				done := make(chan bool)
+				client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
+					{
+						ParamType: "",
+						ParamData: nil,
 					},
-				})
+				}, tc.err)
+				go func() {
+					d.dbusEventLoop(client)
+					done <- true
+				}()
+				select {
+				case <-timeout:
+					t.Logf("ok: expected to run forever")
+				case <-done:
+				}
 
-				dbusAPI := &dbusmocks.DBusAPI{}
-				defer dbusAPI.AssertExpectations(t)
-				client := &authmocks.AuthClient{}
+			case "stopped-gracefully":
+				timeout := time.After(tc.timeout)
+				done := make(chan bool)
 				client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
 					{
 						ParamType: "s",
 						ParamData: tc.token,
 					},
 				}, tc.err)
-				client.On("GetJWTToken").Return(tc.token, "", tc.err)
 				go func() {
-					time.Sleep(time.Second)
-					d.stop = true
+					d.dbusEventLoop(client)
+					done <- true
 				}()
-				d.dbusEventLoop(client)
-			})
-		}
+
+				select {
+				case <-timeout:
+					client.AssertNotCalled(t, "FetchJWTToken")
+					d.stop = true
+					<-done
+				case <-done:
+					t.Error("dbusEventLoop returned unexpectedly early")
+				}
+
+			case "token_not_returned_try_reconnection":
+				timeout := time.After(tc.timeout)
+				done := make(chan bool)
+				client.On("WaitForJwtTokenStateChange").Return([]dbus.SignalParams{
+					{
+						ParamType: "",
+						ParamData: nil,
+					},
+				}, tc.err)
+				go func() {
+					d.dbusEventLoop(client)
+					client.AssertCalled(t, "FetchJWTToken")
+					done <- true
+				}()
+				select {
+				case <-timeout:
+					t.Log("ok: expected to run forever")
+				case <-done:
+				}
+			}
+		})
 	}
 }
 
