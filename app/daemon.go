@@ -312,57 +312,51 @@ func (d *MenderShellDaemon) dbusEventLoop(client mender.AuthClient) {
 			break
 		}
 
-		if d.needsReconnect() {
-			log.Trace("dbusEventLoop: daemon needs to reconnect")
-			needsReconnect = true
-		}
-
 		p, err := client.WaitForJwtTokenStateChange()
 		log.Tracef("dbusEventLoop: WaitForJwtTokenStateChange %v, err %v", p, err)
+
 		if len(p) > 1 &&
 			p[0].ParamType == dbus.GDBusTypeString &&
 			p[1].ParamType == dbus.GDBusTypeString {
+
 			token := p[0].ParamData.(string)
 			serverURL := p[1].ParamData.(string)
+
 			d.processJwtTokenStateChange(token, serverURL)
 			if len(token) > 0 && len(serverURL) > 0 {
 				log.Tracef("dbusEventLoop: got a token len=%d, ServerURL=%s", len(token), serverURL)
 				if token != d.serverJwt || serverURL != d.serverUrl {
-					log.Debugf(
-						"dbusEventLoop: new token or ServerURL, reconnecting. len=%d, ServerURL=%s",
-						len(token),
-						serverURL,
-					)
-					needsReconnect = true
+					e := MenderShellDaemonEvent{
+						event: EventReconnect,
+						data:  token,
+						id:    "(dbusEventLoop)",
+					}
+					d.serverJwt = token
+					d.serverUrl = serverURL
+					d.postEvent(e)
+					log.Tracef("(dbusEventLoop) posting Event: %s", e.event)
+					needsReconnect = false
 
 					// If the server (Mender client proxy) closed the connection, it is likely that
 					// both messageLoop is asking for a reconnection and we got JwtTokenStateChange
 					// signal. So drain here the reconnect channel and reconnect only once
 					if d.needsReconnect() {
-						log.Debug("dbusEventLoop: drained reconnect req channel")
+						log.Trace("dbusEventLoop: daemon needs to reconnect")
+						needsReconnect = true
 					}
-
 				}
-				// TODO: moving these assignments one scope up would make d.authorized redundant...
-				d.serverJwt = token
-				d.serverUrl = serverURL
 			}
 		}
-		if needsReconnect && d.authorized {
-			jwtToken, serverURL, _ := client.GetJWTToken()
-			e := MenderShellDaemonEvent{
-				event: EventReconnect,
-				data:  jwtToken,
-				id:    "(dbusEventLoop)",
+
+		if needsReconnect || d.needsReconnect() {
+			log.Trace("dbusEventLoop: daemon needs to reconnect")
+			_, err := client.FetchJWTToken()
+			if err != nil {
+				log.Errorf("dbusEventLoop: error fetching JWT token")
 			}
-			log.Tracef("(dbusEventLoop) posting Event: %s", e.event)
-			d.serverUrl = serverURL
-			d.serverJwt = jwtToken
-			d.postEvent(e)
 			needsReconnect = false
 		}
 	}
-
 	log.Trace("dbusEventLoop: returning")
 }
 
