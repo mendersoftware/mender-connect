@@ -8,7 +8,7 @@ Type=idle
 User=root
 Group=root
 ExecStart=/usr/bin/mender-connect daemon
-Restart=on-abort
+Restart=always
 
 [Install]
 WantedBy=multi-user.target
