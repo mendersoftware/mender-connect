@@ -20,8 +20,6 @@ include:
 
 test:unit:
   stage: test
-  # Keep golang version aligned with latest yocto release
-  image: golang:1.17
   script:
     # start the dbus service
     - service dbus start
@@ -33,12 +31,20 @@ test:unit:
 build:make:
   stage: build
   needs: []
-  # Keep golang version aligned with latest yocto release
-  image: golang:1.17-alpine3.14
+  image: golang:1.23-alpine
   before_script:
     - apk add --update git make gcc pkgconfig libc-dev glib-dev
   script:
     - make build
+
+# Test that we can build with the golang version of the oldest supported yocto LTS release
+test:backwards-compatibility:
+  image: golang:1.17.13-bullseye
+  needs: []
+  before_script:
+    - apt-get update && apt-get install --quiet --assume-yes $(cat deb-requirements.txt )
+  script:
+    - go build
 
 generate-qa-trigger:
   image: python:alpine
