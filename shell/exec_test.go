@@ -1,19 +1,20 @@
 // Copyright 2021 Northern.tech AS
 //
-//    Licensed under the Apache License, Version 2.0 (the "License");
-//    you may not use this file except in compliance with the License.
-//    You may obtain a copy of the License at
+//	Licensed under the Apache License, Version 2.0 (the "License");
+//	you may not use this file except in compliance with the License.
+//	You may obtain a copy of the License at
 //
-//        http://www.apache.org/licenses/LICENSE-2.0
+//	    http://www.apache.org/licenses/LICENSE-2.0
 //
-//    Unless required by applicable law or agreed to in writing, software
-//    distributed under the License is distributed on an "AS IS" BASIS,
-//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-//    See the License for the specific language governing permissions and
-//    limitations under the License.
+//	Unless required by applicable law or agreed to in writing, software
+//	distributed under the License is distributed on an "AS IS" BASIS,
+//	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//	See the License for the specific language governing permissions and
+//	limitations under the License.
 package shell
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,8 +27,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/coder/websocket"
 	"github.com/creack/pty"
-	"github.com/gorilla/websocket"
 	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
@@ -45,7 +46,7 @@ func TestNewMenderShell(t *testing.T) {
 }
 
 func readMessage(webSock *websocket.Conn) (*ws.ProtoMsg, error) {
-	_, data, err := webSock.ReadMessage()
+	_, data, err := webSock.Read(context.TODO())
 	if err != nil {
 		return nil, err
 	}
@@ -60,12 +61,11 @@ func readMessage(webSock *websocket.Conn) (*ws.ProtoMsg, error) {
 }
 
 func echoMainServerLoop(w http.ResponseWriter, r *http.Request) {
-	var upgrade = websocket.Upgrader{}
-	c, err := upgrade.Upgrade(w, r, nil)
+	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close()
+	defer c.Close(websocket.StatusNormalClosure, "disconnect")
 
 	for {
 		m, err := readMessage(c)
@@ -114,10 +114,11 @@ func TestNewMenderShellReadStdIn(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	err = connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	err = connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", context.TODO())
 	assert.NoError(t, err)
 
-	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second)
+	ctx := context.TODO()
+	webSock, err := connection.NewConnection(ctx, *urlString, "token", time.Second, 526, time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 
@@ -162,7 +163,8 @@ func TestPipeStdout(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	webSock, err := connection.NewConnection(*urlString, "token", time.Second, 526, time.Second)
+	ctx := context.TODO()
+	webSock, err := connection.NewConnection(ctx, *urlString, "token", time.Second, 526, time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 
