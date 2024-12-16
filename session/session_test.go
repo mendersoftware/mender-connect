@@ -1,19 +1,20 @@
 // Copyright 2021 Northern.tech AS
 //
-//    Licensed under the Apache License, Version 2.0 (the "License");
-//    you may not use this file except in compliance with the License.
-//    You may obtain a copy of the License at
+//	Licensed under the Apache License, Version 2.0 (the "License");
+//	you may not use this file except in compliance with the License.
+//	You may obtain a copy of the License at
 //
-//        http://www.apache.org/licenses/LICENSE-2.0
+//	    http://www.apache.org/licenses/LICENSE-2.0
 //
-//    Unless required by applicable law or agreed to in writing, software
-//    distributed under the License is distributed on an "AS IS" BASIS,
-//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-//    See the License for the specific language governing permissions and
-//    limitations under the License.
+//	Unless required by applicable law or agreed to in writing, software
+//	distributed under the License is distributed on an "AS IS" BASIS,
+//	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//	See the License for the specific language governing permissions and
+//	limitations under the License.
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -26,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	uuid "github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -566,12 +567,11 @@ func TestSessionListen(t *testing.T) {
 // Unit tests for shell.go consider moving into shell_test.go
 
 func newShellTransaction(w http.ResponseWriter, r *http.Request) {
-	var upgrader = websocket.Upgrader{}
-	c, err := upgrader.Upgrade(w, r, nil)
+	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close()
+	defer c.CloseNow()
 
 	for {
 		time.Sleep(4 * time.Second)
@@ -593,9 +593,10 @@ func TestMenderShellStartStopShell(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.Background()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -686,9 +687,10 @@ func TestMenderShellCommand(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.Background()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	conn, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	conn, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, conn)
 
@@ -763,9 +765,10 @@ func TestMenderShellShellAlreadyStartedFailedToStart(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -832,12 +835,11 @@ func TestMenderShellShellAlreadyStartedFailedToStart(t *testing.T) {
 }
 
 func noopMainServerLoop(w http.ResponseWriter, r *http.Request) {
-	var upgrader = websocket.Upgrader{}
-	c, err := upgrader.Upgrade(w, r, nil)
+	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close()
+	defer c.Close(websocket.StatusNormalClosure, "bye bye")
 
 	for {
 		time.Sleep(4 * time.Second)
@@ -855,9 +857,10 @@ func TestMenderShellSessionExpire(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -885,9 +888,10 @@ func TestMenderShellSessionUpdateWS(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -912,9 +916,10 @@ func TestMenderShellSessionGetByUserId(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -957,9 +962,10 @@ func TestMenderShellSessionGetById(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -1013,9 +1019,10 @@ func TestMenderShellDeleteById(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -1088,9 +1095,10 @@ func TestMenderShellNewMenderShellSession(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -1132,9 +1140,10 @@ func TestMenderSessionTerminateExpired(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -1184,9 +1193,10 @@ func TestMenderSessionTerminateAll(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -1240,10 +1250,11 @@ func TestMenderSessionTerminateIdle(t *testing.T) {
 	urlString, err := url.Parse(u)
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
- 
-	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
 
-	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
+	ctx := context.TODO()
+	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", ctx)
+
+	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 256, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
