@@ -15,14 +15,13 @@
 package connection
 
 import (
-	"context"
-	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
 
@@ -44,25 +43,22 @@ type Connection struct {
 }
 
 // Websocket connection routine. setup the ping-pong and connection settings
-func NewConnection(
-	ctx context.Context,
-	u url.URL,
+func NewConnection(u url.URL,
 	token string,
 	writeWait time.Duration,
 	maxMessageSize int64,
 	defaultPingWait time.Duration) (*Connection, error) {
 
 	var ws *websocket.Conn
+	dialer := *websocket.DefaultDialer
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+token)
-	// nolint:bodyclose
-	ws, _, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
-		HTTPHeader: headers,
-	})
+	ws, rsp, err := dialer.Dial(u.String(), headers)
 	if err != nil {
-		return nil, fmt.Errorf("failed to establish websocket connection: %s", err.Error())
+		return nil, err
 	}
+	defer rsp.Body.Close()
 
 	c := &Connection{
 		connection:      ws,
@@ -79,27 +75,56 @@ func NewConnection(
 }
 
 func (c *Connection) pingPongHandler() {
-	const pingPeriod = time.Hour
-	rootCtx := context.Background()
+	// handle the ping-pong connection health check
+	err := c.connection.SetReadDeadline(time.Now().Add(c.defaultPingWait))
+	if err != nil {
+		return
+	}
+
+	pingPeriod := (c.defaultPingWait * 9) / 10
 	ticker := time.NewTicker(pingPeriod)
 	defer ticker.Stop()
 
-Loop:
-	for {
+	c.connection.SetPongHandler(func(string) error {
+		log.Debug("PongHandler called")
+		// requires go >= 1.15
+		// ticker.Reset(pingPeriod)
+		return c.connection.SetReadDeadline(time.Now().Add(c.defaultPingWait))
+	})
+
+	c.connection.SetPingHandler(func(msg string) error {
+		log.Debug("PingHandler called")
+		// requires go >= 1.15
+		// ticker.Reset(pingPeriod)
+		err := c.connection.SetReadDeadline(time.Now().Add(c.defaultPingWait))
+		if err != nil {
+			return err
+		}
+		c.writeMutex.Lock()
+		defer c.writeMutex.Unlock()
+		return c.connection.WriteControl(
+			websocket.PongMessage,
+			[]byte(msg),
+			time.Now().Add(c.writeWait),
+		)
+	})
+
+	running := true
+	for running {
 		select {
 		case <-c.done:
-			break Loop
+			running = false
+			break
 		case <-ticker.C:
 			log.Debug("ping message")
-			ctx, cancel := context.WithTimeout(rootCtx, time.Second*30)
-			err := c.connection.Ping(ctx)
-			cancel()
-			if err != nil {
-				log.Errorf("failed to ping server: %s", err.Error())
-				log.Warn("terminating connection")
-				_ = c.Close()
-				break Loop
-			}
+			pongWaitString := strconv.Itoa(int(c.defaultPingWait.Seconds()))
+			c.writeMutex.Lock()
+			_ = c.connection.WriteControl(
+				websocket.PingMessage,
+				[]byte(pongWaitString),
+				time.Now().Add(c.defaultPingWait),
+			)
+			c.writeMutex.Unlock()
 		}
 	}
 }
@@ -108,18 +133,19 @@ func (c *Connection) GetWriteTimeout() time.Duration {
 	return c.writeWait
 }
 
-func (c *Connection) WriteMessage(ctx context.Context, m *ws.ProtoMsg) (err error) {
+func (c *Connection) WriteMessage(m *ws.ProtoMsg) (err error) {
 	data, err := msgpack.Marshal(m)
 	if err != nil {
 		return err
 	}
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
-	return c.connection.Write(ctx, websocket.MessageBinary, data)
+	_ = c.connection.SetWriteDeadline(time.Now().Add(c.writeWait))
+	return c.connection.WriteMessage(websocket.BinaryMessage, data)
 }
 
-func (c *Connection) ReadMessage(ctx context.Context) (*ws.ProtoMsg, error) {
-	_, data, err := c.connection.Read(ctx)
+func (c *Connection) ReadMessage() (*ws.ProtoMsg, error) {
+	_, data, err := c.connection.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -137,5 +163,5 @@ func (c *Connection) Close() error {
 	case c.done <- true:
 	default:
 	}
-	return c.connection.Close(websocket.StatusNormalClosure, "disconnecting")
+	return c.connection.Close()
 }

@@ -96,7 +96,7 @@ func connect(
 		log.Errorf("error in WaitForBackoff: %s", err)
 		return err
 	}
-	c, err = connection.NewConnection(ctx, u, token, writeWait, maxMessageSize, DefaultPingWait)
+	c, err = connection.NewConnection(u, token, writeWait, maxMessageSize, DefaultPingWait)
 	if err != nil || c == nil {
 		if err == nil {
 			err = errors.New(
@@ -170,8 +170,7 @@ func Read(proto ws.ProtoType) (*ws.ProtoMsg, error) {
 	}
 
 	handlersByTypeMutex.Unlock()
-	ctx := context.TODO()
-	return h.connection.ReadMessage(ctx)
+	return h.connection.ReadMessage()
 }
 
 func Write(proto ws.ProtoType, m *ws.ProtoMsg) error {
@@ -186,8 +185,7 @@ func Write(proto ws.ProtoType, m *ws.ProtoMsg) error {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
-	ctx := context.TODO()
-	return h.connection.WriteMessage(ctx, m)
+	return h.connection.WriteMessage(m)
 }
 
 func IsReconnecting(proto ws.ProtoType) bool {

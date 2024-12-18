@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/gorilla/websocket"
 	"github.com/mendersoftware/go-lib-micro/ws"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
@@ -34,14 +34,19 @@ func init() {
 }
 
 func newWebsocketServer() *http.Server {
+	var upgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
 	m := http.NewServeMux()
 	s := http.Server{Addr: "localhost:8999", Handler: m}
 	m.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			panic(err)
 		}
-		defer conn.Close(websocket.StatusNormalClosure, "bye bye")
+		defer conn.Close()
 
 		msg := ws.ProtoMsg{
 			Header: ws.ProtoHdr{
@@ -50,10 +55,10 @@ func newWebsocketServer() *http.Server {
 			Body: []byte("dummy"),
 		}
 		data, _ := msgpack.Marshal(msg)
-		_ = conn.Write(context.TODO(), websocket.MessageBinary, data)
+		_ = conn.WriteMessage(websocket.BinaryMessage, data)
 
 		for {
-			_, data, err := conn.Read(context.TODO())
+			_, data, err := conn.ReadMessage()
 			if err != nil {
 				panic(err)
 			}
