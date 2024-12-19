@@ -14,7 +14,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -29,7 +28,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/gorilla/websocket"
 	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -73,22 +72,18 @@ func sendMessage(webSock *websocket.Conn, t string, sessionId string, userID str
 		},
 		Body: []byte(data),
 	}
-	ctx := context.Background()
 	d, err := msgpack.Marshal(m)
 	if err == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Second*2)
-		defer cancel()
-
+		err = webSock.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	}
 	if err == nil {
-		err = webSock.Write(ctx, websocket.MessageBinary, d)
+		err = webSock.WriteMessage(websocket.BinaryMessage, d)
 	}
 	return err
 }
 
 func readMessage(webSock *websocket.Conn) (*ws.ProtoMsg, error) {
-	_, data, err := webSock.Read(context.TODO())
+	_, data, err := webSock.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -103,11 +98,12 @@ func readMessage(webSock *websocket.Conn) (*ws.ProtoMsg, error) {
 }
 
 func newShellTransaction(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, nil)
+	var upgrader = websocket.Upgrader{}
+	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close(websocket.StatusNormalClosure, "disconnecting")
+	defer c.Close()
 	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-f6723467-561234ff", "")
 	fmt.Printf("newShellTransaction sendMessage(SpwanShell)=%v\n", err)
 	m, err := readMessage(c)
@@ -154,7 +150,7 @@ func TestMenderShellSessionStart(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", context.TODO())
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -167,10 +163,6 @@ func TestMenderShellSessionStart(t *testing.T) {
 		},
 	})
 	message, err := d.readMessage()
-	if err != nil {
-		t.Errorf("failed to read message: %s", err.Error())
-		t.FailNow()
-	}
 	t.Logf("read message: type, session_id, data %s, %s, %s", message.Header.MsgType, message.Header.SessionID, message.Body)
 	err = d.routeMessage(message)
 	if err != nil {
@@ -232,11 +224,12 @@ func TestMenderShellSessionStart(t *testing.T) {
 
 func newShellStopByUserId(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(os.Stderr, "newShellStopByUserId starting\n")
-	c, err := websocket.Accept(w, r, nil)
+	var upgrader = websocket.Upgrader{}
+	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close(websocket.StatusNormalClosure, "dissconnecting")
+	defer c.Close()
 	err = sendMessage(c, wsshell.MessageTypeSpawnShell, "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-a00908-f6723467-561234ff", "")
 	fmt.Fprintf(os.Stderr, "(0) newShellStopByUserId sendMessage: %v\n", err)
 	_, err = readMessage(c)
@@ -267,7 +260,7 @@ func TestMenderShellStopByUserId(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", context.TODO())
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -315,11 +308,12 @@ func TestMenderShellStopByUserId(t *testing.T) {
 
 func newShellUnknownMessage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(os.Stderr, "newShellUnknownMessage starting\n")
-	c, err := websocket.Accept(w, r, nil)
+	var upgrader = websocket.Upgrader{}
+	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close(websocket.StatusNormalClosure, "disconnecting")
+	defer c.Close()
 	err = sendMessage(c, "does-not-exist", "c4993deb-26b4-4c58-aaee-fd0c9e694328", "user-id-unit-tests-a00908-f6723467-561234ff", "")
 	fmt.Fprintf(os.Stderr, "(0) newShellStopByUserId sendMessage: %v\n", err)
 	_, _ = readMessage(c)
@@ -345,7 +339,7 @@ func TestMenderShellUnknownMessage(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
-	_ = connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", context.TODO())
+	_ = connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -369,11 +363,12 @@ func TestMenderShellUnknownMessage(t *testing.T) {
 
 func newShellMulti(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("newShellMulti: starting\n\n")
-	c, err := websocket.Accept(w, r, nil)
+	var upgrader = websocket.Upgrader{}
+	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close(websocket.StatusNormalClosure, "disconnecting")
+	defer c.Close()
 	for i := 0; i < session.MaxUserSessions; i++ {
 		sendMessage(c, wsshell.MessageTypeSpawnShell, uuid.NewV4().String(), "user-id-unit-tests-7f00f6723467-561234ff", "")
 	}
@@ -403,7 +398,7 @@ func TestMenderShellSessionLimitPerUser(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", context.TODO())
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -469,11 +464,12 @@ func TestMenderShellStopDaemon(t *testing.T) {
 }
 
 func oneMsgMainServerLoop(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, nil)
+	var upgrade = websocket.Upgrader{}
+	c, err := upgrade.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close(websocket.StatusNormalClosure, "disconnecting")
+	defer c.Close()
 
 	m := &ws.ProtoMsg{
 		Header: ws.ProtoHdr{
@@ -488,12 +484,12 @@ func oneMsgMainServerLoop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data, err := msgpack.Marshal(m)
-	if err != nil {
-		panic(err)
+	c.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	c.WriteMessage(websocket.BinaryMessage, data)
+
+	for {
+		time.Sleep(1 * time.Second)
 	}
-	ctx, cancel := context.WithTimeout(context.TODO(), time.Second*2)
-	defer cancel()
-	_ = c.Write(ctx, websocket.MessageBinary, data)
 }
 
 func TestMenderShellReadMessage(t *testing.T) {
@@ -513,7 +509,7 @@ func TestMenderShellReadMessage(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", context.TODO())
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", nil)
 
 	d := NewDaemon(&config.MenderShellConfig{
 		MenderShellConfigFromFile: config.MenderShellConfigFromFile{
@@ -557,10 +553,9 @@ func TestMenderShellMaxShellsLimit(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", context.TODO())
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", nil)
 
-	ctx := context.TODO()
-	ws, err := connection.NewConnection(ctx, *urlString, "token", 16*time.Second, 526, 16*time.Second)
+	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 526, 16*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, ws)
 
@@ -912,11 +907,12 @@ func TestEventLoop(t *testing.T) {
 }
 
 func everySecondMessage(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, nil)
+	var upgrader = websocket.Upgrader{}
+	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close(websocket.StatusNormalClosure, "disconnecting")
+	defer c.Close()
 
 	for {
 		sendMessage(c, wsshell.MessageTypeShellCommand, "any-session-id", "", "echo;")
@@ -935,10 +931,9 @@ func TestMessageMainLoop(t *testing.T) {
 	assert.NotNil(t, urlString)
 
 	connectionmanager.Close(ws.ProtoTypeShell)
-	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", context.TODO())
+	connectionmanager.Reconnect(ws.ProtoTypeShell, u, "/", "token", nil)
 
-	ctx := context.TODO()
-	webSock, err := connection.NewConnection(ctx, *urlString, "token", 8*time.Second, 526, 8*time.Second)
+	webSock, err := connection.NewConnection(*urlString, "token", 8*time.Second, 526, 8*time.Second)
 	assert.NoError(t, err)
 	assert.NotNil(t, webSock)
 

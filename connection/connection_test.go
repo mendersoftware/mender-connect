@@ -15,7 +15,6 @@
 package connection
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -24,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mendersoftware/go-lib-micro/ws"
@@ -40,11 +39,12 @@ const (
 )
 
 func sleepyHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, nil)
+	var upgrade = websocket.Upgrader{}
+	c, err := upgrade.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer conn.Close(websocket.StatusGoingAway, "bye bye")
+	defer c.Close()
 
 	for {
 		time.Sleep(4 * time.Second)
@@ -52,7 +52,6 @@ func sleepyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeMessage(c *websocket.Conn, body []byte) {
-	ctx := context.Background()
 	conn := &Connection{
 		writeMutex:      sync.Mutex{},
 		connection:      c,
@@ -73,7 +72,7 @@ func writeMessage(c *websocket.Conn, body []byte) {
 		Body: body,
 	}
 
-	_ = conn.WriteMessage(ctx, m)
+	conn.WriteMessage(m)
 }
 
 const (
@@ -81,12 +80,12 @@ const (
 )
 
 func helloHandler(w http.ResponseWriter, r *http.Request) {
-
-	c, err := websocket.Accept(w, r, nil)
+	var upgrade = websocket.Upgrader{}
+	c, err := upgrade.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer c.Close(websocket.StatusGoingAway, "bye bye")
+	defer c.Close()
 
 	for {
 		writeMessage(c, []byte(helloMessage))
@@ -106,8 +105,7 @@ func TestNewConnection(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	ctx := context.Background()
-	c, err := NewConnection(ctx, u, "some-token", writeWait, maxMessageSize, defaultPingWait)
+	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait)
 	assert.NoError(t, err)
 	assert.NotNil(t, c)
 }
@@ -136,11 +134,10 @@ func TestConnection_ReadMessage(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	ctx := context.Background()
-	c, err := NewConnection(ctx, u, "some-token", writeWait, maxMessageSize, defaultPingWait)
+	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait)
 	assert.NoError(t, err)
 	time.Sleep(time.Second)
-	m, err := c.ReadMessage(ctx)
+	m, err := c.ReadMessage()
 	assert.NoError(t, err)
 	assert.NotNil(t, m)
 	t.Logf("read: '%s'", string(m.Body))
@@ -159,18 +156,17 @@ func TestConnection_WriteMessage(t *testing.T) {
 	assert.NoError(t, err)
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
-	ctx := context.Background()
 
-	c, err := NewConnection(ctx, u, "some-token", writeWait, maxMessageSize, defaultPingWait)
+	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait)
 	assert.NoError(t, err)
 	time.Sleep(time.Second)
-	m, err := c.ReadMessage(ctx)
+	m, err := c.ReadMessage()
 	assert.NoError(t, err)
 	assert.NotNil(t, m)
 	assert.Equal(t, []byte(helloMessage), m.Body)
 
 	m.Body = []byte("hello")
-	err = c.WriteMessage(ctx, m)
+	err = c.WriteMessage(m)
 	assert.NoError(t, err)
 }
 
@@ -186,8 +182,7 @@ func TestConnection_Close(t *testing.T) {
 
 	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/"}
 
-	ctx := context.Background()
-	c, err := NewConnection(ctx, u, "some-token", writeWait, maxMessageSize, defaultPingWait)
+	c, err := NewConnection(u, "some-token", writeWait, maxMessageSize, defaultPingWait)
 	assert.NoError(t, err)
 	assert.NotNil(t, c)
 
