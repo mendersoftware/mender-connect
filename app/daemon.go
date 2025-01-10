@@ -584,21 +584,21 @@ func (d *MenderShellDaemon) routeMessage(msg *ws.ProtoMsg) error {
 		Body: []byte(err.Error()),
 	}
 	if err := d.responseMessage(response); err != nil {
-		log.Errorf(errors.Wrap(err, "unable to send the response message").Error())
+		log.Error(errors.Wrap(err, "unable to send the response message").Error())
 	}
 	return err
 }
 
 func (d *MenderShellDaemon) routeMessageResponse(response *ws.ProtoMsg, err error) {
 	if err != nil {
-		log.Errorf(err.Error())
+		log.Error(err.Error())
 		response.Header.Properties["status"] = wsshell.ErrorMessage
 		response.Body = []byte(err.Error())
 	} else if response == nil {
 		return
 	}
 	if err := d.responseMessage(response); err != nil {
-		log.Errorf(errors.Wrap(err, "unable to send the response message").Error())
+		log.Error(errors.Wrap(err, "unable to send the response message").Error())
 	}
 }
 
