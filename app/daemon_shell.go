@@ -237,7 +237,7 @@ func (d *MenderShellDaemon) routeMessageShellResize(message *ws.ProtoMsg) error 
 	s := session.MenderShellSessionGetById(message.Header.SessionID)
 	if s == nil {
 		err = session.ErrSessionNotFound
-		log.Errorf(err.Error())
+		log.Error(err.Error())
 		return err
 	}
 
@@ -256,7 +256,7 @@ func (d *MenderShellDaemon) routeMessagePongShell(message *ws.ProtoMsg) error {
 	s := session.MenderShellSessionGetById(message.Header.SessionID)
 	if s == nil {
 		err = session.ErrSessionNotFound
-		log.Errorf(err.Error())
+		log.Error(err.Error())
 		return err
 	}
 
