@@ -1,4 +1,4 @@
-// Copyright 2021 Northern.tech AS
+// Copyright 2023 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -102,6 +102,10 @@ type Error struct {
 	Error string `msgpack:"err" json:"error"`
 	// Close determines whether the session closed as a result of this error.
 	Close bool `msgpack:"close" json:"close"`
+	// Code is the error code associated with the error. Values in the
+	// range 400-599 carry the same semantic meaning as the HTTP equivalent.
+	// Please allocate new error codes starting from 1000 for custom error codes.
+	Code int `msgpack:"code,omitempty" json:"code,omitempty"`
 	// MessageProto is the protocol of the message that caused the error.
 	MessageProto ProtoType `msgpack:"msgproto,omitempty" json:"message_protocol,omitempty"`
 	// Type of message that raised the error
