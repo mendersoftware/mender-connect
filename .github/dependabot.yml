@@ -6,5 +6,3 @@ updates:
     package-ecosystem: gomod
     schedule:
       interval: monthly
-    reviewers:
-      - "mendersoftware/client-dependabot-reviewers"
