@@ -1,14 +1,16 @@
 module github.com/mendersoftware/mender-connect
 
-go 1.17
+go 1.23
+
+toolchain go1.23.8
 
 replace github.com/urfave/cli/v2 => github.com/mendersoftware/cli/v2 v2.1.1-minimal
 
 require (
 	github.com/creack/pty v1.1.24
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
-	github.com/gorilla/websocket v1.5.1
-	github.com/mendersoftware/go-lib-micro v0.0.0-20221025103319-e1f941fb3145
+	github.com/gorilla/websocket v1.5.3
+	github.com/mendersoftware/go-lib-micro v0.0.0-20250319141021-adca5cc5e022
 	github.com/pkg/errors v0.9.1
 	github.com/satori/go.uuid v1.2.0
 	github.com/sirupsen/logrus v1.9.3
@@ -18,14 +20,13 @@ require (
 )
 
 require (
-	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/kr/pretty v0.3.0 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rogpeppe/go-internal v1.8.0 // indirect
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/kr/pretty v0.3.1 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	golang.org/x/net v0.23.0 // indirect
-	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/sys v0.32.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
