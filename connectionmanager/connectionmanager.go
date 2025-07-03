@@ -66,11 +66,10 @@ func GetWriteTimeout() time.Duration {
 }
 
 var a *expBackoff = &expBackoff{
-	maxInterval:  60 * time.Minute,
-	attempts:     0,
-	exceededMax:  false,
-	maxBackoff:   120 * time.Minute,
-	smallestUnit: time.Minute,
+	attempts: 0,
+	// Set max backoff to 30 minutes
+	maxBackoff:   1800 * time.Second,
+	smallestUnit: time.Second,
 }
 
 func connect(
