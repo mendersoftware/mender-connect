@@ -25,53 +25,45 @@ import (
 )
 
 type expBackoff struct {
-	attempts    int
-	exceededMax bool
-	// The maximum interval before it starts increasing linearly
-	maxInterval time.Duration
+	attempts int
 	// Retry time does not increase beyond maxBackoff
 	maxBackoff time.Duration
 	// Smallest backoff sleep time
 	smallestUnit time.Duration
 	interval     time.Duration
+
+	randomInterval time.Duration
 }
 
-// Simple algorithm: Start with one minute, and try three times, then double
-// interval (maxInterval is maximum) and try again. Repeat until we tried
-// three times with maxInterval.
+// Simple algorithm: Start with `smallestUnit`, and try three times, then double
+// `interval` until `maxBackoff` is reached and keep retrying with the maxBackoff
+// interval
 func (a *expBackoff) GetExponentialBackoffTime() time.Duration {
 	var nextInterval time.Duration
 	const perIntervalAttempts = 3
 
+	// Random interval between 0 and 5 a.smallestUnit (e.g. seconds)
+	a.randomInterval = time.Duration(rand.Float64()*float64(a.smallestUnit)) * 5
+
 	interval := 1 * a.smallestUnit
 	nextInterval = interval << (a.attempts / perIntervalAttempts)
-	// Generates a random interval between 0 and 2 minutes
-	randomInterval := time.Duration(rand.Float64()*float64(time.Minute)) * 2
+
 	if nextInterval > a.maxBackoff {
-		a.attempts--
-		return a.maxBackoff + randomInterval
+		return a.maxBackoff + a.randomInterval
 	}
-
-	if nextInterval > a.maxInterval && !a.exceededMax {
-		a.exceededMax = true
-		a.attempts = 0
-	}
-
-	if a.exceededMax {
-		return a.maxInterval + (time.Duration(a.attempts) * time.Minute) + randomInterval
-	}
-	return nextInterval
+	return nextInterval + a.randomInterval
 }
 
 func (a *expBackoff) WaitForBackoff(ctx context.Context, proto ws.ProtoType) error {
 	a.attempts++
+
 	a.interval = a.GetExponentialBackoffTime()
 
 	if a.attempts <= 1 {
 		return nil
 	}
 
-	log.Infof("connectionmanager backoff: retrying in %s", a.interval)
+	log.Infof("connectionmanager backoff: retrying in %s", a.interval.Round(time.Second))
 
 	select {
 	case <-time.After(a.interval):
@@ -85,5 +77,4 @@ func (a *expBackoff) WaitForBackoff(ctx context.Context, proto ws.ProtoType) err
 
 func (a *expBackoff) resetBackoff() {
 	a.attempts = 0
-	a.exceededMax = false
 }

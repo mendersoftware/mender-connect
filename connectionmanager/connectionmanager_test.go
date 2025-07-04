@@ -138,8 +138,6 @@ func TestConnectFailed(t *testing.T) {
 	old := a
 	a = &expBackoff{
 		attempts:     0,
-		maxInterval:  60 * time.Second,
-		exceededMax:  false,
 		maxBackoff:   120 * time.Second,
 		smallestUnit: time.Second,
 	}
@@ -163,61 +161,48 @@ func TestWriteFailed(t *testing.T) {
 func TestExponentialBackoffTimeCalculation(t *testing.T) {
 	var b expBackoff = expBackoff{
 		attempts:     0,
-		maxInterval:  60 * time.Minute,
-		maxBackoff:   120 * time.Minute,
-		smallestUnit: time.Minute,
+		maxBackoff:   1800 * time.Second,
+		smallestUnit: time.Second,
 	}
-	// Test with 1 minute interval
+	// Test with 1 second interval
 	for i := 0; i < 3; i++ {
 		b.attempts = i
 		intvl := b.GetExponentialBackoffTime()
-		assert.Equal(t, intvl, 1*time.Minute)
+		assert.Equal(t, intvl, 1*b.smallestUnit+b.randomInterval)
 	}
-	// Test with 2 minute interval
+	// Test with 2 second interval
 	for i := 3; i < 6; i++ {
 		b.attempts = i
 		intvl := b.GetExponentialBackoffTime()
-		assert.Equal(t, intvl, 2*time.Minute)
+		assert.Equal(t, intvl, 2*b.smallestUnit+b.randomInterval)
 	}
-	// Test with 32 minute interval
+	// Test with 32 second interval
 	for i := 15; i < 18; i++ {
 		b.attempts = i
 		intvl := b.GetExponentialBackoffTime()
-		assert.Equal(t, intvl, 32*time.Minute)
+		assert.Equal(t, intvl, 32*b.smallestUnit+b.randomInterval)
 	}
-	// Test linear
-	b.attempts = 20
-	intvl := b.GetExponentialBackoffTime()
-	assert.Greater(t, intvl, 60*time.Minute)
-	assert.LessOrEqual(t, intvl, 63*time.Minute)
 }
 
 func TestResetBackoff(t *testing.T) {
 	var b expBackoff = expBackoff{
 		attempts:     21,
-		maxInterval:  60 * time.Minute,
-		exceededMax:  true,
-		smallestUnit: time.Minute,
+		smallestUnit: time.Second,
 	}
 	assert.Equal(t, b.attempts, 21)
-	assert.Equal(t, b.exceededMax, true)
 	b.resetBackoff()
 	assert.Equal(t, b.attempts, 0)
-	assert.Equal(t, b.exceededMax, false)
 }
 
 func TestMaxBackoff(t *testing.T) {
 	var b expBackoff = expBackoff{
-		attempts:     21,
-		maxInterval:  60 * time.Minute,
-		exceededMax:  true,
-		maxBackoff:   120 * time.Minute,
-		smallestUnit: time.Minute,
+		attempts:     50,
+		maxBackoff:   1800 * time.Second,
+		smallestUnit: time.Second,
 	}
 	for i := 0; i < 10; i++ {
 		intvl := b.GetExponentialBackoffTime()
-		assert.GreaterOrEqual(t, intvl, time.Duration(120*time.Minute))
-		assert.LessOrEqual(t, intvl, time.Duration(122*time.Minute))
+		assert.Equal(t, intvl, 1800*b.smallestUnit+b.randomInterval)
 		b.attempts++
 	}
 }
