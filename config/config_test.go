@@ -460,3 +460,72 @@ func TestServerArgumentsDeprecated(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, buf.String(), "ServerCertificate field is deprecated")
 }
+
+func TestConfigurationDisableSessionExpirationSettings(t *testing.T) {
+	var configJSON = `{
+		"Sessions": {
+			"StopExpired": false,
+			"ExpireAfter": 40,
+			"ExpireAfterIdle": 40
+		}
+	}`
+
+	configFile, err := os.Create("main.config")
+	assert.NoError(t, err)
+	defer os.Remove("main.config")
+	configFile.WriteString(configJSON)
+
+	config, err := LoadConfig("main.config", "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	config.Validate()
+
+	assert.Equal(t, false, config.Sessions.StopExpired)
+	assert.Equal(t, uint32(0), config.Sessions.ExpireAfter)
+	assert.Equal(t, uint32(0), config.Sessions.ExpireAfterIdle)
+}
+
+func TestConfigurationDefaultSessionExpirationSettings(t *testing.T) {
+	var configJSON = `{
+		"ShellCommand": "/bin/bash",
+		"ReconnectIntervalSeconds": 123
+	}`
+
+	configFile, err := os.Create("main.config")
+	assert.NoError(t, err)
+	defer os.Remove("main.config")
+	configFile.WriteString(configJSON)
+
+	config, err := LoadConfig("main.config", "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	config.Validate()
+
+	assert.Equal(t, true, config.Sessions.StopExpired)
+	assert.Equal(t, uint32(0), config.Sessions.ExpireAfter)
+	assert.Equal(t, uint32(600), config.Sessions.ExpireAfterIdle)
+}
+
+func TestConfigurationNonDefaultSessionExpirationSettings(t *testing.T) {
+	var configJSON = `{
+		"ShellCommand": "/bin/bash",
+		"ReconnectIntervalSeconds": 123,
+		"Sessions": {
+			"ExpireAfter": 50
+		}
+	}`
+
+	configFile, err := os.Create("main.config")
+	assert.NoError(t, err)
+	defer os.Remove("main.config")
+	configFile.WriteString(configJSON)
+
+	config, err := LoadConfig("main.config", "")
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	config.Validate()
+
+	assert.Equal(t, true, config.Sessions.StopExpired)
+	assert.Equal(t, uint32(50), config.Sessions.ExpireAfter)
+	assert.Equal(t, uint32(0), config.Sessions.ExpireAfterIdle)
+}
