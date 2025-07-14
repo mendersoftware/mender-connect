@@ -22,6 +22,8 @@ import (
 	"os/user"
 	"path/filepath"
 
+	"time"
+
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -167,7 +169,13 @@ type MenderShellConfig struct {
 // NewMenderShellConfig initializes a new MenderShellConfig struct
 func NewMenderShellConfig() *MenderShellConfig {
 	return &MenderShellConfig{
-		MenderShellConfigFromFile: MenderShellConfigFromFile{},
+		MenderShellConfigFromFile: MenderShellConfigFromFile{
+			// Set the default here as later we won't know
+			// if it's set by the user or if it's the default
+			Sessions: SessionsConfig{
+				StopExpired: DefaultStopExpired,
+			},
+		},
 	}
 }
 
@@ -266,12 +274,21 @@ func (c *MenderShellConfig) applyDefaults() error {
 		c.Terminal.Height = DefaultTerminalHeight
 	}
 
+	// `c.Sessions.StopExpired = DefaultStopExpired` is set
+	// when initializing the MenderShellConfig struct
+
 	if !c.Sessions.StopExpired {
 		c.Sessions.ExpireAfter = 0
 		c.Sessions.ExpireAfterIdle = 0
 	} else {
 		if c.Sessions.ExpireAfter > 0 && c.Sessions.ExpireAfterIdle > 0 {
-			log.Warnf("both ExpireAfter and ExpireAfterIdle specified.")
+			log.Warnf("Both ExpireAfter and ExpireAfterIdle specified; " +
+				"they are mutually exclusive")
+		}
+		if c.Sessions.ExpireAfter == 0 && c.Sessions.ExpireAfterIdle == 0 {
+			log.Infof("Defaulting ExpireAfterIdle to %s",
+				time.Second*time.Duration(DefaultExpireAfterIdle))
+			c.Sessions.ExpireAfterIdle = DefaultExpireAfterIdle
 		}
 	}
 

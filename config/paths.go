@@ -43,6 +43,9 @@ var (
 	DefaultReconnectIntervalsSeconds = 5
 	MessageWriteTimeout              = 2 * time.Second
 	MaxShellsSpawned                 = uint(16)
+
+	DefaultStopExpired     = true
+	DefaultExpireAfterIdle = uint32(600)
 )
 
 // GetStateDirPath returns the default data store directory
