@@ -88,6 +88,7 @@ func (d *MenderShellDaemon) routeMessageSpawnShell(message *ws.ProtoMsg) error {
 	if err = s.StartShell(s.GetId(), session.MenderShellTerminalSettings{
 		Uid:            uint32(d.uid),
 		Gid:            uint32(d.gid),
+		Gids:           d.gids,
 		Shell:          d.shell,
 		HomeDir:        d.homeDir,
 		TerminalString: d.terminalString,

@@ -43,37 +43,51 @@ func TestMenderShellExecShell(t *testing.T) {
 		t.Errorf("cant get current gid: %s", err.Error())
 		return
 	}
+	gids, err := currentUser.GroupIds()
+	if err != nil {
+		t.Errorf("cant get current gids: %s", err.Error())
+	}
+
+	// Convert []string to []uint32
+	unit_32_gids := make([]uint32, len(gids))
+	for i, g := range gids {
+		gid, err := strconv.ParseUint(g, 10, 32)
+		if err != nil {
+			t.Errorf("error parsing group id: %s", err.Error())
+		}
+		unit_32_gids[i] = uint32(gid)
+	}
 
 	//command does not exist
-	pid, pseudoTTY, cmd, err := ExecuteShell(uint32(uid), uint32(gid), "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80, []string{"--login"})
+	pid, pseudoTTY, cmd, err := ExecuteShell(uint32(uid), uint32(gid), unit_32_gids, "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80, []string{"--login"})
 	assert.Error(t, err)
 	assert.Equal(t, pid, -1)
 	assert.Nil(t, pseudoTTY)
 	assert.Nil(t, cmd)
 
 	//home directory doesn't exist
-	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/does-not-exist", "true", "xterm-256color", 24, 80, []string{"--login"})
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), unit_32_gids, "/does-not-exist", "true", "xterm-256color", 24, 80, []string{"--login"})
 	assert.Nil(t, err)
 	assert.NotZero(t, pid)
 	assert.NotNil(t, pseudoTTY)
 	assert.Equal(t, "/", cmd.Dir)
 
 	// Empty ShellArguments
-	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80, []string{""})
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), unit_32_gids, "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80, []string{""})
 	assert.Error(t, err)
 	assert.Equal(t, pid, -1)
 	assert.Nil(t, pseudoTTY)
 	assert.Nil(t, cmd)
 
 	// Bogus ShellArguments
-	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80, []string{"--i-do-not-exist-flag"})
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), unit_32_gids, "/", "thatissomethingthatdoesnotexecute", "xterm-256color", 24, 80, []string{"--i-do-not-exist-flag"})
 	assert.Error(t, err)
 	assert.Equal(t, pid, -1)
 	assert.Nil(t, pseudoTTY)
 	assert.Nil(t, cmd)
 
 	//shell
-	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), "/tmp", "/bin/sh", "xterm-256color", 24, 80, []string{"--login"})
+	pid, pseudoTTY, cmd, err = ExecuteShell(uint32(uid), uint32(gid), unit_32_gids, "/tmp", "/bin/sh", "xterm-256color", 24, 80, []string{"--login"})
 	assert.Nil(t, err)
 	assert.NotZero(t, pid)
 	assert.NotNil(t, pseudoTTY)
