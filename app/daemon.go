@@ -438,6 +438,8 @@ func (d *MenderShellDaemon) DecreaseSpawnedShellsCount(shellStoppedCount uint) {
 //   - gets the JWT token from the mender-client via dbus (client.GetJWTToken())
 //   - connects to the backend and returns a new websocket (deviceconnect.Connect(...))
 //   - starts the message flow between the shell and websocket (shell.NewMenderShell(...))
+//
+// nolint: gocyclo
 func (d *MenderShellDaemon) Run() error {
 	d.setupLogging()
 
