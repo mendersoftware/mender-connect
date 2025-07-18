@@ -74,6 +74,7 @@ type MenderShellDaemon struct {
 	terminalString          string
 	uid                     uint64
 	gid                     uint64
+	gids                    []uint32
 	homeDir                 string
 	shellsSpawned           uint
 	debug                   bool
@@ -437,6 +438,8 @@ func (d *MenderShellDaemon) DecreaseSpawnedShellsCount(shellStoppedCount uint) {
 //   - gets the JWT token from the mender-client via dbus (client.GetJWTToken())
 //   - connects to the backend and returns a new websocket (deviceconnect.Connect(...))
 //   - starts the message flow between the shell and websocket (shell.NewMenderShell(...))
+//
+// nolint: gocyclo
 func (d *MenderShellDaemon) Run() error {
 	d.setupLogging()
 
@@ -447,6 +450,21 @@ func (d *MenderShellDaemon) Run() error {
 	}
 	if err != nil {
 		return err
+	}
+
+	gids, err := u.GroupIds()
+	if err != nil {
+		return errors.New("unknown error while getting group ids")
+	}
+
+	// Convert []string to []uint32
+	d.gids = make([]uint32, len(gids))
+	for i, g := range gids {
+		gid, err := strconv.ParseUint(g, 10, 32)
+		if err != nil {
+			return fmt.Errorf("failed to parse group id %q: %w", g, err)
+		}
+		d.gids[i] = uint32(gid)
 	}
 
 	d.homeDir = u.HomeDir

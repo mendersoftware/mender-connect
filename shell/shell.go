@@ -30,6 +30,7 @@ const defaultCmdDir = "/"
 
 func ExecuteShell(uid uint32,
 	gid uint32,
+	gids []uint32,
 	homeDir string,
 	shell string,
 	termString string,
@@ -49,7 +50,7 @@ func ExecuteShell(uid uint32,
 	//if our uid is 0
 	if currentUser.Uid == "0" {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
-		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid, Groups: gids}
 	}
 
 	if _, err := os.Stat(homeDir); !os.IsNotExist(err) {
