@@ -1240,7 +1240,7 @@ func TestMenderSessionTerminateIdle(t *testing.T) {
 	urlString, err := url.Parse(u)
 	assert.NoError(t, err)
 	assert.NotNil(t, urlString)
- 
+
 	connectionmanager.Connect(ws.ProtoTypeShell, u, "/", "token", nil)
 
 	ws, err := connection.NewConnection(*urlString, "token", 16*time.Second, 256, 16*time.Second)
