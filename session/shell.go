@@ -76,6 +76,7 @@ var (
 type MenderShellTerminalSettings struct {
 	Uid            uint32
 	Gid            uint32
+	Gids           []uint32
 	Shell          string
 	HomeDir        string
 	TerminalString string
@@ -342,6 +343,7 @@ func (s *MenderShellSession) StartShell(
 	pid, pseudoTTY, cmd, err := shell.ExecuteShell(
 		terminal.Uid,
 		terminal.Gid,
+		terminal.Gids,
 		terminal.HomeDir,
 		terminal.Shell,
 		terminal.TerminalString,
