@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 
@@ -115,7 +116,8 @@ type MenderShellSession struct {
 	pseudoTTY *os.File
 	command   *exec.Cmd
 	// stop channel
-	stop chan struct{}
+	stop     chan struct{}
+	stopOnce sync.Once
 	// pong channel
 	pong chan struct{}
 }
@@ -471,7 +473,9 @@ func (s *MenderShellSession) StopShell() (err error) {
 		return ErrSessionShellNotRunning
 	}
 
-	close(s.stop)
+	s.stopOnce.Do(func() {
+		close(s.stop)
+	})
 	s.shell.Stop()
 	s.terminal = MenderShellTerminalSettings{}
 	s.status = EmptySession
