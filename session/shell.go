@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 
@@ -115,11 +116,10 @@ type MenderShellSession struct {
 	pseudoTTY *os.File
 	command   *exec.Cmd
 	// stop channel
-	stop chan struct{}
+	stop     chan struct{}
+	stopOnce sync.Once
 	// pong channel
 	pong chan struct{}
-	// healthcheck
-	healthcheckTimeout time.Time
 }
 
 var sessionsMap = map[string]*MenderShellSession{}
@@ -397,30 +397,28 @@ func (s *MenderShellSession) IsExpired(setStatus bool) bool {
 }
 
 func (s *MenderShellSession) healthcheck() {
-	nextHealthcheckPing := time.Now().Add(healthcheckInterval)
-	s.healthcheckTimeout = time.Now().Add(healthcheckInterval + healthcheckTimeout)
+	pongTimeout := healthcheckInterval + healthcheckTimeout
+	pingTicker := time.NewTicker(healthcheckInterval)
+	pongTimer := time.NewTimer(pongTimeout)
 
 	for {
 		select {
 		case <-s.stop:
 			return
 		case <-s.pong:
-			s.healthcheckTimeout = time.Now().Add(healthcheckInterval + healthcheckTimeout)
-		case <-time.After(time.Until(s.healthcheckTimeout)):
-			if s.healthcheckTimeout.Before(time.Now()) {
-				log.Errorf("session %s, health check failed, connection with the client lost", s.id)
-				s.expiresAt = time.Now()
-				err := MenderShellStopById(s.id)
-				if err != nil {
-					log.Errorf("session %s, error stopping shell %s", s.id, err.Error())
-				} else {
-					log.Infof("session %s successfully stopped", s.id)
-				}
-				return
+			pongTimer.Reset(pongTimeout)
+		case <-pongTimer.C:
+			s.expiresAt = time.Now()
+			log.Errorf("session %s, health check failed, connection with the client lost", s.id)
+			err := MenderShellStopById(s.id)
+			if err != nil {
+				log.Errorf("session %s, error stopping shell %s", s.id, err.Error())
+			} else {
+				log.Infof("session %s successfully stopped", s.id)
 			}
-		case <-time.After(time.Until(nextHealthcheckPing)):
+			return
+		case <-pingTicker.C:
 			s.healthcheckPing()
-			nextHealthcheckPing = time.Now().Add(healthcheckInterval)
 		}
 	}
 }
@@ -475,7 +473,9 @@ func (s *MenderShellSession) StopShell() (err error) {
 		return ErrSessionShellNotRunning
 	}
 
-	close(s.stop)
+	s.stopOnce.Do(func() {
+		close(s.stop)
+	})
 	s.shell.Stop()
 	s.terminal = MenderShellTerminalSettings{}
 	s.status = EmptySession
