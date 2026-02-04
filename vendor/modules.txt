@@ -30,8 +30,8 @@ github.com/pmezard/go-difflib/difflib
 # github.com/satori/go.uuid v1.2.0
 ## explicit
 github.com/satori/go.uuid
-# github.com/sirupsen/logrus v1.9.3
-## explicit; go 1.13
+# github.com/sirupsen/logrus v1.9.4
+## explicit; go 1.17
 github.com/sirupsen/logrus
 # github.com/stretchr/objx v0.5.2
 ## explicit; go 1.20
