@@ -15,9 +15,19 @@ include:
     file: '.gitlab-ci-check-license.yml'
   - project: 'Northern.tech/Mender/mendertesting'
     file: '.gitlab-ci-github-status-updates.yml'
+  - project: Northern.tech/Mender/mendertesting
+    file:
+      - qa-common/runner.yml
+      - qa-common/retry.yml
+
+default:
+  tags: !reference [.qa-common-default-runner, tags]
+  retry: !reference [.qa-common-default-retry, retry]
 
 test:unit:
   stage: test
+  before_script:
+    - !reference [.qa-common-network-go-retry, before_script]
   script:
     # start the dbus service
     - service dbus start
@@ -40,6 +50,7 @@ test:backwards-compatibility:
   image: golang:1.17.13-bullseye
   needs: []
   before_script:
+    - !reference [.qa-common-network-go-retry, before_script]
     - apt-get update && apt-get install --quiet --assume-yes $(cat deb-requirements.txt )
   script:
     - go build
