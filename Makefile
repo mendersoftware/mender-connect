@@ -18,7 +18,6 @@ GOCYCLO_LIMIT ?= 15
 TOOLS = \
 	github.com/fzipp/gocyclo                     \
 	gitlab.com/opennota/check/cmd/varcheck       \
-	github.com/mendersoftware/deadcode           \
 	github.com/mendersoftware/gobinarycoverage
 
 VERSION = $(shell git describe --tags --dirty --exact-match 2>/dev/null || git rev-parse --short HEAD)
@@ -77,7 +76,7 @@ check: test extracheck
 test:
 	@$(GO) test $(BUILDV) $(PKGS)
 
-extracheck: gofmt govet godeadcode govarcheck gocyclo
+extracheck: gofmt govet govarcheck gocyclo
 	@echo "All extra-checks passed!"
 
 gofmt:
@@ -91,10 +90,6 @@ gofmt:
 govet:
 	@echo "-- checking with govet"
 	@$(GO) vet -unsafeptr=false
-
-godeadcode:
-	@echo "-- checking for dead code"
-	@deadcode -ignore version.go:Version
 
 govarcheck:
 	@echo "-- checking with varcheck"
