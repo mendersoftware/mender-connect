@@ -101,6 +101,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 	}
 	if !conf.PortForward.Disable {
 		routes[ws.ProtoTypePortForward] = session.PortForward()
+		routes[ws.ProtoTypePortForwardV2] = session.PortForwardV2()
 	}
 	if !conf.MenderClient.Disable {
 		routes[ws.ProtoTypeMenderClient] = session.MenderClient()
