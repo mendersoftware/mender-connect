@@ -173,9 +173,15 @@ func (f *MenderPortForwarder) Read() {
 
 func (f *MenderPortForwarder) Write(body []byte) error {
 	log.Debugf("port-forward[%s/%s] write %d bytes", f.SessionID, f.ConnectionID, len(body))
-	_, err := f.conn.Write(body)
-	if err != nil {
-		return err
+	for {
+		n, err := f.conn.Write(body)
+		if err != nil {
+			return err
+		}
+		body = body[n:]
+		if len(body) <= 0 {
+			break
+		}
 	}
 	return nil
 }
