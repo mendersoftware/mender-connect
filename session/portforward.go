@@ -16,6 +16,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
@@ -332,6 +333,9 @@ func (h *PortForwardHandler) portForwardHandlerForward(
 	connectionID, _ := message.Header.Properties[wspf.PropertyConnectionID].(string)
 	if portForwarder, ok := h.portForwarders[connectionID]; ok {
 		err := portForwarder.Write(message.Body)
+		if err != nil {
+			return fmt.Errorf("error forwarding message to connection: %w", err)
+		}
 		// send ack
 		response := &ws.ProtoMsg{
 			Header: ws.ProtoHdr{
@@ -344,7 +348,7 @@ func (h *PortForwardHandler) portForwardHandlerForward(
 			},
 		}
 		if err := w.WriteProtoMsg(response); err != nil {
-			log.Errorf("portForwardHandler: webSock.WriteMessage(%+v)", err)
+			log.Warnf("portForwardHandler: error writing ack message: %s", err.Error())
 		}
 		return err
 	} else {
