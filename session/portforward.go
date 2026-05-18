@@ -16,6 +16,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
@@ -43,6 +44,7 @@ var (
 )
 
 type MenderPortForwarder struct {
+	proto          ws.ProtoType
 	SessionID      string
 	ConnectionID   string
 	ResponseWriter ResponseWriter
@@ -92,7 +94,7 @@ func (f *MenderPortForwarder) Close(sendStopMessage bool) error {
 	if sendStopMessage {
 		m := &ws.ProtoMsg{
 			Header: ws.ProtoHdr{
-				Proto:     ws.ProtoTypePortForward,
+				Proto:     f.proto,
 				MsgType:   wspf.MessageTypePortForwardStop,
 				SessionID: f.SessionID,
 				Properties: map[string]interface{}{
@@ -145,12 +147,14 @@ func (f *MenderPortForwarder) Read() {
 		case data := <-dataChan:
 			log.Debugf("port-forward[%s/%s] read %d bytes", f.SessionID, f.ConnectionID, len(data))
 
-			// lock the ack mutex, we don't allow more than one in-flight message
-			f.mutexAck.Lock()
+			if f.proto == ws.ProtoTypePortForward {
+				// lock the ack mutex, we don't allow more than one in-flight message
+				f.mutexAck.Lock()
+			}
 
 			m := &ws.ProtoMsg{
 				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypePortForward,
+					Proto:     f.proto,
 					MsgType:   wspf.MessageTypePortForward,
 					SessionID: f.SessionID,
 					Properties: map[string]interface{}{
@@ -172,45 +176,77 @@ func (f *MenderPortForwarder) Read() {
 
 func (f *MenderPortForwarder) Write(body []byte) error {
 	log.Debugf("port-forward[%s/%s] write %d bytes", f.SessionID, f.ConnectionID, len(body))
-	_, err := f.conn.Write(body)
-	if err != nil {
-		return err
+	for {
+		n, err := f.conn.Write(body)
+		if err != nil {
+			return err
+		}
+		body = body[n:]
+		if len(body) <= 0 {
+			break
+		}
 	}
 	return nil
 }
 
 type PortForwardHandler struct {
 	portForwarders map[string]*MenderPortForwarder
+	proto          ws.ProtoType
 }
 
 func PortForward() Constructor {
 	return func() SessionHandler {
 		return &PortForwardHandler{
 			portForwarders: make(map[string]*MenderPortForwarder),
+			proto:          ws.ProtoTypePortForward,
+		}
+	}
+}
+
+func PortForwardV2() Constructor {
+	return func() SessionHandler {
+		return &PortForwardHandler{
+			portForwarders: make(map[string]*MenderPortForwarder),
+			proto:          ws.ProtoTypePortForwardV2,
 		}
 	}
 }
 
 func (h *PortForwardHandler) Close() error {
+	var errs Errors
 	for _, f := range h.portForwarders {
-		f.Close(false)
+		err := f.Close(false)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errs
 	}
 	return nil
 }
 
 func (h *PortForwardHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) {
 	var err error
-	switch msg.Header.MsgType {
-	case wspf.MessageTypePortForwardNew:
-		err = h.portForwardHandlerNew(msg, w)
-	case wspf.MessageTypePortForwardStop:
-		err = h.portForwardHandlerStop(msg, w)
-	case wspf.MessageTypePortForward:
-		err = h.portForwardHandlerForward(msg, w)
-	case wspf.MessageTypePortForwardAck:
-		err = h.portForwardHandlerAck(msg, w)
-	default:
-		err = errPortForwardUnkonwnMessageType
+	if msg.Header.Proto == h.proto {
+		switch msg.Header.MsgType {
+		case wspf.MessageTypePortForwardNew:
+			err = h.portForwardHandlerNew(msg, w)
+		case wspf.MessageTypePortForwardStop:
+			err = h.portForwardHandlerStop(msg, w)
+		case wspf.MessageTypePortForward:
+			err = h.portForwardHandlerForward(msg, w)
+		case wspf.MessageTypePortForwardAck:
+			if h.proto == ws.ProtoTypePortForward {
+				err = h.portForwardHandlerAck(msg, w)
+				break
+			}
+			fallthrough // For v2 this is an unknown message type
+		default:
+			err = errPortForwardUnkonwnMessageType
+		}
+	} else {
+		err = fmt.Errorf("invalid protocol ID %d in request header", msg.Header.Proto)
 	}
 	if err != nil {
 		log.Errorf("portForwardHandler(%+v)", err)
@@ -225,7 +261,7 @@ func (h *PortForwardHandler) ServeProtoMsg(msg *ws.ProtoMsg, w ResponseWriter) {
 		}
 		response := &ws.ProtoMsg{
 			Header: ws.ProtoHdr{
-				Proto:     ws.ProtoTypePortForward,
+				Proto:     h.proto,
 				MsgType:   wspf.MessageTypeError,
 				SessionID: msg.Header.SessionID,
 			},
@@ -256,6 +292,7 @@ func (h *PortForwardHandler) portForwardHandlerNew(message *ws.ProtoMsg, w Respo
 	}
 
 	portForwarder := &MenderPortForwarder{
+		proto:          h.proto,
 		SessionID:      message.Header.SessionID,
 		ConnectionID:   connectionID,
 		ResponseWriter: w,
@@ -316,7 +353,7 @@ func (h *PortForwardHandler) portForwardHandlerStop(message *ws.ProtoMsg, w Resp
 			},
 		}
 		if err := w.WriteProtoMsg(response); err != nil {
-			log.Errorf("portForwardHandler: webSock.WriteMessage(%+v)", err)
+			log.Warnf("portForwardHandler: error writing ack message: %s", err.Error())
 		}
 
 		return nil
@@ -332,19 +369,22 @@ func (h *PortForwardHandler) portForwardHandlerForward(
 	connectionID, _ := message.Header.Properties[wspf.PropertyConnectionID].(string)
 	if portForwarder, ok := h.portForwarders[connectionID]; ok {
 		err := portForwarder.Write(message.Body)
-		// send ack
-		response := &ws.ProtoMsg{
-			Header: ws.ProtoHdr{
-				Proto:     message.Header.Proto,
-				MsgType:   wspf.MessageTypePortForwardAck,
-				SessionID: message.Header.SessionID,
-				Properties: map[string]interface{}{
-					wspf.PropertyConnectionID: connectionID,
-				},
-			},
+		if err != nil {
+			return fmt.Errorf("error forwarding message to connection: %w", err)
 		}
-		if err := w.WriteProtoMsg(response); err != nil {
-			log.Errorf("portForwardHandler: webSock.WriteMessage(%+v)", err)
+		if h.proto == ws.ProtoTypePortForward {
+			// send ack
+			response := &ws.ProtoMsg{
+				Header: ws.ProtoHdr{
+					Proto:     message.Header.Proto,
+					MsgType:   wspf.MessageTypePortForwardAck,
+					SessionID: message.Header.SessionID,
+					Properties: map[string]interface{}{
+						wspf.PropertyConnectionID: connectionID,
+					},
+				},
+			}
+			err = w.WriteProtoMsg(response)
 		}
 		return err
 	} else {
@@ -361,7 +401,9 @@ func (h *PortForwardHandler) portForwardHandlerAck(message *ws.ProtoMsg, w Respo
 				log.Errorf("portForwardHandlerAck: recover(%+v)", r)
 			}
 		}()
-		portForwarder.mutexAck.Unlock()
+		if h.proto == ws.ProtoTypePortForward {
+			portForwarder.mutexAck.Unlock()
+		}
 		return nil
 	}
 	return errPortForwardUnkonwnConnection

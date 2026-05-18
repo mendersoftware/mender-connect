@@ -1,4 +1,4 @@
-// Copyright 2023 Northern.tech AS
+// Copyright 2026 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -12,21 +12,32 @@
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
 
-package shell
+package session
 
-type MenderShellMessageStatus int
-
-const (
-	MessageTypePingShell    = "ping"
-	MessageTypePongShell    = "pong"
-	MessageTypeResizeShell  = "resize"
-	MessageTypeShellCommand = "shell"
-	MessageTypeSpawnShell   = "new"
-	MessageTypeStopShell    = "stop"
+import (
+	"errors"
+	"strings"
 )
 
-const (
-	NormalMessage MenderShellMessageStatus = iota + 1
-	ErrorMessage
-	ControlMessage
-)
+// Errors approximately as errors.Join, but uses `;` as separator and
+// is compatible with go < 1.20.
+type Errors []error
+
+func (errs Errors) Error() string {
+	var s []string
+	for _, err := range errs {
+		if err != nil {
+			s = append(s, err.Error())
+		}
+	}
+	return strings.Join(s, "; ")
+}
+
+func (errs Errors) Is(target error) bool {
+	for _, err := range errs {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
+}
