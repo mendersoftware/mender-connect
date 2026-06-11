@@ -11,6 +11,7 @@ include:
     file: '.gitlab-ci-check-golang-unittests.yml'
   - project: 'Northern.tech/Mender/mendertesting'
     file: '.gitlab-ci-check-commits.yml'
+  - component: gitlab.com/Northern.tech/Mender/mendertesting/backwards-compatible-yocto@master
   - project: 'Northern.tech/Mender/mendertesting'
     file: '.gitlab-ci-check-license.yml'
   - project: 'Northern.tech/Mender/mendertesting'
@@ -42,13 +43,3 @@ build:make:
     - apk add --update git make gcc pkgconfig libc-dev glib-dev
   script:
     - make build
-
-# Test that we can build with the golang version of the oldest supported yocto LTS release
-test:backwards-compatibility:
-  image: golang:1.17.13-bullseye
-  needs: []
-  before_script:
-    - !reference [.qa-common-network-go-retry, before_script]
-    - apt-get update && apt-get install --quiet --assume-yes $(cat deb-requirements.txt )
-  script:
-    - go build
