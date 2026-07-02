@@ -19,6 +19,10 @@ include:
     file:
       - qa-common/runner.yml
       - qa-common/retry.yml
+# Release CI/CD components
+  - component: gitlab.com/Northern.tech/Mender/mendertesting/release-candidate@master
+    inputs:
+      github_repo: mendersoftware/mender-connect
 
 default:
   tags: !reference [.qa-common-default-runner, tags]
