@@ -1,4 +1,5 @@
 stages:
+  - renovate
   - test_prep
   - test
   - build
@@ -19,6 +20,9 @@ include:
     file:
       - qa-common/runner.yml
       - qa-common/retry.yml
+  - component: gitlab.com/Northern.tech/Mender/mendertesting/renovate@master
+    inputs:
+      stage: "renovate"
 
 default:
   tags: !reference [.qa-common-default-runner, tags]
