@@ -161,7 +161,7 @@ func NewMenderShellSession(
 		sessionType: ShellInteractiveSession,
 		status:      NewSession,
 		stop:        make(chan struct{}),
-		pong:        make(chan struct{}),
+		pong:        make(chan struct{}, 1),
 	}
 	sessionsMap[sessionId] = s
 	sessionsByUserIdMap[userId] = append(sessionsByUserIdMap[userId], s)
@@ -444,7 +444,14 @@ func (s *MenderShellSession) healthcheckPing() {
 }
 
 func (s *MenderShellSession) HealthcheckPong() {
-	s.pong <- struct{}{}
+	// The healthcheck goroutine stops reading this channel once it takes its
+	// timeout branch, but the session can still be looked up for a while, so
+	// a blocking send here could leave the daemon's messageLoop waiting
+	// forever on a late pong.
+	select {
+	case s.pong <- struct{}{}:
+	default:
+	}
 }
 
 func (s *MenderShellSession) ShellCommand(m *ws.ProtoMsg) error {
