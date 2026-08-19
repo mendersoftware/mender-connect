@@ -8,8 +8,7 @@ stages:
 include:
   - project: 'Northern.tech/Mender/mendertesting'
     file: '.gitlab-ci-check-golang-lint.yml'
-  - project: 'Northern.tech/Mender/mendertesting'
-    file: '.gitlab-ci-check-golang-unittests.yml'
+  - component: gitlab.com/Northern.tech/Mender/mendertesting/golang-unittests-codecov@feat/QA-1574-new-codecov-templates
   - component: gitlab.com/Northern.tech/Mender/mendertesting/commit-lint@master
   - component: gitlab.com/Northern.tech/Mender/mendertesting/backwards-compatible-yocto@master
   - project: 'Northern.tech/Mender/mendertesting'
