@@ -1,6 +1,6 @@
 module github.com/mendersoftware/mender-connect
 
-go 1.17
+go 1.22
 
 replace github.com/urfave/cli/v2 => github.com/mendersoftware/cli/v2 v2.1.1
 
@@ -14,6 +14,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
 	github.com/urfave/cli/v2 v2.27.7
+	github.com/urfave/cli/v3 v3.10.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 )
 
