@@ -36,7 +36,7 @@ test:unit:
 build:make:
   stage: build
   needs: []
-  image: golang:1.23-alpine
+  image: golang:1.27-alpine
   before_script:
     - apk add --update git make gcc pkgconfig libc-dev glib-dev
   script:
