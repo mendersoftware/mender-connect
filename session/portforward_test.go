@@ -189,13 +189,11 @@ func echoTCPServer(t *testing.T) (tcpPort int, close CloseFunc) {
 		listener net.Listener
 	)
 
-	go func(tcpPort int) {
-		var err error
-		listener, err = net.Listen(wspf.PortForwardProtocolTCP, fmt.Sprintf("localhost:%d", tcpPort))
-		if err != nil {
-			panic(err)
-		}
-		defer listener.Close()
+	listener, err := net.Listen(wspf.PortForwardProtocolTCP, fmt.Sprintf("localhost:%d", tcpPort))
+	if err != nil {
+		t.Fatalf("failed to start echoTCPServer: %s", err.Error())
+	}
+	go func() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
@@ -225,7 +223,7 @@ func echoTCPServer(t *testing.T) (tcpPort int, close CloseFunc) {
 				}
 			}(conn)
 		}
-	}(tcpPort)
+	}()
 	closeOnce := new(sync.Once)
 	return tcpPort, func() error {
 		var errs Errors
@@ -539,8 +537,8 @@ func TestPortForwardHandlerV2(t *testing.T) {
 		}
 		_ = assert.Len(t, w.Messages, 1) &&
 			assert.Equal(t, ws.ProtoTypePortForwardV2, w.Messages[0].Header.Proto) &&
-			assert.Equal(t, wspf.MessageTypePortForwardNew, w.Messages[0].Header.MsgType) &&
-			assert.Nil(t, w.Messages[0].Body)
+			assert.Equal(t, wspf.MessageTypePortForwardNew, w.Messages[0].Header.MsgType)
+		assert.Nil(t, w.Messages[0].Body)
 	}) && t.Run("forward message to session", func(t *testing.T) {
 		w.Messages = nil
 		body := []byte("test data")
