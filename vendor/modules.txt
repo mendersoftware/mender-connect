@@ -3,7 +3,6 @@
 github.com/creack/pty
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
-github.com/davecgh/go-spew/spew
 # github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 ## explicit; go 1.13
 github.com/go-ozzo/ozzo-validation/v4
@@ -24,7 +23,6 @@ github.com/mendersoftware/go-lib-micro/ws/shell
 github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
-github.com/pmezard/go-difflib/difflib
 # github.com/rogpeppe/go-internal v1.8.0
 ## explicit; go 1.11
 # github.com/satori/go.uuid v1.2.0
@@ -33,17 +31,21 @@ github.com/satori/go.uuid
 # github.com/sirupsen/logrus v1.9.4
 ## explicit; go 1.17
 github.com/sirupsen/logrus
-# github.com/stretchr/objx v0.5.2
+# github.com/stretchr/objx v0.5.3
 ## explicit; go 1.20
 github.com/stretchr/objx
-# github.com/stretchr/testify v1.11.1
+# github.com/stretchr/testify v1.12.1
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/assert/yaml
+github.com/stretchr/testify/internal/difflib
+github.com/stretchr/testify/internal/spew
 github.com/stretchr/testify/mock
-# github.com/urfave/cli/v2 v2.25.0 => github.com/mendersoftware/cli/v2 v2.1.1-minimal
+# github.com/urfave/cli/v2 v2.27.7 => github.com/mendersoftware/cli/v2 v2.1.1-minimal
 ## explicit; go 1.11
 github.com/urfave/cli/v2
+# github.com/urfave/cli/v3 v3.12.0
+## explicit; go 1.22
 # github.com/vmihailenco/msgpack/v5 v5.4.1
 ## explicit; go 1.19
 github.com/vmihailenco/msgpack/v5
@@ -53,6 +55,9 @@ github.com/vmihailenco/msgpack/v5/msgpcode
 github.com/vmihailenco/tagparser/v2
 github.com/vmihailenco/tagparser/v2/internal
 github.com/vmihailenco/tagparser/v2/internal/parser
+# go.yaml.in/yaml/v3 v3.0.5
+## explicit; go 1.16
+go.yaml.in/yaml/v3
 # golang.org/x/net v0.23.0
 ## explicit; go 1.18
 golang.org/x/net/internal/socks
@@ -65,5 +70,4 @@ golang.org/x/sys/windows
 ## explicit; go 1.11
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
-gopkg.in/yaml.v3
 # github.com/urfave/cli/v2 => github.com/mendersoftware/cli/v2 v2.1.1-minimal
