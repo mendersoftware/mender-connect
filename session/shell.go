@@ -124,6 +124,7 @@ type MenderShellSession struct {
 
 var sessionsMap = map[string]*MenderShellSession{}
 var sessionsByUserIdMap = map[string][]*MenderShellSession{}
+var sessionsMutex sync.Mutex
 
 func timeNow() time.Time {
 	return time.Now().UTC()
@@ -135,6 +136,9 @@ func NewMenderShellSession(
 	expireAfter time.Duration,
 	expireAfterIdle time.Duration,
 ) (s *MenderShellSession, err error) {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
 	if userSessions, ok := sessionsByUserIdMap[userId]; ok {
 		log.Debugf("user %s has %d sessions.", userId, len(userSessions))
 		if len(userSessions) >= MaxUserSessions {
@@ -169,10 +173,16 @@ func NewMenderShellSession(
 }
 
 func MenderShellSessionGetCount() int {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
 	return len(sessionsMap)
 }
 
 func MenderShellSessionGetSessionIds() []string {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
 	keys := make([]string, 0, len(sessionsMap))
 	for k := range sessionsMap {
 		keys = append(keys, k)
@@ -182,6 +192,9 @@ func MenderShellSessionGetSessionIds() []string {
 }
 
 func MenderShellSessionGetById(id string) *MenderShellSession {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
 	if v, ok := sessionsMap[id]; ok {
 		return v
 	} else {
@@ -189,7 +202,8 @@ func MenderShellSessionGetById(id string) *MenderShellSession {
 	}
 }
 
-func MenderShellDeleteById(id string) error {
+// menderShellDeleteByIdLocked assumes sessionsMutex is already held by the caller.
+func menderShellDeleteByIdLocked(id string) error {
 	if v, ok := sessionsMap[id]; ok {
 		userSessions := sessionsByUserIdMap[v.userId]
 		for i, s := range userSessions {
@@ -205,7 +219,17 @@ func MenderShellDeleteById(id string) error {
 	}
 }
 
+func MenderShellDeleteById(id string) error {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
+	return menderShellDeleteByIdLocked(id)
+}
+
 func MenderShellSessionsGetByUserId(userId string) []*MenderShellSession {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
 	if v, ok := sessionsByUserIdMap[userId]; ok {
 		return v
 	} else {
@@ -226,6 +250,9 @@ func MenderShellStopById(sessionId string) error {
 }
 
 func MenderShellStopByUserId(userId string) (count uint, err error) {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
 	a := sessionsByUserIdMap[userId]
 	log.Debugf("stopping all shells of user %s.", userId)
 	if len(a) == 0 {
@@ -250,6 +277,9 @@ func MenderShellStopByUserId(userId string) (count uint, err error) {
 }
 
 func MenderSessionTerminateAll() (shellCount int, sessionCount int, err error) {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
 	shellCount = 0
 	sessionCount = 0
 	for id, s := range sessionsMap {
@@ -264,7 +294,7 @@ func MenderSessionTerminateAll() (shellCount int, sessionCount int, err error) {
 			)
 			err = e
 		}
-		e = MenderShellDeleteById(id)
+		e = menderShellDeleteByIdLocked(id)
 		if e == nil {
 			sessionCount++
 		} else {
@@ -282,6 +312,9 @@ func MenderSessionTerminateExpired() (
 	totalExpiredLeft int,
 	err error,
 ) {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
 	shellCount = 0
 	sessionCount = 0
 	totalExpiredLeft = 0
@@ -298,7 +331,7 @@ func MenderSessionTerminateExpired() (
 				)
 				err = e
 			}
-			e = MenderShellDeleteById(id)
+			e = menderShellDeleteByIdLocked(id)
 			if e == nil {
 				sessionCount++
 			} else {
