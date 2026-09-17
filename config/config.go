@@ -17,7 +17,6 @@ package config
 import (
 	"bufio"
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -388,7 +387,7 @@ func checkforDeprecatedFields(configFile string) error {
 func readConfigFile(config interface{}, fileName string) error {
 	// Reads mender configuration (JSON) file.
 	log.Debug("Reading Mender configuration from file " + fileName)
-	conf, err := ioutil.ReadFile(fileName)
+	conf, err := os.ReadFile(fileName)
 	if err != nil {
 		return err
 	}
