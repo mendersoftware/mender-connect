@@ -231,15 +231,27 @@ func MenderShellSessionsGetByUserId(userId string) []*MenderShellSession {
 	defer sessionsMutex.Unlock()
 
 	if v, ok := sessionsByUserIdMap[userId]; ok {
-		return v
-	} else {
-		return nil
+		out := make([]*MenderShellSession, len(v))
+		copy(out, v)
+		return out
 	}
+	return nil
+}
+
+func MenderShellSessionGetAll() []*MenderShellSession {
+	sessionsMutex.Lock()
+	defer sessionsMutex.Unlock()
+
+	sessions := make([]*MenderShellSession, 0, len(sessionsMap))
+	for _, s := range sessionsMap {
+		sessions = append(sessions, s)
+	}
+	return sessions
 }
 
 func MenderShellStopById(sessionId string) error {
 	s := MenderShellSessionGetById(sessionId)
-	if s.shell == nil {
+	if s == nil || s.shell == nil {
 		return ErrSessionNotFound
 	}
 	e := s.StopShell()
@@ -251,16 +263,16 @@ func MenderShellStopById(sessionId string) error {
 
 func MenderShellStopByUserId(userId string) (count uint, err error) {
 	sessionsMutex.Lock()
-	defer sessionsMutex.Unlock()
+	sessions := append([]*MenderShellSession(nil), sessionsByUserIdMap[userId]...)
+	sessionsMutex.Unlock()
 
-	a := sessionsByUserIdMap[userId]
 	log.Debugf("stopping all shells of user %s.", userId)
-	if len(a) == 0 {
+	if len(sessions) == 0 {
 		return 0, ErrSessionNotFound
 	}
-	count = 0
-	err = nil
-	for _, s := range a {
+
+	var stopped []*MenderShellSession
+	for _, s := range sessions {
 		if s.shell == nil {
 			continue
 		}
@@ -269,39 +281,51 @@ func MenderShellStopByUserId(userId string) (count uint, err error) {
 			err = e
 			continue
 		}
-		delete(sessionsMap, s.id)
-		count++
+		stopped = append(stopped, s)
 	}
-	delete(sessionsByUserIdMap, userId)
-	return count, err
+
+	sessionsMutex.Lock()
+	for _, s := range stopped {
+		_ = menderShellDeleteByIdLocked(s.id)
+	}
+	sessionsMutex.Unlock()
+
+	return uint(len(stopped)), err
 }
 
 func MenderSessionTerminateAll() (shellCount int, sessionCount int, err error) {
 	sessionsMutex.Lock()
-	defer sessionsMutex.Unlock()
+	sessions := make([]*MenderShellSession, 0, len(sessionsMap))
+	for _, s := range sessionsMap {
+		sessions = append(sessions, s)
+	}
+	sessionsMutex.Unlock()
 
-	shellCount = 0
-	sessionCount = 0
-	for id, s := range sessionsMap {
+	for _, s := range sessions {
 		e := s.StopShell()
 		if e == nil {
 			shellCount++
 		} else {
 			log.Debugf(
 				"terminate sessions: failed to stop shell for session: %s: %s",
-				id,
+				s.id,
 				e.Error(),
 			)
 			err = e
 		}
-		e = menderShellDeleteByIdLocked(id)
+	}
+
+	sessionsMutex.Lock()
+	for _, s := range sessions {
+		e := menderShellDeleteByIdLocked(s.id)
 		if e == nil {
 			sessionCount++
 		} else {
-			log.Debugf("terminate sessions: failed to remove session: %s: %s", id, e.Error())
+			log.Debugf("terminate sessions: failed to remove session: %s: %s", s.id, e.Error())
 			err = e
 		}
 	}
+	sessionsMutex.Unlock()
 
 	return shellCount, sessionCount, err
 }
@@ -313,34 +337,40 @@ func MenderSessionTerminateExpired() (
 	err error,
 ) {
 	sessionsMutex.Lock()
-	defer sessionsMutex.Unlock()
-
-	shellCount = 0
-	sessionCount = 0
-	totalExpiredLeft = 0
-	for id, s := range sessionsMap {
+	expired := make([]*MenderShellSession, 0, len(sessionsMap))
+	for _, s := range sessionsMap {
 		if s.IsExpired(false) {
-			e := s.StopShell()
-			if e == nil {
-				shellCount++
-			} else {
-				log.Debugf(
-					"expire sessions: failed to stop shell for session: %s: %s",
-					id,
-					e.Error(),
-				)
-				err = e
-			}
-			e = menderShellDeleteByIdLocked(id)
-			if e == nil {
-				sessionCount++
-			} else {
-				log.Debugf("expire sessions: failed to delete session: %s: %s", id, e.Error())
-				totalExpiredLeft++
-				err = e
-			}
+			expired = append(expired, s)
 		}
 	}
+	sessionsMutex.Unlock()
+
+	for _, s := range expired {
+		e := s.StopShell()
+		if e == nil {
+			shellCount++
+		} else {
+			log.Debugf(
+				"expire sessions: failed to stop shell for session: %s: %s",
+				s.id,
+				e.Error(),
+			)
+			err = e
+		}
+	}
+
+	sessionsMutex.Lock()
+	for _, s := range expired {
+		e := menderShellDeleteByIdLocked(s.id)
+		if e == nil {
+			sessionCount++
+		} else {
+			log.Debugf("expire sessions: failed to delete session: %s: %s", s.id, e.Error())
+			totalExpiredLeft++
+			err = e
+		}
+	}
+	sessionsMutex.Unlock()
 
 	return shellCount, sessionCount, totalExpiredLeft, err
 }

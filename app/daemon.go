@@ -184,11 +184,10 @@ func (d *MenderShellDaemon) outputStatus() {
 	d.spawnedShellsMutex.Lock()
 	log.Infof("  shells: %d/%d", d.shellsSpawned, config.MaxShellsSpawned)
 	d.spawnedShellsMutex.Unlock()
-	log.Infof("  sessions: %d", session.MenderShellSessionGetCount())
-	sessionIds := session.MenderShellSessionGetSessionIds()
-	for _, id := range sessionIds {
-		s := session.MenderShellSessionGetById(id)
-		log.Infof("   id:%s status:%d started:%s", id, s.GetStatus(), s.GetStartedAtFmt())
+	sessions := session.MenderShellSessionGetAll()
+	log.Infof("  sessions: %d", len(sessions))
+	for _, s := range sessions {
+		log.Infof("   id:%s status:%d started:%s", s.GetId(), s.GetStatus(), s.GetStartedAtFmt())
 		log.Infof("   expires:%s active:%s", s.GetExpiresAtFmt(), s.GetActiveAtFmt())
 		log.Infof("   shell:%s", s.GetShellCommandPath())
 	}
