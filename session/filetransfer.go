@@ -484,17 +484,19 @@ func (h *FileTransferHandler) FileUploadHandler(
 	}
 	closeFd = true
 
-	err = w.WriteProtoMsg(&ws.ProtoMsg{
-		Header: ws.ProtoHdr{
-			Proto:      ws.ProtoTypeFileTransfer,
-			MsgType:    wsft.MessageTypeACK,
-			SessionID:  msg.Header.SessionID,
-			Properties: map[string]interface{}{"offset": int64(0)},
-		},
-	})
-	if err != nil {
-		log.Errorf("failed to respond to client: %s", err.Error())
-		return errFileTransferAbort
+	if msg.Header.Proto == ws.ProtoTypeFileTransfer {
+		err = w.WriteProtoMsg(&ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:      msg.Header.Proto,
+				MsgType:    wsft.MessageTypeACK,
+				SessionID:  msg.Header.SessionID,
+				Properties: map[string]interface{}{"offset": int64(0)},
+			},
+		})
+		if err != nil {
+			log.Errorf("failed to respond to client: %s", err.Error())
+			return errFileTransferAbort
+		}
 	}
 
 	_, err = h.writeFile(w, fd)
@@ -611,6 +613,11 @@ func (h *FileTransferHandler) writeFile(w ResponseWriter, dst *os.File) (int64, 
 			done = true
 		} else if err != nil {
 			return offset, err
+		}
+		if msg.Header.Proto == ws.ProtoTypeFileTransferV2 {
+			// Filetransfer v2 does not implement message acknowledgement
+			// Relies on reliable message transport.
+			continue
 		}
 		// Receive up to ACKSlidingWindowSend file chunks before
 		// responding with an ACK.
