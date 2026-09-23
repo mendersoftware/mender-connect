@@ -162,7 +162,7 @@ func (h *FileTransferHandler) StatFile(msg *ws.ProtoMsg, w ResponseWriter) {
 
 	err = w.WriteProtoMsg(&ws.ProtoMsg{
 		Header: ws.ProtoHdr{
-			Proto:     ws.ProtoTypeFileTransfer,
+			Proto:     msg.Header.Proto,
 			MsgType:   wsft.MessageTypeFileInfo,
 			SessionID: msg.Header.SessionID,
 		},
@@ -179,12 +179,13 @@ type chunkWriter struct {
 	SessionID string
 	Offset    int64
 	W         ResponseWriter
+	proto     ws.ProtoType
 }
 
 func (c *chunkWriter) Write(b []byte) (int, error) {
 	msg := ws.ProtoMsg{
 		Header: ws.ProtoHdr{
-			Proto:     ws.ProtoTypeFileTransfer,
+			Proto:     c.proto,
 			MsgType:   wsft.MessageTypeChunk,
 			SessionID: c.SessionID,
 			Properties: map[string]interface{}{
@@ -268,6 +269,7 @@ func (h *FileTransferHandler) DownloadHandler(
 	chunker := &chunkWriter{
 		SessionID: msg.Header.SessionID,
 		W:         w,
+		proto:     msg.Header.Proto,
 	}
 
 	waitAck := func() (*ws.ProtoMsg, error) {
@@ -307,42 +309,40 @@ func (h *FileTransferHandler) DownloadHandler(
 	}
 
 	buf := make([]byte, FileTransferBufSize)
-	for {
-		windowBytes := ackOffset - chunker.Offset +
-			ACKSlidingWindowRecv*FileTransferBufSize
-		if windowBytes > 0 {
-			N, err = io.CopyBuffer(chunker, io.LimitReader(fd, windowBytes), buf)
-			if err != nil {
-				err = errors.Wrap(err, "failed to copy file chunk to session")
-				return err
-			}
-			belowLimit := h.permit.BytesSent(uint64(N))
-			if !belowLimit {
-				log.Warnf("file download tx bytes limit reached.")
-				return filetransfer.ErrTxBytesLimitExhausted
-			}
-			if N < windowBytes {
-				break
-			}
-		}
-
-		msg, err = waitAck()
+	if msg.Header.Proto == ws.ProtoTypeFileTransferV2 {
+		_, err = io.CopyBuffer(chunker, fd, buf)
 		if err != nil {
 			return err
 		}
-	}
+		ackOffset = chunker.Offset // Short circuit ack loop
+	} else {
+		for {
+			windowBytes := ackOffset - chunker.Offset +
+				ACKSlidingWindowRecv*FileTransferBufSize
+			if windowBytes > 0 {
+				N, err = io.CopyBuffer(chunker, io.LimitReader(fd, windowBytes), buf)
+				if err != nil {
+					err = errors.Wrap(err, "failed to copy file chunk to session")
+					return err
+				}
+				belowLimit := h.permit.BytesSent(uint64(N))
+				if !belowLimit {
+					log.Warnf("file download tx bytes limit reached.")
+					return filetransfer.ErrTxBytesLimitExhausted
+				}
+				if N < windowBytes {
+					break
+				}
+			}
 
+			msg, err = waitAck()
+			if err != nil {
+				return err
+			}
+		}
+	}
 	// Send EOF chunk
-	err = w.WriteProtoMsg(&ws.ProtoMsg{
-		Header: ws.ProtoHdr{
-			Proto:     ws.ProtoTypeFileTransfer,
-			MsgType:   wsft.MessageTypeChunk,
-			SessionID: msg.Header.SessionID,
-			Properties: map[string]interface{}{
-				"offset": chunker.Offset,
-			},
-		},
-	})
+	_, err = chunker.Write([]byte{})
 	if err != nil {
 		log.Errorf("failed to send EOF message to client: %s", err.Error())
 		return err
