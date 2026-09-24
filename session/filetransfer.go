@@ -245,6 +245,42 @@ func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWrite
 	return nil
 }
 
+func waitAck(msgChan <-chan *ws.ProtoMsg) (int64, error) {
+	msg, open := <-msgChan
+	if !open {
+		return -1, errFileTransferAbort
+	}
+	switch msg.Header.MsgType {
+	case wsft.MessageTypeACK:
+
+	case wsft.MessageTypeError:
+		var erro wsft.Error
+		msgpack.Unmarshal(msg.Body, &erro) //nolint:errcheck
+		if erro.Error != nil {
+			log.Errorf("received error message from client: %s", *erro.Error)
+		} else {
+			log.Error("received malformed error message from client: aborting")
+		}
+		return -1, errFileTransferAbort
+
+	default:
+		return -1, errors.Errorf(
+			"received unexpected message type '%s'; expected 'ack'",
+			msg.Header.MsgType,
+		)
+	}
+	var offset int64 = -1
+	if msg.Header.Properties != nil {
+		if off, ok := msg.Header.Properties["offset"].(int64); ok {
+			offset = off
+		}
+	}
+	if offset < 0 {
+		return -1, errors.New("ack message: offset property cannot be blank")
+	}
+	return offset, nil
+}
+
 func (h *FileTransferHandler) DownloadHandler(
 	fd *os.File,
 	msg *ws.ProtoMsg,
@@ -270,42 +306,6 @@ func (h *FileTransferHandler) DownloadHandler(
 		SessionID: msg.Header.SessionID,
 		W:         w,
 		proto:     msg.Header.Proto,
-	}
-
-	waitAck := func() (*ws.ProtoMsg, error) {
-		msg, open := <-h.msgChan
-		if !open {
-			return nil, errFileTransferAbort
-		}
-		switch msg.Header.MsgType {
-		case wsft.MessageTypeACK:
-
-		case wsft.MessageTypeError:
-			var erro wsft.Error
-			msgpack.Unmarshal(msg.Body, &erro) //nolint:errcheck
-			if erro.Error != nil {
-				log.Errorf("received error message from client: %s", *erro.Error)
-			} else {
-				log.Error("received malformed error message from client: aborting")
-			}
-			return msg, errFileTransferAbort
-
-		default:
-			return msg, errors.Errorf(
-				"received unexpected message type '%s'; expected 'ack'",
-				msg.Header.MsgType,
-			)
-		}
-		if off, ok := msg.Header.Properties["offset"]; ok {
-			t, ok := off.(int64)
-			if !ok {
-				return msg, errors.New("invalid offset data type: require int64")
-			}
-			ackOffset = t
-		} else {
-			return msg, errors.New("ack message: offset property cannot be blank")
-		}
-		return msg, nil
 	}
 
 	buf := make([]byte, FileTransferBufSize)
@@ -335,7 +335,7 @@ func (h *FileTransferHandler) DownloadHandler(
 				}
 			}
 
-			msg, err = waitAck()
+			ackOffset, err = waitAck(h.msgChan)
 			if err != nil {
 				return err
 			}
@@ -349,7 +349,7 @@ func (h *FileTransferHandler) DownloadHandler(
 	}
 
 	for ackOffset < chunker.Offset {
-		msg, err = waitAck()
+		ackOffset, err = waitAck(h.msgChan)
 		if err != nil {
 			return err
 		}
