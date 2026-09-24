@@ -98,6 +98,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 	}
 	if !conf.FileTransfer.Disable {
 		routes[ws.ProtoTypeFileTransfer] = session.FileTransfer(conf.Limits)
+		routes[ws.ProtoTypeFileTransferV2] = session.FileTransfer(conf.Limits)
 	}
 	if !conf.PortForward.Disable {
 		routes[ws.ProtoTypePortForward] = session.PortForward()
