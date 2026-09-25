@@ -45,6 +45,8 @@ func TestFileTransferUpload(t *testing.T) {
 	testCases := []struct {
 		Name string
 
+		v2 bool
+
 		Params model.UploadRequest
 
 		// TransferMessages, if set, are sent before file contents
@@ -61,6 +63,23 @@ func TestFileTransferUpload(t *testing.T) {
 	}{
 		{
 			Name: "ok",
+
+			Params: model.UploadRequest{
+				Path: func() *string {
+					p := path.Join(testdir, "mkay")
+					return &p
+				}(),
+			},
+
+			FileContents: []byte(
+				"this message will be chunked into byte chunks to " +
+					"make things super inefficient",
+			),
+			ChunkSize: 1,
+		},
+		{
+			Name: "ok, v2",
+			v2:   true,
 
 			Params: model.UploadRequest{
 				Path: func() *string {
@@ -269,6 +288,10 @@ func TestFileTransferUpload(t *testing.T) {
 		tc := testCases[i]
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
+			proto := ws.ProtoTypeFileTransfer
+			if tc.v2 {
+				proto = ws.ProtoTypeFileTransferV2
+			}
 
 			recorder := NewTestWriter(tc.WriteError)
 			handler := FileTransfer(config.Limits{
@@ -278,7 +301,7 @@ func TestFileTransferUpload(t *testing.T) {
 			b, _ := msgpack.Marshal(tc.Params)
 			request := &ws.ProtoMsg{
 				Header: ws.ProtoHdr{
-					Proto:     ws.ProtoTypeFileTransfer,
+					Proto:     proto,
 					MsgType:   wsft.MessageTypePut,
 					SessionID: "12344",
 				},
@@ -287,10 +310,12 @@ func TestFileTransferUpload(t *testing.T) {
 			defer handler.Close()
 
 			handler.ServeProtoMsg(request, recorder)
-			select {
-			case <-recorder.Called:
-			case <-time.After(time.Second * 10):
-				t.Fatal("test case timeout")
+			if !tc.v2 {
+				select {
+				case <-recorder.Called:
+				case <-time.After(time.Second * 10):
+					t.Fatal("test case timeout")
+				}
 			}
 
 			if tc.TransferMessages != nil {
@@ -309,7 +334,7 @@ func TestFileTransferUpload(t *testing.T) {
 					}
 					handler.ServeProtoMsg(&ws.ProtoMsg{
 						Header: ws.ProtoHdr{
-							Proto:     ws.ProtoTypeFileTransfer,
+							Proto:     proto,
 							MsgType:   wsft.MessageTypeChunk,
 							SessionID: "12344",
 							Properties: map[string]interface{}{
@@ -322,7 +347,7 @@ func TestFileTransferUpload(t *testing.T) {
 				}
 				handler.ServeProtoMsg(&ws.ProtoMsg{
 					Header: ws.ProtoHdr{
-						Proto:     ws.ProtoTypeFileTransfer,
+						Proto:     proto,
 						MsgType:   wsft.MessageTypeChunk,
 						SessionID: "12344",
 						Properties: map[string]interface{}{
@@ -340,33 +365,41 @@ func TestFileTransferUpload(t *testing.T) {
 				handler.mutex <- struct{}{}
 			}
 
-			if !assert.GreaterOrEqual(t, len(recorder.Messages), 1) {
-				t.FailNow()
+			if tc.v2 {
+				assert.LessOrEqual(t, len(recorder.Messages), 1)
+			} else {
+				if !assert.GreaterOrEqual(t, len(recorder.Messages), 1) {
+					t.FailNow()
+				}
 			}
 			if tc.Error == nil {
-				for _, msg := range recorder.Messages {
-					pass := assert.Equal(
-						t, wsft.MessageTypeACK, msg.Header.MsgType,
-						"Bad message: %v", msg,
-					)
-					if assert.Contains(t, msg.Header.Properties, "offset") {
-						pass = pass && assert.LessOrEqual(t,
-							msg.Header.Properties["offset"].(int64),
-							int64(len(tc.FileContents)),
+				if tc.v2 {
+					assert.Len(t, recorder.Messages, 0)
+				} else {
+					for _, msg := range recorder.Messages {
+						pass := assert.Equal(
+							t, wsft.MessageTypeACK, msg.Header.MsgType,
+							"Bad message: %v", msg,
 						)
-					} else {
-						pass = false
+						if assert.Contains(t, msg.Header.Properties, "offset") {
+							pass = pass && assert.LessOrEqual(t,
+								msg.Header.Properties["offset"].(int64),
+								int64(len(tc.FileContents)),
+							)
+						} else {
+							pass = false
+						}
+						if !pass {
+							t.FailNow()
+						}
 					}
-					if !pass {
-						t.FailNow()
+					lastAck := recorder.Messages[len(recorder.Messages)-1]
+					if assert.Contains(t, lastAck.Header.Properties, "offset") {
+						assert.Equal(t,
+							int64(len(tc.FileContents)),
+							lastAck.Header.Properties["offset"].(int64),
+						)
 					}
-				}
-				lastAck := recorder.Messages[len(recorder.Messages)-1]
-				if assert.Contains(t, lastAck.Header.Properties, "offset") {
-					assert.Equal(t,
-						int64(len(tc.FileContents)),
-						lastAck.Header.Properties["offset"].(int64),
-					)
 				}
 			} else {
 				if tc.WriteError != nil {
@@ -423,11 +456,7 @@ func (w ChanWriter) WriteProtoMsg(msg *ws.ProtoMsg) error {
 
 func TestFileTransferDownload(t *testing.T) {
 	t.Parallel()
-	testdir, err := ioutil.TempDir("", "filetransferTesting")
-	if err != nil {
-		panic(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(testdir) })
+	testdir := t.TempDir()
 
 	testCases := []struct {
 		Name string
@@ -438,6 +467,8 @@ func TestFileTransferDownload(t *testing.T) {
 		LimitsEnabled    bool
 		Limits           config.FileTransferLimits
 		FileDoesNotExist bool
+
+		v2 bool
 
 		Error error
 	}{{
@@ -467,14 +498,19 @@ func TestFileTransferDownload(t *testing.T) {
 			return ret
 		},
 	}, {
+		Name: "ok, file larger than window (v2)",
+		v2:   true,
+
+		FileContents: bytes.Repeat([]byte("test"), FileTransferBufSize*ACKSlidingWindowRecv),
+		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
+			return nil
+		},
+	}, {
 		Name: "error, no offset in ack",
 
 		FileContents: []byte("tiny chunk"),
 
 		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
-			if len(msg.Body) > 0 {
-				return nil
-			}
 			return &ws.ProtoMsg{
 				Header: ws.ProtoHdr{
 					Proto:   ws.ProtoTypeFileTransfer,
@@ -489,9 +525,6 @@ func TestFileTransferDownload(t *testing.T) {
 		FileContents: []byte("tiny chunk"),
 
 		Acker: func(msg *ws.ProtoMsg) *ws.ProtoMsg {
-			if len(msg.Body) > 0 {
-				return nil
-			}
 			return &ws.ProtoMsg{
 				Header: ws.ProtoHdr{
 					Proto:   ws.ProtoTypeFileTransfer,
@@ -583,11 +616,15 @@ func TestFileTransferDownload(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
 			w := NewChanWriter(ACKSlidingWindowRecv)
+			proto := ws.ProtoTypeFileTransfer
+			if tc.v2 {
+				proto = ws.ProtoTypeFileTransferV2
+			}
 			handler := FileTransfer(config.Limits{
 				Enabled:      tc.LimitsEnabled,
 				FileTransfer: tc.Limits,
 			})().(*FileTransferHandler)
-			fd, err := ioutil.TempFile(testdir, "testfile")
+			fd, err := os.CreateTemp(testdir, "testfile")
 			if err != nil {
 				panic(err)
 			}
@@ -616,7 +653,7 @@ func TestFileTransferDownload(t *testing.T) {
 			})
 			request := &ws.ProtoMsg{
 				Header: ws.ProtoHdr{
-					Proto:   ws.ProtoTypeFileTransfer,
+					Proto:   proto,
 					MsgType: wsft.MessageTypeGet,
 				},
 				Body: b,
@@ -642,15 +679,17 @@ func TestFileTransferDownload(t *testing.T) {
 					offset = off
 					recvBuf.Write(msg.Body)
 					rsp := tc.Acker(msg)
+					t.Log("rsp be like: ", rsp)
 					if rsp != nil {
 						handler.ServeProtoMsg(rsp, w)
+					}
+					if len(msg.Body) == 0 && len(w.C) == 0 {
+						break Loop
 					}
 				} else {
 					break Loop
 				}
 				select {
-				case handler.mutex <- struct{}{}:
-					break Loop
 				case msg = <-w.C:
 
 				case <-timeout.C:
