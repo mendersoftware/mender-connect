@@ -162,7 +162,7 @@ func (h *FileTransferHandler) StatFile(msg *ws.ProtoMsg, w ResponseWriter) {
 
 	err = w.WriteProtoMsg(&ws.ProtoMsg{
 		Header: ws.ProtoHdr{
-			Proto:     ws.ProtoTypeFileTransfer,
+			Proto:     msg.Header.Proto,
 			MsgType:   wsft.MessageTypeFileInfo,
 			SessionID: msg.Header.SessionID,
 		},
@@ -179,12 +179,13 @@ type chunkWriter struct {
 	SessionID string
 	Offset    int64
 	W         ResponseWriter
+	proto     ws.ProtoType
 }
 
 func (c *chunkWriter) Write(b []byte) (int, error) {
 	msg := ws.ProtoMsg{
 		Header: ws.ProtoHdr{
-			Proto:     ws.ProtoTypeFileTransfer,
+			Proto:     c.proto,
 			MsgType:   wsft.MessageTypeChunk,
 			SessionID: c.SessionID,
 			Properties: map[string]interface{}{
@@ -244,6 +245,42 @@ func (h *FileTransferHandler) InitFileDownload(msg *ws.ProtoMsg, w ResponseWrite
 	return nil
 }
 
+func waitAck(msgChan <-chan *ws.ProtoMsg) (int64, error) {
+	msg, open := <-msgChan
+	if !open {
+		return -1, errFileTransferAbort
+	}
+	switch msg.Header.MsgType {
+	case wsft.MessageTypeACK:
+
+	case wsft.MessageTypeError:
+		var erro wsft.Error
+		msgpack.Unmarshal(msg.Body, &erro) //nolint:errcheck
+		if erro.Error != nil {
+			log.Errorf("received error message from client: %s", *erro.Error)
+		} else {
+			log.Error("received malformed error message from client: aborting")
+		}
+		return -1, errFileTransferAbort
+
+	default:
+		return -1, errors.Errorf(
+			"received unexpected message type '%s'; expected 'ack'",
+			msg.Header.MsgType,
+		)
+	}
+	var offset int64 = -1
+	if msg.Header.Properties != nil {
+		if off, ok := msg.Header.Properties["offset"].(int64); ok {
+			offset = off
+		}
+	}
+	if offset < 0 {
+		return -1, errors.New("ack message: offset property cannot be blank")
+	}
+	return offset, nil
+}
+
 func (h *FileTransferHandler) DownloadHandler(
 	fd *os.File,
 	msg *ws.ProtoMsg,
@@ -268,88 +305,51 @@ func (h *FileTransferHandler) DownloadHandler(
 	chunker := &chunkWriter{
 		SessionID: msg.Header.SessionID,
 		W:         w,
-	}
-
-	waitAck := func() (*ws.ProtoMsg, error) {
-		msg, open := <-h.msgChan
-		if !open {
-			return nil, errFileTransferAbort
-		}
-		switch msg.Header.MsgType {
-		case wsft.MessageTypeACK:
-
-		case wsft.MessageTypeError:
-			var erro wsft.Error
-			msgpack.Unmarshal(msg.Body, &erro) //nolint:errcheck
-			if erro.Error != nil {
-				log.Errorf("received error message from client: %s", *erro.Error)
-			} else {
-				log.Error("received malformed error message from client: aborting")
-			}
-			return msg, errFileTransferAbort
-
-		default:
-			return msg, errors.Errorf(
-				"received unexpected message type '%s'; expected 'ack'",
-				msg.Header.MsgType,
-			)
-		}
-		if off, ok := msg.Header.Properties["offset"]; ok {
-			t, ok := off.(int64)
-			if !ok {
-				return msg, errors.New("invalid offset data type: require int64")
-			}
-			ackOffset = t
-		} else {
-			return msg, errors.New("ack message: offset property cannot be blank")
-		}
-		return msg, nil
+		proto:     msg.Header.Proto,
 	}
 
 	buf := make([]byte, FileTransferBufSize)
-	for {
-		windowBytes := ackOffset - chunker.Offset +
-			ACKSlidingWindowRecv*FileTransferBufSize
-		if windowBytes > 0 {
-			N, err = io.CopyBuffer(chunker, io.LimitReader(fd, windowBytes), buf)
-			if err != nil {
-				err = errors.Wrap(err, "failed to copy file chunk to session")
-				return err
-			}
-			belowLimit := h.permit.BytesSent(uint64(N))
-			if !belowLimit {
-				log.Warnf("file download tx bytes limit reached.")
-				return filetransfer.ErrTxBytesLimitExhausted
-			}
-			if N < windowBytes {
-				break
-			}
-		}
-
-		msg, err = waitAck()
+	if msg.Header.Proto == ws.ProtoTypeFileTransferV2 {
+		_, err = io.CopyBuffer(chunker, fd, buf)
 		if err != nil {
 			return err
 		}
-	}
+		ackOffset = chunker.Offset // Short circuit ack loop
+	} else {
+		for {
+			windowBytes := ackOffset - chunker.Offset +
+				ACKSlidingWindowRecv*FileTransferBufSize
+			if windowBytes > 0 {
+				N, err = io.CopyBuffer(chunker, io.LimitReader(fd, windowBytes), buf)
+				if err != nil {
+					err = errors.Wrap(err, "failed to copy file chunk to session")
+					return err
+				}
+				belowLimit := h.permit.BytesSent(uint64(N))
+				if !belowLimit {
+					log.Warnf("file download tx bytes limit reached.")
+					return filetransfer.ErrTxBytesLimitExhausted
+				}
+				if N < windowBytes {
+					break
+				}
+			}
 
+			ackOffset, err = waitAck(h.msgChan)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	// Send EOF chunk
-	err = w.WriteProtoMsg(&ws.ProtoMsg{
-		Header: ws.ProtoHdr{
-			Proto:     ws.ProtoTypeFileTransfer,
-			MsgType:   wsft.MessageTypeChunk,
-			SessionID: msg.Header.SessionID,
-			Properties: map[string]interface{}{
-				"offset": chunker.Offset,
-			},
-		},
-	})
+	_, err = chunker.Write([]byte{})
 	if err != nil {
 		log.Errorf("failed to send EOF message to client: %s", err.Error())
 		return err
 	}
 
 	for ackOffset < chunker.Offset {
-		msg, err = waitAck()
+		ackOffset, err = waitAck(h.msgChan)
 		if err != nil {
 			return err
 		}
@@ -484,17 +484,19 @@ func (h *FileTransferHandler) FileUploadHandler(
 	}
 	closeFd = true
 
-	err = w.WriteProtoMsg(&ws.ProtoMsg{
-		Header: ws.ProtoHdr{
-			Proto:      ws.ProtoTypeFileTransfer,
-			MsgType:    wsft.MessageTypeACK,
-			SessionID:  msg.Header.SessionID,
-			Properties: map[string]interface{}{"offset": int64(0)},
-		},
-	})
-	if err != nil {
-		log.Errorf("failed to respond to client: %s", err.Error())
-		return errFileTransferAbort
+	if msg.Header.Proto == ws.ProtoTypeFileTransfer {
+		err = w.WriteProtoMsg(&ws.ProtoMsg{
+			Header: ws.ProtoHdr{
+				Proto:      msg.Header.Proto,
+				MsgType:    wsft.MessageTypeACK,
+				SessionID:  msg.Header.SessionID,
+				Properties: map[string]interface{}{"offset": int64(0)},
+			},
+		})
+		if err != nil {
+			log.Errorf("failed to respond to client: %s", err.Error())
+			return errFileTransferAbort
+		}
 	}
 
 	_, err = h.writeFile(w, fd)
@@ -611,6 +613,11 @@ func (h *FileTransferHandler) writeFile(w ResponseWriter, dst *os.File) (int64, 
 			done = true
 		} else if err != nil {
 			return offset, err
+		}
+		if msg.Header.Proto == ws.ProtoTypeFileTransferV2 {
+			// Filetransfer v2 does not implement message acknowledgement
+			// Relies on reliable message transport.
+			continue
 		}
 		// Receive up to ACKSlidingWindowSend file chunks before
 		// responding with an ACK.
