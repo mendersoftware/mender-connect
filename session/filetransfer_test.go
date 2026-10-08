@@ -374,7 +374,10 @@ func TestFileTransferUpload(t *testing.T) {
 			}
 			if tc.Error == nil {
 				if tc.v2 {
-					assert.Len(t, recorder.Messages, 0)
+					if assert.Len(t, recorder.Messages, 1) {
+						assert.Equal(t, recorder.Messages[0].Header.Proto, ws.ProtoTypeFileTransferV2)
+						assert.Equal(t, recorder.Messages[0].Header.MsgType, wsft.MessageTypeACK)
+					}
 				} else {
 					for _, msg := range recorder.Messages {
 						pass := assert.Equal(

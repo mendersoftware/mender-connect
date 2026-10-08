@@ -535,6 +535,15 @@ func (h *FileTransferHandler) FileUploadHandler(
 		return errors.Wrap(err, "failed to preserve file mode "+
 			"("+os.FileMode(*params.Mode).String()+")")
 	}
+	if msg.Header.Proto == ws.ProtoTypeFileTransferV2 {
+		// Send one final ack once we finish processing the file
+		rsp := &ws.ProtoMsg{Header: msg.Header}
+		rsp.Header.MsgType = wsft.MessageTypeACK
+		err = w.WriteProtoMsg(rsp)
+		if err != nil {
+			return err
+		}
+	}
 
 	fd = nil
 	return err
