@@ -1,4 +1,4 @@
-// Copyright 2022 Northern.tech AS
+// Copyright 2026 Northern.tech AS
 //
 //	Licensed under the Apache License, Version 2.0 (the "License");
 //	you may not use this file except in compliance with the License.
@@ -1160,5 +1160,48 @@ func TestDecreaseSpawnedShellsCount(t *testing.T) {
 
 			assert.Equal(t, tc.ExpectedCount, daemon.shellsSpawned)
 		})
+	}
+}
+
+// Losing authorization closes the connection, and messageLoop then waits for
+// a reconnect. Getting the same token back must still reconnect.
+func TestReauthorizeWithSameTokenReconnects(t *testing.T) {
+	d := NewDaemon(&config.MenderShellConfig{})
+	d.serverJwt = "token"
+	d.serverUrl = "http://localhost"
+	d.authorized = true
+	// Reconnects fail fast without a server or backoff.
+	d.ctxCancel()
+	t.Cleanup(func() {
+		d.StopDaemon()
+		for {
+			select {
+			case d.eventChan <- MenderShellDaemonEvent{}:
+			case <-d.connectionEstChan:
+			case <-time.After(1500 * time.Millisecond):
+				return
+			}
+		}
+	})
+
+	signal := func(token, url string) []dbus.SignalParams {
+		return []dbus.SignalParams{
+			{ParamType: dbus.GDBusTypeString, ParamData: token},
+			{ParamType: dbus.GDBusTypeString, ParamData: url},
+		}
+	}
+	client := &authmocks.AuthClient{}
+	client.On("WaitForJwtTokenStateChange").Return(signal("", ""), nil).Once()
+	client.On("WaitForJwtTokenStateChange").Return(signal("token", "http://localhost"), nil).Once()
+	client.On("WaitForJwtTokenStateChange").Return(nil, nil)
+	client.On("GetJWTToken").Return("token", "http://localhost", nil)
+
+	go d.eventLoop()
+	go d.dbusEventLoop(client)
+
+	select {
+	case <-d.connectionEstChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no reconnect after re-authorizing with the same token")
 	}
 }
