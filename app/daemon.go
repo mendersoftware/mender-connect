@@ -1,4 +1,4 @@
-// Copyright 2022 Northern.tech AS
+// Copyright 2026 Northern.tech AS
 //
 //	Licensed under the Apache License, Version 2.0 (the "License");
 //	you may not use this file except in compliance with the License.
@@ -119,7 +119,7 @@ func NewDaemon(conf *config.MenderShellConfig) *MenderShellDaemon {
 		writeMutex:              &sync.Mutex{},
 		spawnedShellsMutex:      &sync.Mutex{},
 		eventChan:               make(chan MenderShellDaemonEvent),
-		connectionEstChan:       make(chan MenderShellDaemonEvent),
+		connectionEstChan:       make(chan MenderShellDaemonEvent, 1),
 		reconnectChan:           make(chan MenderShellDaemonEvent),
 		stop:                    false,
 		authorized:              false,
@@ -399,6 +399,12 @@ func (d *MenderShellDaemon) eventLoop() {
 			} else {
 				log.Infof("eventLoop: Connection established with %s", d.serverUrl)
 				event = EventConnectionEstablished
+			}
+			// messageLoop may not be waiting for this reply: replace any
+			// unread one so this loop never blocks.
+			select {
+			case <-d.connectionEstChan:
+			default:
 			}
 			d.connectionEstChan <- MenderShellDaemonEvent{
 				event: event,

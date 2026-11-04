@@ -1,4 +1,4 @@
-// Copyright 2022 Northern.tech AS
+// Copyright 2026 Northern.tech AS
 //
 //	Licensed under the Apache License, Version 2.0 (the "License");
 //	you may not use this file except in compliance with the License.
@@ -1161,4 +1161,60 @@ func TestDecreaseSpawnedShellsCount(t *testing.T) {
 			assert.Equal(t, tc.ExpectedCount, daemon.shellsSpawned)
 		})
 	}
+}
+
+// A reconnect that completes while messageLoop is not waiting leaves a reply
+// nobody asked for. Later token changes and reconnect requests must still go
+// through.
+func TestOrphanReconnectReplyDoesNotDeadlock(t *testing.T) {
+	d := NewDaemon(&config.MenderShellConfig{})
+	d.serverJwt = "token-0"
+	d.serverUrl = "http://localhost"
+	d.authorized = true
+	// Reconnects fail fast without a server or backoff; the reply still
+	// goes through connectionEstChan.
+	d.ctxCancel()
+	t.Cleanup(func() {
+		d.StopDaemon()
+		for {
+			select {
+			case d.eventChan <- MenderShellDaemonEvent{}:
+			case <-d.reconnectChan:
+			case <-d.connectionEstChan:
+			case <-time.After(1500 * time.Millisecond):
+				return
+			}
+		}
+	})
+
+	signal := func(token string) []dbus.SignalParams {
+		return []dbus.SignalParams{
+			{ParamType: dbus.GDBusTypeString, ParamData: token},
+			{ParamType: dbus.GDBusTypeString, ParamData: "http://localhost"},
+		}
+	}
+	posts := make(chan struct{}, 64)
+	client := &authmocks.AuthClient{}
+	client.On("WaitForJwtTokenStateChange").Return(signal("token-1"), nil).Once()
+	client.On("WaitForJwtTokenStateChange").Return(signal("token-2"), nil).Once()
+	client.On("WaitForJwtTokenStateChange").Return(nil, nil)
+	post := func(mock.Arguments) { posts <- struct{}{} }
+	client.On("GetJWTToken").Run(post).Return("token-1", "http://localhost", nil).Once()
+	client.On("GetJWTToken").Run(post).Return("token-2", "http://localhost", nil)
+	waitPost := func(what string) {
+		select {
+		case <-posts:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("deadlock: %s never reached dbusEventLoop's reconnect post", what)
+		}
+	}
+
+	go d.eventLoop()
+	d.postEvent(MenderShellDaemonEvent{event: EventReconnect})
+	go d.dbusEventLoop(client)
+	waitPost("first token change")
+	waitPost("second token change")
+
+	go func() { _ = d.messageLoop() }()
+	waitPost("messageLoop's reconnect request")
 }
