@@ -294,6 +294,9 @@ func (d *MenderShellDaemon) processJwtTokenStateChange(jwtToken, serverUrl strin
 		}
 		connectionmanager.Close(ws.ProtoTypeShell)
 		d.authorized = false
+		// Count the next token as new, even if it is the same one, so the
+		// connection closed here gets reopened.
+		d.serverJwt = ""
 	}
 }
 
