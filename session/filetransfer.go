@@ -138,6 +138,12 @@ func (h *FileTransferHandler) StatFile(msg *ws.ProtoMsg, w ResponseWriter) {
 		h.Error(msg, w, errors.Wrap(err, "invalid request parameters"))
 		return
 	}
+	// Using the same restrictions as DownloadFile here
+	err = h.permit.DownloadFile(model.GetFile(params))
+	if err != nil {
+		h.Error(msg, w, err)
+		return
+	}
 	stat, err := os.Stat(*params.Path)
 	if err != nil {
 		h.Error(msg, w, errors.Wrapf(err,

@@ -194,14 +194,17 @@ func TestIsInChroot(t *testing.T) {
 	fileNameChroot := fd.Name()
 	fd.Close()
 
-	notInChrootExpected := IsInChroot(fileName, chroot)
-	assert.False(t, notInChrootExpected)
+	notInChrootExpected, err := IsInChroot(fileName, chroot)
+	_ = assert.NoError(t, err) &&
+		assert.False(t, notInChrootExpected)
 
-	notInChrootExpected = IsInChroot("lets just say it does not exists"+fileName, chroot)
-	assert.False(t, notInChrootExpected)
+	notInChrootExpected, err = IsInChroot("lets just say it does not exists"+fileName, chroot)
+	_ = assert.Error(t, err) &&
+		assert.False(t, notInChrootExpected)
 
-	inChrootExpected := IsInChroot(fileNameChroot, chroot)
-	assert.True(t, inChrootExpected)
+	inChrootExpected, err := IsInChroot(fileNameChroot, chroot)
+	_ = assert.NoError(t, err) &&
+		assert.True(t, inChrootExpected)
 
 	fd, err = os.Create(filepath.Join(chroot, "tempfileOther"))
 	if err != nil {
@@ -210,12 +213,14 @@ func TestIsInChroot(t *testing.T) {
 	}
 	fileNameOther := fd.Name()
 	fd.Close()
-	notInChrootExpected = IsInChroot(fileNameOther, fileNameChroot)
-	assert.False(t, notInChrootExpected, "string prefix not in chroot")
+	notInChrootExpected, err = IsInChroot(fileNameOther, fileNameChroot)
+	_ = assert.NoError(t, err) &&
+		assert.False(t, notInChrootExpected, "string prefix not in chroot")
 
 	target := fmt.Sprintf("%s%c%s%c%s", chroot, filepath.Separator, "..", filepath.Separator, filepath.Base(notRoot))
-	notInChrootExpected = IsInChroot(target, chroot)
-	assert.False(t, notInChrootExpected, "path traversal escapes chroot")
+	notInChrootExpected, err = IsInChroot(target, chroot)
+	_ = assert.NoError(t, err) &&
+		assert.False(t, notInChrootExpected, "path traversal escapes chroot")
 
 	t.Run("symlink escape", func(t *testing.T) {
 		root2 := t.TempDir()
@@ -230,7 +235,8 @@ func TestIsInChroot(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		notInChrootExpected = IsInChroot(filenameSymlink, chroot)
-		assert.False(t, notInChrootExpected, "symlink escapes chroot")
+		notInChrootExpected, err = IsInChroot(filenameSymlink, chroot)
+		_ = assert.NoError(t, err) &&
+			assert.False(t, notInChrootExpected, "symlink escapes chroot")
 	})
 }
