@@ -416,7 +416,9 @@ func TestPermit_DownloadFile(t *testing.T) {
 			Permit: NewPermit(config.Limits{
 				Enabled: true,
 				FileTransfer: config.FileTransferLimits{
-					Chroot: "/var/chroot/mender/file_transfer",
+					Chroot: func() string {
+						return t.TempDir()
+					}(),
 				},
 			}),
 			ExpectedDownload: ErrChrootViolation,
@@ -543,7 +545,9 @@ func TestPermit_UploadFile(t *testing.T) {
 			Permit: NewPermit(config.Limits{
 				Enabled: true,
 				FileTransfer: config.FileTransferLimits{
-					Chroot: "/var/chroot/mender/file_transfer",
+					Chroot: func() string {
+						return t.TempDir()
+					}(),
 				},
 			}),
 			ExpectedUpload: ErrChrootViolation,
