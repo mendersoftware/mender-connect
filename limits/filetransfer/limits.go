@@ -122,7 +122,10 @@ func (p *Permit) UploadFile(fileStat model.UploadRequest) error {
 	}
 
 	if !p.limits.FileTransfer.FollowSymLinks {
-		absolutePath, err := filepath.EvalSymlinks(fileDir)
+		absolutePath, err := filepath.EvalSymlinks(filePath)
+		if os.IsNotExist(err) {
+			absolutePath, err = filepath.EvalSymlinks(fileDir)
+		}
 		if err != nil {
 			return err
 		} else {
