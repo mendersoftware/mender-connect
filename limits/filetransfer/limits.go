@@ -29,6 +29,8 @@ import (
 	"github.com/mendersoftware/mender-connect/config"
 	"github.com/mendersoftware/mender-connect/session/model"
 	"github.com/mendersoftware/mender-connect/utils"
+
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -114,8 +116,9 @@ func (p *Permit) UploadFile(fileStat model.UploadRequest) error {
 			escapeChroot, err = utils.IsInChroot(fileDir, p.limits.FileTransfer.Chroot)
 		}
 		if err != nil {
-			return fmt.Errorf("error checking chroot limit: %w", err)
+			logrus.Errorf("error checking chroot limit: %s", err.Error())
 		}
+		// Fall through here and treat as generic chroot violation
 	}
 	if !escapeChroot {
 		return ErrChrootViolation
