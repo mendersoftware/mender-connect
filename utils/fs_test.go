@@ -15,10 +15,11 @@
 package utils
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/user"
-	"path"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"testing"
@@ -178,30 +179,64 @@ func TestIsRegularFile(t *testing.T) {
 }
 
 func TestIsInChroot(t *testing.T) {
-	chroot := path.Join(os.TempDir(), "chroot")
-	if err := os.Mkdir(chroot, 0755); err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(chroot)
-	fd, err := ioutil.TempFile("", "tempfile")
+	chroot := t.TempDir()
+	notRoot := t.TempDir()
+	fd, err := os.CreateTemp(notRoot, "tempfile")
 	if err != nil {
 		t.Fatal("cant create a file")
 	}
 	fileName := fd.Name()
 	fd.Close()
-	defer os.Remove(fileName)
-	fd, err = ioutil.TempFile(chroot, "tempfile")
+	fd, err = os.Create(filepath.Join(chroot, "tempfile"))
 	if err != nil {
 		t.Fatal("cant create a file")
 	}
-	fd.Close()
 	fileNameChroot := fd.Name()
-	defer os.Remove(fileNameChroot)
+	fd.Close()
 
-	notInChrootExpected := IsInChroot(fileName, chroot)
-	assert.False(t, notInChrootExpected)
-	notInChrootExpected = IsInChroot("lets just say it does not exists"+fileName, chroot)
-	assert.False(t, notInChrootExpected)
-	inChrootExpected := IsInChroot(fileNameChroot, chroot)
-	assert.True(t, inChrootExpected)
+	notInChrootExpected, err := IsInChroot(fileName, chroot)
+	_ = assert.NoError(t, err) &&
+		assert.False(t, notInChrootExpected)
+
+	notInChrootExpected, err = IsInChroot("lets just say it does not exists"+fileName, chroot)
+	_ = assert.Error(t, err) &&
+		assert.False(t, notInChrootExpected)
+
+	inChrootExpected, err := IsInChroot(fileNameChroot, chroot)
+	_ = assert.NoError(t, err) &&
+		assert.True(t, inChrootExpected)
+
+	fd, err = os.Create(filepath.Join(chroot, "tempfileOther"))
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	fileNameOther := fd.Name()
+	fd.Close()
+	notInChrootExpected, err = IsInChroot(fileNameOther, fileNameChroot)
+	_ = assert.NoError(t, err) &&
+		assert.False(t, notInChrootExpected, "string prefix not in chroot")
+
+	target := fmt.Sprintf("%s%c%s%c%s", chroot, filepath.Separator, "..", filepath.Separator, filepath.Base(notRoot))
+	notInChrootExpected, err = IsInChroot(target, chroot)
+	_ = assert.NoError(t, err) &&
+		assert.False(t, notInChrootExpected, "path traversal escapes chroot")
+
+	t.Run("symlink escape", func(t *testing.T) {
+		root2 := t.TempDir()
+		tempFile, err := os.CreateTemp(root2, "unreachable")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		filenameSymlink := filepath.Join(chroot, "escape_test")
+		err = os.Symlink(tempFile.Name(), filenameSymlink)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		notInChrootExpected, err = IsInChroot(filenameSymlink, chroot)
+		_ = assert.NoError(t, err) &&
+			assert.False(t, notInChrootExpected, "symlink escapes chroot")
+	})
 }

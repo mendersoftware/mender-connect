@@ -16,10 +16,10 @@ package filetransfer
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"os/user"
-	"path"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -29,6 +29,8 @@ import (
 	"github.com/mendersoftware/mender-connect/config"
 	"github.com/mendersoftware/mender-connect/session/model"
 	"github.com/mendersoftware/mender-connect/utils"
+
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -91,6 +93,7 @@ func NewPermit(config config.Limits) *Permit {
 	}
 }
 
+//nolint:gocyclo
 func (p *Permit) UploadFile(fileStat model.UploadRequest) error {
 	if !p.limits.Enabled {
 		return nil
@@ -106,17 +109,30 @@ func (p *Permit) UploadFile(fileStat model.UploadRequest) error {
 		uint64(*fileStat.Size) > p.limits.FileTransfer.MaxFileSize {
 		return ErrFileTooBig
 	}
-
-	if !utils.IsInChroot(filePath, p.limits.FileTransfer.Chroot) {
+	fileDir := filepath.Dir(filePath)
+	escapeChroot, err := utils.IsInChroot(filePath, p.limits.FileTransfer.Chroot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			escapeChroot, err = utils.IsInChroot(fileDir, p.limits.FileTransfer.Chroot)
+		}
+		if err != nil {
+			logrus.Errorf("error checking chroot limit: %s", err.Error())
+		}
+		// Fall through here and treat as generic chroot violation
+	}
+	if !escapeChroot {
 		return ErrChrootViolation
 	}
 
 	if !p.limits.FileTransfer.FollowSymLinks {
-		absolutePath, err := filepath.EvalSymlinks(path.Dir(filePath))
+		absolutePath, err := filepath.EvalSymlinks(filePath)
+		if os.IsNotExist(err) {
+			absolutePath, err = filepath.EvalSymlinks(fileDir)
+		}
 		if err != nil {
 			return err
 		} else {
-			if absolutePath != path.Dir(filePath) {
+			if absolutePath != fileDir {
 				return ErrFollowLinksForbidden
 			}
 		}
@@ -156,7 +172,9 @@ func (p *Permit) DownloadFile(params model.GetFile) error {
 		return ErrOnlyRegularFilesAllowed
 	}
 
-	if !utils.IsInChroot(filePath, p.limits.FileTransfer.Chroot) {
+	if ok, err := utils.IsInChroot(filePath, p.limits.FileTransfer.Chroot); err != nil {
+		return fmt.Errorf("error checking chroot limit: %w", err)
+	} else if !ok {
 		return ErrChrootViolation
 	}
 
