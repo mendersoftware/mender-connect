@@ -1,6 +1,6 @@
 module github.com/mendersoftware/mender-connect
 
-go 1.22
+go 1.27.4
 
 replace github.com/urfave/cli/v2 => github.com/mendersoftware/cli/v2 v2.1.1
 
